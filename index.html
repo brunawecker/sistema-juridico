@@ -382,6 +382,7 @@ const S = {
   async tarefaUpdate(t,x){const u={...(x.campos||{})};
     if(x.data_revisao){u.data_revisao_dt=x.data_revisao;u.data_revisao=brData(x.data_revisao);}
     if(x.prazo_fatal){u.prazo_fatal_dt=x.prazo_fatal;u.prazo_fatal=brData(x.prazo_fatal);}
+    if(x.queda_impedimento){u.queda_impedimento_dt=x.queda_impedimento;u.queda_impedimento=brData(x.queda_impedimento);}
     okS(await supa.from("operacional").update(u).eq("id_tarefa",t.id_tarefa).eq("linha",t.linha));
     if(x.hist_texto)await histS(t.id_tarefa,t.id_cliente,x.hist_tipo||"ASSESSOR",x.hist_texto);
     return{ok:true};},
@@ -599,6 +600,8 @@ function classificar(t){
   t._emCorrecao=!!String(t.correcao_head||"").trim();
   t._impulso=String(t.supervisao||"").includes("IMPULSO de");
   const pf=diasAte(t.prazo_fatal_dt); t._pfDias=pf; t._prazoAlerta=(pf!==null&&pf<=5);
+  t._impedimento=/impedimento/i.test(String(t.operacao||""));
+  t._quedaDias=t._impedimento?diasAte(t.queda_impedimento_dt):null;
   t._tempo=tempoDe(t.operacao);
   let chk=String(t.check_||"");
   // AGUARDANDO converte pela proximidade do prazo (regra do Code.gs)
@@ -845,6 +848,12 @@ function desenharCard(t,hist){
       <button class="btn btp btsm" onclick="salvarProcesso()">&#128190;</button></span></div>
     ${t.vara?`<div>Vara:<br><b>${esc(t.vara)}</b></div>`:""}${t.tribunal?`<div>Tribunal:<br><b>${esc(t.tribunal)}</b></div>`:""}
     ${t.estado?`<div>Estado:<br><b>${esc(t.estado)}</b></div>`:""}
+    ${t._impedimento?`<div>Queda do impedimento:<br><span id="qi-ver">${t.queda_impedimento_dt
+        ?`<b style="color:${t._quedaDias!==null&&t._quedaDias<=1?"var(--red)":"var(--navy)"}">${brData(t.queda_impedimento_dt)}</b>${t._quedaDias!==null&&t._quedaDias<=0?' <span class="tag ti">CAIU</span>':""} `
+        :`<span class="tag ti">PREENCHER</span> `}
+      <button class="btn bts btsm" style="padding:1px 8px;font-size:10px" onclick="editarQueda()">${t.queda_impedimento_dt?"&#9998;":"+ Informar"}</button></span>
+      <span id="qi-ed" style="display:none"><input type="date" class="fsel" id="qi-in" value="${t.queda_impedimento_dt||""}">
+      <button class="btn btp btsm" onclick="salvarQueda()">&#128190;</button></span></div>`:""}
     <div>Frequência:<br><b>${esc(t.check_||"—")}</b></div>
     <div>Próxima revisão:<br><b>${brData(t.data_revisao_dt)||"—"}</b></div>
     ${t.prazo_fatal_dt?`<div>Prazo fatal:<br><b style="color:${t._prazoAlerta?"var(--red)":"var(--navy)"}">${brData(t.prazo_fatal_dt)}</b></div>`:""}
@@ -984,8 +993,20 @@ async function salvarFreqData(){
   try{await DB.tarefaUpdate(t,{campos:{check_:check},...(dm?{data_revisao:dm}:{})});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   t.check_=check;if(dm)t.data_revisao_dt=dm;toast("Salvo!","ok");}
+function editarQueda(){ge("qi-ver").style.display="none";ge("qi-ed").style.display="inline";}
+async function salvarQueda(){
+  const t=E.atual,v=ge("qi-in").value;
+  if(!v){toast("Escolha a data de queda.","erro");return;}
+  try{await DB.tarefaUpdate(t,{queda_impedimento:v,
+    hist_texto:(t.queda_impedimento_dt?`✏️ Data de queda do impedimento alterada: ${brData(t.queda_impedimento_dt)} → ${brData(v)}`
+      :`📅 Data de queda do impedimento informada: ${brData(v)}`),hist_tipo:"HISTORICO"});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  t.queda_impedimento_dt=v;toast("Data de queda salva!","ok");abrirTarefa(t.id_tarefa);}
 async function concluirTarefa(){
   const t=E.atual,check=ge("conc-check").value,dm=ge("conc-data").value;
+  if(t._impedimento&&!t.queda_impedimento_dt){
+    toast("Antes de concluir, informe a data de queda do impedimento (campo no topo do cartão).","erro");
+    editarQueda();return;}
   if(String(t.operacao||"").includes("Proposta Comercial")&&
      !confirm("✔️ Confirmação obrigatória\n\nVocê já incluiu esta proposta na aba de Propostas?\n\nOK só se já foi lançada."))
     {toast("Lance a proposta antes de concluir.","erro");return;}
@@ -1137,6 +1158,22 @@ async function telaPainel(){
   if(inativos)h+=`<div class="painel" style="background:var(--amber-lt);border-color:var(--amber)">
     <div class="bloco-t" style="color:#7F5200">&#9888; Sem atividade registrada</div>${inativos}</div>`;
   h+=bannerPrazoFatal(at);
+  // MS Impedimento: aviso de queda para as heads (7 dias antes, 1 dia antes e no dia)
+  // a queda é evento externo: avisa mesmo se a tarefa está "em dia" no ciclo
+  const imp=ts.filter(t=>t.id_tarefa&&t._impedimento&&!t._delegada);
+  const quedas=imp.filter(t=>t._quedaDias!==null&&(t._quedaDias<=1||t._quedaDias===7))
+    .sort((a,b)=>a._quedaDias-b._quedaDias);
+  const semQueda=imp.filter(t=>!t.queda_impedimento_dt).length;
+  if(quedas.length||semQueda){
+    const rot=d=>d<0?`<span class="tag ti">CAIU há ${-d} dia(s)</span>`:d===0?`<span class="tag ti">CAI HOJE</span>`
+      :d===1?`<span class="tag" style="background:var(--amber);color:white">cai amanhã</span>`
+      :`<span class="tag" style="background:var(--amber-lt);color:#7F5200">cai em 7 dias</span>`;
+    h+=`<div class="painel" style="background:var(--red-lt);border-color:var(--red)">
+      <div class="bloco-t" style="color:var(--red)">&#9889; Quedas de impedimento (MS Impedimento)</div>
+      ${quedas.map(t=>`<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')">
+        <span><b>${esc(t.cliente)}</b> · ${esc(t.assessor||"—")} · queda ${brData(t.queda_impedimento_dt)}</span>${rot(t._quedaDias)}</div>`).join("")}
+      ${semQueda?`<div style="font-size:12px;color:#7F1D1D;margin-top:6px">&#9998; ${semQueda} tarefa(s) de MS Impedimento ainda sem data de queda — o preenchimento é pedido ao assessor ao abrir o cartão e trava a conclusão.</div>`:""}
+    </div>`;}
   h+=`<div class="sg">
     <div class="sc"><div class="sl">Total</div><div class="sv">${total}</div></div>
     <div class="sc"><div class="sl">Em dia</div><div class="sv green">${total-atr}</div></div>
