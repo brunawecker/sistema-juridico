@@ -929,6 +929,10 @@ async function carregarCliExtra(t){
     E._cliCard=c;
     box.innerHTML=`<span class="tag" style="background:#E3F2FD;color:#1565C0;cursor:pointer" onclick="editarRegimeCard()">&#127963; Regime: ${esc(c.regime||"—")} &#9998;</span>
       <span class="tag" style="background:var(--amber-lt);color:#7F6000;cursor:pointer" onclick="editarEcacCard()">&#128273; e-CAC: ${esc(c.e_cac||"—")} &#9998;</span>
+      ${c.grupo_atendimento
+        ?`<span class="tag tek" style="cursor:pointer" onclick="window.open('${esc(c.grupo_atendimento)}','_blank')">&#128241; Abrir grupo de atendimento</span>
+          <span class="tag tm" style="cursor:pointer" onclick="editarGrupoCard()">&#9998;</span>`
+        :`<span class="tag ti" style="cursor:pointer" onclick="editarGrupoCard()">&#128241; grupo de atendimento não cadastrado — + cadastrar</span>`}
       <span id="bil-card"></span>`;
     // status de cobrança do cliente no card
     await carregarFinanceiro();
@@ -946,6 +950,15 @@ function editarRegimeCard(){const c=E._cliCard;if(!c)return;
 async function salvarRegimeCard(){const c=E._cliCard;
   try{await DB.clienteUpdate(c.id_cliente,{regime:ge("m2-reg").value});}catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Regime atualizado!","ok");fecharModal2();carregarCliExtra(E.atual);}
+function editarGrupoCard(){const c=E._cliCard;if(!c)return;
+  modal2("&#128241; Grupo de atendimento (WhatsApp)",esc(c.nome),`
+    <div style="font-size:12px;color:var(--gray);margin-bottom:8px">No WhatsApp: abra o grupo &rarr; toque no nome do grupo &rarr; "Convidar via link" &rarr; "Copiar link". Cole aqui:</div>
+    <input class="fi" id="m2-grupo" placeholder="https://chat.whatsapp.com/..." value="${esc(c.grupo_atendimento||"")}">
+    <button class="btn btp btw" style="margin-top:10px" onclick="salvarGrupoCard()">&#128190; Salvar no cadastro</button>`);}
+async function salvarGrupoCard(){const c=E._cliCard,v=(ge("m2-grupo").value||"").trim();
+  if(v&&!/^https?:\/\//i.test(v)){toast("Cole o link completo (começa com https://).","erro");return;}
+  try{await DB.clienteUpdate(c.id_cliente,{grupo_atendimento:v});}catch(e){toast("Erro: "+e.message,"erro");return;}
+  c.grupo_atendimento=v;toast(v?"Grupo salvo!":"Grupo removido.","ok");fecharModal2();carregarCliExtra(E.atual);}
 function editarEcacCard(){const c=E._cliCard;if(!c)return;
   modal2("e-CAC",esc(c.nome),`
     <input class="fi" id="m2-ecac" placeholder="Ex: 07-95, GOV, Sem acesso" value="${esc(c.e_cac||"")}">
@@ -1007,12 +1020,20 @@ async function concluirTarefa(){
   if(t._impedimento&&!t.queda_impedimento_dt){
     toast("Antes de concluir, informe a data de queda do impedimento (campo no topo do cartão).","erro");
     editarQueda();return;}
+  let avisoGrupo=false;
+  if(t.id_cliente){
+    const temGrupo=E._cliCard&&E._cliCard.grupo_atendimento;
+    if(!confirm("📣 Aviso ao cliente\n\nVocê enviou mensagem no GRUPO DE ATENDIMENTO do WhatsApp deste cliente sobre este trabalho?\n\nOK = sim, enviei · Cancelar = ainda não"))
+      {toast("Envie a mensagem no grupo de atendimento antes de concluir."+(temGrupo?" Use o botão 'Abrir grupo' no cartão.":" (Grupo ainda não cadastrado — o botão vermelho no cartão cadastra.)"),"erro");return;}
+    avisoGrupo=true;}
   if(String(t.operacao||"").includes("Proposta Comercial")&&
      !confirm("✔️ Confirmação obrigatória\n\nVocê já incluiu esta proposta na aba de Propostas?\n\nOK só se já foi lançada."))
     {toast("Lance a proposta antes de concluir.","erro");return;}
   let prox;if(dm)prox=dm;else{const d=new Date();d.setDate(d.getDate()+(/SEMANAL/.test(check)?7:/MENSAL/.test(check)?30:1));prox=d.toISOString().slice(0,10);}
   if(!confirm(dm?`Concluir? A tarefa volta em ${brData(dm)}.`:`Concluir? Volta sozinha pela frequência (${check}).`))return;
-  try{await DB.concluir(t,{check,proximo:prox});await DB.sessaoConcluir(Math.round((Date.now()-E.timerIni)/60000));}
+  try{await DB.concluir(t,{check,proximo:prox});await DB.sessaoConcluir(Math.round((Date.now()-E.timerIni)/60000));
+    if(avisoGrupo)await DB.nota({id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,tipo:"HISTORICO",
+      texto:"📣 Confirmou envio de mensagem no grupo de atendimento (WhatsApp) ao concluir."});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Concluída!","ok");fecharModal();recarregar();}
 async function colocarAguardando(){
@@ -1698,13 +1719,14 @@ function toggleEd(id){
     <div><label style="font-size:11px">Contrato</label>${inp("contrato",c.contrato)}</div>
     <div><label style="font-size:11px">Município</label>${inp("municipio",c.municipio)}</div>
     <div><label style="font-size:11px">UF</label>${inp("uf",c.uf,"SP")}</div></div>
+    <label style="font-size:11px">&#128241; Grupo de atendimento (link do WhatsApp)</label>${inp("grupo_atendimento",c.grupo_atendimento,"https://chat.whatsapp.com/...")}
     <label style="font-size:11px">Resumo da situação</label>
     <textarea class="fta" id="ed-resumo_da_venda-${id}" style="margin-bottom:8px">${esc(c.resumo_da_venda||"")}</textarea>
     <button class="btn btp btsm" onclick="salvarCliente('${esc(id)}')">&#128190; Salvar alterações</button></div>`;
 }
 async function salvarCliente(id){
   const g=k=>{const el=ge(`ed-${k}-${id}`);return el?el.value:undefined;};
-  const campos={};["vertical","regime","capag","e_cac","franqueado","contrato","municipio","uf","resumo_da_venda"].forEach(k=>{const v=g(k);if(v!==undefined)campos[k]=v;});
+  const campos={};["vertical","regime","capag","e_cac","franqueado","contrato","municipio","uf","grupo_atendimento","resumo_da_venda"].forEach(k=>{const v=g(k);if(v!==undefined)campos[k]=v;});
   try{await DB.clienteUpdate(id,campos);}catch(e){toast("Erro: "+e.message,"erro");return;}
   Object.assign(E._cli[id],campos);toast("Cadastro atualizado!","ok");
 }
