@@ -279,7 +279,7 @@ const tempoDe=op=>TEMPOS_PADRAO[op]||TEMPOS_PADRAO._default;
 // Soma as sessões da mesma tarefa no mesmo dia (1 execução) e tira a mediana.
 async function carregarTemposReais(ops){
   if(E._tReal)return;
-  let hist=[];try{hist=await DB.historicoPeriodo(120);}catch(e){hist=[];}
+  let hist=[];try{hist=await DB.historicoTimers(120);}catch(e){hist=[];}
   const opDe={};(ops||[]).forEach(t=>{if(t.id_tarefa)opDe[t.id_tarefa]=t.operacao||"";});
   const exec={};
   (hist||[]).forEach(r=>{if(r.tipo!=="TIMER")return;
@@ -325,6 +325,7 @@ const L = {  // modo local (servidor de teste na máquina)
   historico(id){return this.f("/api/historico?id="+encodeURIComponent(id));},
   historicoHoje(){return this.f("/api/historico_hoje");},
   historicoPeriodo(d){return this.f("/api/historico_periodo?dias="+d);},
+  historicoTimers(d){return this.f("/api/historico_periodo?dias="+d);},
   historicoDia(d){return this.f("/api/historico_dia?d="+d);},
   sessoesHoje(){return this.f("/api/sessoes_hoje");},
   sessaoAtiva(){return this.f("/api/sessao_ativa");},
@@ -389,6 +390,9 @@ const S = {
   async historicoHoje(){return okS(await supa.from("historico").select("*").eq("data_dt",hojeISO()))||[];},
   async historicoPeriodo(d){const lim=new Date();lim.setDate(lim.getDate()-d);
     return okS(await supa.from("historico").select("*").gte("data_dt",lim.toISOString().slice(0,10)))||[];},
+  async historicoTimers(d){const lim=new Date();lim.setDate(lim.getDate()-d);
+    return okS(await supa.from("historico").select("*").eq("tipo","TIMER")
+      .gte("data_dt",lim.toISOString().slice(0,10)).limit(5000))||[];},
   async historicoDia(d){return okS(await supa.from("historico").select("*").eq("data_dt",d))||[];},
   async sessoesHoje(){return okS(await supa.from("sessoes").select("*").eq("data_dt",hojeISO()).order("linha"))||[];},
   async sessaoAtiva(){const r=okS(await supa.from("sessoes").select("*").eq("data_dt",hojeISO()).eq("status","ATIVO").eq("assessor",E.perfil.nome_sistema).order("linha",{ascending:false}).limit(1))||[];return r[0]||null;},
@@ -1244,6 +1248,22 @@ async function telaPainel(){
         <span><b>${esc(t.cliente)}</b> · ${esc(t.assessor||"—")} · queda ${brData(t.queda_impedimento_dt)}</span>${rot(t._quedaDias)}</div>`).join("")}
       ${semQueda?`<div style="font-size:12px;color:#7F1D1D;margin-top:6px">&#9998; ${semQueda} tarefa(s) de MS Impedimento ainda sem data de queda — o preenchimento é pedido ao assessor ao abrir o cartão e trava a conclusão.</div>`:""}
     </div>`;}
+  // robô de produtividade: sugestão de delegação para quem está acima da capacidade
+  await carregarTemposReais(ts);
+  const cargaDia=n=>{const lst=ts.filter(t=>loginDe(t.assessor)===n&&t.id_tarefa&&!t._delegada&&!t._emCorrecao&&!t._concluida&&t._g>=1&&t._g<=3);
+    return{min:lst.reduce((s,t)=>s+tempoPlanoDe(n,t.operacao),0),qt:lst.length};};
+  const sobrec=[],comFolga=[];
+  OPERACIONAIS.forEach(n=>{const d=cargaDia(n),c=capDe(n);
+    if(d.min>c*1.1&&AUTORIZADOS_DELEGAR.includes(n))sobrec.push({n,...d,c});
+    if(c-d.min>=30)comFolga.push({n,folga:c-d.min});});
+  if(sobrec.length){comFolga.sort((a,b)=>b.folga-a.folga);
+    h+=`<div class="painel" style="background:#FFF7E6;border-color:var(--amber)">
+      <div class="bloco-t" style="color:#7F5200">&#9878; Sugestão de delegação (robô de produtividade)</div>
+      ${sobrec.map(o=>{const tm=Math.max(10,Math.round(o.min/Math.max(1,o.qt)));const nS=Math.ceil((o.min-o.c)/tm);
+        return `<div class="linha-item"><span><b>${esc(o.n)}</b>: dia com &asymp;${fmtMin(o.min)} para ${fmtMin(o.c)} de capacidade</span>
+          <b style="color:#7F5200">sugerir delegar ${nS} tarefa(s)</b></div>`;}).join("")}
+      ${comFolga.length?`<div style="font-size:12px;margin-top:5px">Com folga hoje: ${comFolga.slice(0,5).map(o=>`<b>${esc(o.n)}</b> (&asymp;${fmtMin(o.folga)})`).join(" · ")}</div>`:""}
+      <div style="font-size:11px;color:var(--gray);margin-top:3px">Tempos calculados pelas medições reais de cada pessoa. A delegação continua manual — quem pode delegar vê a mesma sugestão na tela dela.</div></div>`;}
   h+=`<div class="sg">
     <div class="sc"><div class="sl">Total</div><div class="sv">${total}</div></div>
     <div class="sc"><div class="sl">Em dia</div><div class="sv green">${total-atr}</div></div>
@@ -1363,7 +1383,7 @@ async function telaCapacidade(){
     const mediaTarefa=20, capDia=Math.min(Math.floor((cap-minReu)/mediaTarefa),10);
     return{nome,portfolio:minhas.length,imed,min,upd,minReu,cap,pct,capDia,reunioes};
   }).sort((a,b)=>b.pct-a.pct);
-  ge("conteudo").innerHTML=linhasCap.map(p=>{const cor=p.pct>90?"var(--red)":p.pct>70?"var(--amber)":"var(--green)";
+  let h=linhasCap.map(p=>{const cor=p.pct>90?"var(--red)":p.pct>70?"var(--amber)":"var(--green)";
     return `<div class="painel"><div style="display:flex;justify-content:space-between;margin-bottom:4px">
       <span style="font-weight:700;color:var(--navy)">${esc(p.nome)}</span>
       <span style="font-weight:700;color:${cor}">${p.pct}% <span style="font-weight:400;color:var(--gray);font-size:11px">de ${fmtMin(p.cap)}</span></span></div>
@@ -1373,6 +1393,30 @@ async function telaCapacidade(){
         <span style="color:var(--green)">&#9201; ${fmtMin(p.min)} trabalhado</span><span>&#128221; ${p.upd} atualizações</span>
         <span>cap/dia ~${p.capDia} tarefas</span>${p.minReu?`<span>&#128197; ${fmtMin(p.minReu)} reuniões</span>`:""}</div>
       ${p.reunioes.length?p.reunioes.map(r=>`<div class="linha-item"><span>&#128197; ${esc(r.horario||"?")} ${esc(r.titulo)}</span><span>${esc(r.duracao_min||30)}min</span></div>`).join(""):""}</div>`;}).join("");
+  // ===== robô de produtividade: tempo real por tipo de tarefa × assessor =====
+  await carregarTemposReais((ops||[]).map(classificar));
+  const opsComDados=Object.keys(E._tRealOpN||{}).filter(op=>(E._tRealOpN[op]||0)>=3)
+    .sort((a,b)=>(E._tRealOpN[b]||0)-(E._tRealOpN[a]||0)).slice(0,20);
+  if(opsComDados.length){
+    const cel=(op,n)=>{const k=n+"|"+op,v=(E._tReal||{})[k],q=(E._tRealN||{})[k]||0;
+      return {v:v||null,q};};
+    let tbl=`<tr><th style="text-align:left;padding:5px 8px">Tipo de tarefa</th>
+      ${OPERACIONAIS.map(n=>`<th style="padding:5px 6px">${esc(n)}</th>`).join("")}
+      <th style="padding:5px 6px;color:var(--gray)">Equipe</th><th style="padding:5px 6px;color:var(--gray)">Padrão</th></tr>`;
+    opsComDados.forEach(op=>{
+      const cels=OPERACIONAIS.map(n=>cel(op,n));
+      const vals=cels.filter(c=>c.v!==null).map(c=>c.v);
+      const mn=vals.length>1?Math.min(...vals):null,mx=vals.length>1?Math.max(...vals):null;
+      tbl+=`<tr><td style="text-align:left;padding:4px 8px;font-weight:600">${esc(op)}</td>
+        ${cels.map(c=>{if(c.v===null)return `<td style="padding:4px 6px;color:#C0CCD4">${c.q?c.q+" med.":"—"}</td>`;
+          const cor=c.v===mn&&mn!==mx?"var(--green)":c.v===mx&&mn!==mx?"var(--red)":"var(--text)";
+          return `<td style="padding:4px 6px;color:${cor};font-weight:${c.v===mn||c.v===mx?"700":"400"}">${c.v}min <span style="color:var(--gray);font-size:10px">(${c.q})</span></td>`;}).join("")}
+        <td style="padding:4px 6px;color:var(--gray)">${(E._tRealOp||{})[op]?(E._tRealOp[op]+"min"):"—"}</td>
+        <td style="padding:4px 6px;color:var(--gray)">${tempoDe(op)}min</td></tr>`;});
+    h+=`<div class="painel"><div class="bloco-t">&#129302; Tempo real por tipo de tarefa (robô de produtividade)</div>
+      <div style="font-size:11px;color:var(--gray);margin-bottom:8px">Mediana do tempo medido pelo cronômetro do site (soma das sessões da tarefa no dia). Entre parênteses, o nº de medições — só entram na conta pares com 5+. <b style="color:var(--green)">Verde = mais rápido</b> · <b style="color:var(--red)">vermelho = mais lento</b>. O cronômetro só vê o trabalho feito com o cartão aberto; os números afinam com o uso.</div>
+      <div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:12px;text-align:center;min-width:640px">${tbl}</table></div></div>`;}
+  ge("conteudo").innerHTML=h;
 }
 // =================================================== TELA: EM ANDAMENTO
 async function telaAgora(){
