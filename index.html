@@ -275,6 +275,35 @@ const corDe=n=>CORES_ASSESSOR[primeiroNome(n||"")]||COR_PADRAO;
 const OPERACOES=["Audiência","Análise Prescricional","Cancelar transação","Execução Fiscal","Estadual","Emissão CPEN","Embargos à Execução","ExcPreEx - Prescrição","E-Processo","FGTS","Laudo OPF","Laudo CAPAG","Levantamento - Cliente Villela","MS","MS Migração","MS Impedimento","MS laudo CAPAG","MS CND","Monitoramento","NJP","Negociação Estadual","Outros","Petição","Parcelar","Proposta Comercial - Parecer Tributário","Protesto","PRDI","Renegociação","Risco de bloqueio","Restituição SN","Revenda","Recurso","Simulação","TAX","Transacionar","TIS","Contabilize","Contrato/Aditivo"];
 const TEMPOS_PADRAO={"Execução Fiscal":15,"Proposta Comercial - Parecer Tributário":25,"MS":35,"MS Migração":35,"MS Impedimento":35,"MS laudo CAPAG":35,"MS CND":35,"Transacionar":20,"Laudo CAPAG":25,"Laudo OPF":25,"Monitoramento":10,"Audiência":60,"NJP":20,"Renegociação":20,"Recurso":30,"Embargos à Execução":30,"Emissão CPEN":15,"PRDI":20,"Protesto":15,"Estadual":20,"E-Processo":15,"FGTS":20,"Petição":30,"Parcelar":15,"Simulação":20,"TAX":25,"TIS":20,"Contabilize":20,"Restituição SN":20,"Risco de bloqueio":15,"Revenda":15,"Cancelar transação":15,"Levantamento - Cliente Villela":30,"Outros":20,"Análise Prescricional":30,"ExcPreEx - Prescrição":25,"Negociação Estadual":20,_default:20};
 const tempoDe=op=>TEMPOS_PADRAO[op]||TEMPOS_PADRAO._default;
+// ===== Robô de produtividade: tempos REAIS medidos por pessoa + tipo =====
+// Soma as sessões da mesma tarefa no mesmo dia (1 execução) e tira a mediana.
+async function carregarTemposReais(ops){
+  if(E._tReal)return;
+  let hist=[];try{hist=await DB.historicoPeriodo(120);}catch(e){hist=[];}
+  const opDe={};(ops||[]).forEach(t=>{if(t.id_tarefa)opDe[t.id_tarefa]=t.operacao||"";});
+  const exec={};
+  (hist||[]).forEach(r=>{if(r.tipo!=="TIMER")return;
+    const m=parseInt((String(r.texto||"").match(/(\d+)\s*min/)||[0,0])[1]);if(!m)return;
+    const a=loginDe(r.autor),op=opDe[r.id_tarefa];if(!a||!op)return;
+    const k=a+"|"+op+"|"+r.id_tarefa+"|"+String(r.data_dt||"").slice(0,10);
+    exec[k]=(exec[k]||0)+m;});
+  const porPar={},porOp={};
+  Object.entries(exec).forEach(([k,min])=>{const p=k.split("|");
+    (porPar[p[0]+"|"+p[1]]=porPar[p[0]+"|"+p[1]]||[]).push(min);
+    (porOp[p[1]]=porOp[p[1]]||[]).push(min);});
+  const med=v=>{v.sort((a,b)=>a-b);return v[Math.floor(v.length/2)];};
+  E._tReal={};E._tRealN={};E._tRealOp={};E._tRealOpN={};
+  Object.entries(porPar).forEach(([k,v])=>{E._tRealN[k]=v.length;if(v.length>=5)E._tReal[k]=med(v);});
+  Object.entries(porOp).forEach(([k,v])=>{E._tRealOpN[k]=v.length;if(v.length>=5)E._tRealOp[k]=med(v);});
+}
+// tempo para PLANEJAR o dia: mediana real (pessoa → equipe), mas nunca menor
+// que metade do padrão — o cronômetro só vê o trabalho dentro do site.
+function tempoPlanoDe(assessor,op){
+  const a=loginDe(assessor||"");
+  const tr=(E._tReal||{})[a+"|"+op]||(E._tRealOp||{})[op];
+  if(!tr)return tempoDe(op);
+  return Math.max(Math.round(tempoDe(op)/2),Math.min(tr,tempoDe(op)*3));
+}
 const CORR_HEADS=["Danielly","Bruna","Eduarda","Ygor","Madu","Malu"];
 const AUTORIZADOS_DELEGAR=["Malu","Ygor","Madu","Bruna","Danielly","Eduarda"];
 const PROP_PRODUTOS=["MANDADO DE SEGURANÇA","ÊXITO TRANSAÇÃO","HT","HT MUNICIPAL","LAUDO CAPAG","GARANTIAS","SCORE","ASSESSORIA","TAX","FGTS","BANCÁRIO","CONTABILIZE"];
@@ -491,10 +520,19 @@ const S = {
 const DB = MODO_SUPABASE ? S : L;
 
 // ================================================================= LOGIN
+let _sessaoAtiva=false;
 async function iniciar(){
   if(!MODO_SUPABASE) return iniciarLocal();
-  supa.auth.onAuthStateChange((_e,s)=>{if(s)entrou();});
-  const{data}=await supa.auth.getSession(); if(data.session)entrou();
+  supa.auth.onAuthStateChange((_e,s)=>{
+    if(s){ if(!_sessaoAtiva){_sessaoAtiva=true;entrou();} }
+    else if(_sessaoAtiva){_sessaoAtiva=false;sessaoExpirou();}
+  });
+  const{data}=await supa.auth.getSession(); if(data.session&&!_sessaoAtiva){_sessaoAtiva=true;entrou();}
+}
+function sessaoExpirou(){
+  ge("app").style.display="none"; ge("tela-login").style.display="";
+  ge("login-corpo").style.display="";
+  avisoLogin("info","Sua sessão expirou por segurança. Entre de novo para continuar — nada do que foi salvo se perdeu.");
 }
 async function iniciarLocal(){
   ge("login-corpo").style.display="none";
@@ -511,7 +549,7 @@ async function entrarGoogle(){const{error}=await supa.auth.signInWithOAuth({prov
 async function entrarSenha(){const em=ge("li-email").value.trim(),s=ge("li-senha").value;if(!em||!s){avisoLogin("erro","Preencha e-mail e senha.");return;}const{error}=await supa.auth.signInWithPassword({email:em,password:s});if(error)avisoLogin("erro",error.message==="Invalid login credentials"?"E-mail ou senha errados. Se é a primeira vez, use o botão de primeiro acesso.":error.message);}
 async function criarSenha(){const em=ge("li-email").value.trim(),s=ge("li-senha").value;if(!em||!s){avisoLogin("erro","Preencha e-mail e a senha que você quer.");return;}if(s.length<8){avisoLogin("erro","A senha precisa ter ao menos 8 caracteres.");return;}const{error}=await supa.auth.signUp({email:em,password:s,options:{emailRedirectTo:location.href}});if(error){avisoLogin("erro",error.message);return;}avisoLogin("info","Conta criada. Confira seu e-mail, clique no link de confirmação e volte para entrar.");}
 function avisoLogin(t,m){ge("login-aviso").innerHTML=`<div class="aviso ${t}">${esc(m)}</div>`;}
-async function sair(){if(MODO_SUPABASE)await supa.auth.signOut();location.reload();}
+async function sair(){if(MODO_SUPABASE){_sessaoAtiva=false;await supa.auth.signOut();}location.reload();}
 
 // ============================================================= IDENTIDADE
 async function entrou(){
@@ -686,7 +724,9 @@ async function telaMinhas(){
   const hjBR=brHoje(), hjISO=hojeISO();
   const meetings=(reun||[]).filter(r=>r.assessor===nome&&(r.data===hjBR||String(r.data_dt||"").slice(0,10)===hjISO));
   const minReu=meetings.reduce((s,m)=>s+(parseInt(m.duracao_min_num||m.duracao_min)||30),0);
-  // capacidade (algoritmo do Code.gs)
+  // capacidade (algoritmo do Code.gs + tempos reais do robô de produtividade)
+  await carregarTemposReais(ts);
+  ativas.forEach(t=>{t._tempo=tempoPlanoDe(nome,t.operacao);});
   const cap=capDe(nome), capDisp=Math.max(60,cap-minReu);
   const imed=ativas.filter(t=>t._g===1), atr=ativas.filter(t=>t._g===2).sort((a,b)=>a._dias-b._dias),
         diar=ativas.filter(t=>t._g===3&&/DI[ÁA]RIO/.test(t._chk)),
@@ -698,18 +738,22 @@ async function telaMinhas(){
   const pesoF=t=>t._pago?0:(t._prov?1:2);
   semanal.sort((a,b)=>pesoF(a)-pesoF(b)||b._dias-a._dias);
   mensal.sort((a,b)=>pesoF(a)-pesoF(b)||b._dias-a._dias);
-  const plano=[],jaAdd={};
+  const plano=[],fila=[],jaAdd={};
   const push1=(t,urg)=>{const k=t.id_tarefa;if(k&&jaAdd[k])return false;if(k)jaAdd[k]=true;t._urg=urg;plano.push(t);return true;};
+  // IMEDIATO entra sempre; o resto só até a capacidade — excedente vai à fila
   imed.forEach(t=>push1(t,1));
-  diar.forEach(t=>push1(t,t._dias<0?2:3));
-  let rem=Math.max(0,capDisp-imed.reduce((s,t)=>s+t._tempo,0)-diar.reduce((s,t)=>s+t._tempo,0));
+  let rem=Math.max(0,capDisp-imed.reduce((s,t)=>s+t._tempo,0));
+  for(const t of diar){if(jaAdd[t.id_tarefa])continue;
+    if(rem-t._tempo<0){fila.push(t);continue;}if(push1(t,t._dias<0?2:3))rem-=t._tempo;}
   let nAtr=0;
-  for(const t of atr){if(rem<=0&&nAtr>=3)break;if(!push1(t,2))continue;rem-=t._tempo;nAtr++;}
-  const backlogAtr=Math.max(0,atr.length-nAtr);
+  for(const t of atr){if(jaAdd[t.id_tarefa])continue;
+    if(rem<=0&&nAtr>=3){fila.push(t);continue;}if(push1(t,2)){rem-=t._tempo;nAtr++;}}
   rem=Math.max(0,rem);
-  for(const t of hoje0.concat(semanal).concat(mensal)){if(rem<=0)break;if(!push1(t,t._dias===0?3:4))continue;rem-=t._tempo;}
+  for(const t of hoje0.concat(semanal).concat(mensal)){if(jaAdd[t.id_tarefa])continue;
+    if(rem<=0){fila.push(t);continue;}if(push1(t,t._dias===0?3:4))rem-=t._tempo;}
   plano.sort((a,b)=>a._urg-b._urg||a._dias-b._dias);
   const planejado=plano.reduce((s,t)=>s+t._tempo,0);
+  const filaMin=fila.reduce((s,t)=>s+t._tempo,0);
   const pct=Math.min(100,Math.round(planejado/capDisp*100));
   E._plano=plano;E._minhasTodas=minhas;
   // ------- monta html
@@ -736,7 +780,23 @@ async function telaMinhas(){
     <div class="bloco-t" style="color:#1F4E79">&#129309; Delegadas — aguardando retorno (${deleg.length}) <span style="font-weight:400">— não contam na capacidade</span></div>`+
     deleg.map(t=>`<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')">
       <span>${esc(t.cliente)} · ${esc(t.operacao||"")}</span><b>${esc(t.status_tarefa)}</b></div>`).join("")+`</div>`;
-  if(backlogAtr>0)h+=`<div class="aviso info" style="margin-bottom:10px">&#128230; Backlog: ${backlogAtr} atrasada(s) fora da capacidade de hoje — entram nos próximos dias (ou a head pode liberar mais).</div>`;
+  if(fila.length)h+=`<div class="painel" style="background:var(--gray-lt)">
+    <div class="bloco-t">&#9203; Na fila — ${fila.length} tarefa(s) (&asymp; ${(filaMin/capDisp).toFixed(1)} dia(s) de trabalho)</div>
+    <div style="font-size:11px;color:var(--gray)">Não cabem na capacidade de hoje. Entram nos próximos dias na ordem de prioridade — ou a head pode liberar/delegar.</div></div>`;
+  // sugestão do robô: delegar quando o dia não fecha (só para quem pode delegar)
+  if(AUTORIZADOS_DELEGAR.includes(nome)&&planejado>capDisp){
+    let excesso=planejado-capDisp,nSug=0;
+    const cand=[...plano].filter(t=>t._urg>=2).sort((a,b)=>b._urg-a._urg||a._dias-b._dias);
+    for(const t of cand){if(excesso<=0)break;excesso-=t._tempo;nSug++;}
+    const folgas=OPERACIONAIS.filter(x=>x!==nome).map(x=>{
+      const dem=ts.filter(t=>loginDe(t.assessor)===x&&t.id_tarefa&&!t._delegada&&!t._emCorrecao&&!t._concluida&&t._g>=1&&t._g<=3)
+        .reduce((s,t)=>s+tempoPlanoDe(x,t.operacao),0);
+      return{n:x,folga:capDe(x)-dem};}).filter(o=>o.folga>=30).sort((a,b)=>b.folga-a.folga);
+    if(nSug>0)h+=`<div class="painel" style="background:#FFF7E6;border-color:var(--amber)">
+      <div class="bloco-t" style="color:#7F5200">&#9878; Sugestão do robô: delegar ${nSug} tarefa(s) hoje</div>
+      <div style="font-size:12px">Seu dia soma <b>${fmtMin(planejado)}</b> para <b>${fmtMin(capDisp)}</b> de capacidade — delegando ${nSug}, a agenda fecha.
+      ${folgas.length?`<br>Com folga hoje: ${folgas.slice(0,4).map(o=>`<b>${esc(o.n)}</b> (&asymp;${fmtMin(o.folga)} livres)`).join(" · ")}`:""}
+      <br><span style="color:var(--gray);font-size:11px">Abra a tarefa e use o botão &#129309; Delegar — a decisão é sempre sua.</span></div></div>`;}
   h+=`<div class="sg">
     <div class="sc"><div class="sl">Hoje</div><div class="sv">${plano.length}</div></div>
     <div class="sc"><div class="sl">Imediatas</div><div class="sv ${imed.length?"red":"green"}">${imed.length}</div></div>
