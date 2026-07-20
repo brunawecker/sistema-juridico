@@ -260,6 +260,17 @@ const CAP={Ygor:450,Thiago:450,Madu:450,Malu:360,Laura:360,"João":360,Mateus:42
   Danielly:480,Bruna:480,Eduarda:480};
 const capDe=n=>CAP[n]||420;
 const OPERACIONAIS=["Ygor","Thiago","Madu","Malu","Laura","João","Mateus"];
+// Cores por assessor — mesmas do sistema antigo (renderPrevisaoMensal)
+const CORES_ASSESSOR={
+  "Ygor":  {bg:"#E3F2F8",border:"#447F98",text:"#2C5F75",dot:"#447F98"},
+  "Thiago":{bg:"#E8F4FD",border:"#2C6E8A",text:"#1A4D62",dot:"#2C6E8A"},
+  "Madu":  {bg:"#FDE8F0",border:"#C2185B",text:"#8B0E3E",dot:"#C2185B"},
+  "Malu":  {bg:"#F3E8FD",border:"#7B2D8B",text:"#5A1F67",dot:"#7B2D8B"},
+  "Laura": {bg:"#FEF0E7",border:"#D4600A",text:"#923D00",dot:"#D4600A"},
+  "João":  {bg:"#E8F5EC",border:"#1E7E34",text:"#14511F",dot:"#1E7E34"},
+  "Mateus":{bg:"#FFF8E1",border:"#F9A825",text:"#7B5800",dot:"#F9A825"}};
+const COR_PADRAO={bg:"#EEF2F5",border:"#90A4AE",text:"#455A64",dot:"#90A4AE"};
+const corDe=n=>CORES_ASSESSOR[primeiroNome(n||"")]||COR_PADRAO;
 // Listas do sistema antigo (Code.gs / Index.html)
 const OPERACOES=["Audiência","Análise Prescricional","Cancelar transação","Execução Fiscal","Estadual","Emissão CPEN","Embargos à Execução","ExcPreEx - Prescrição","E-Processo","FGTS","Laudo OPF","Laudo CAPAG","Levantamento - Cliente Villela","MS","MS Migração","MS Impedimento","MS laudo CAPAG","MS CND","Monitoramento","NJP","Negociação Estadual","Outros","Petição","Parcelar","Proposta Comercial - Parecer Tributário","Protesto","PRDI","Renegociação","Risco de bloqueio","Restituição SN","Revenda","Recurso","Simulação","TAX","Transacionar","TIS","Contabilize","Contrato/Aditivo"];
 const TEMPOS_PADRAO={"Execução Fiscal":15,"Proposta Comercial - Parecer Tributário":25,"MS":35,"MS Migração":35,"MS Impedimento":35,"MS laudo CAPAG":35,"MS CND":35,"Transacionar":20,"Laudo CAPAG":25,"Laudo OPF":25,"Monitoramento":10,"Audiência":60,"NJP":20,"Renegociação":20,"Recurso":30,"Embargos à Execução":30,"Emissão CPEN":15,"PRDI":20,"Protesto":15,"Estadual":20,"E-Processo":15,"FGTS":20,"Petição":30,"Parcelar":15,"Simulação":20,"TAX":25,"TIS":20,"Contabilize":20,"Restituição SN":20,"Risco de bloqueio":15,"Revenda":15,"Cancelar transação":15,"Levantamento - Cliente Villela":30,"Outros":20,"Análise Prescricional":30,"ExcPreEx - Prescrição":25,"Negociação Estadual":20,_default:20};
@@ -1302,24 +1313,59 @@ async function telaPrevisao(){
   semData.forEach(t=>{const a=t.assessor||"?";const teto=capDiaDe(a);
     for(const k of diasUteis){if((usoDia[k+a]||0)<teto){(porDia[k]=porDia[k]||[]).push({t,tipo:"estimado"});usoDia[k+a]=(usoDia[k+a]||0)+1;return;}}
     foraMes++;});
-  E._prevDias=porDia;
-  const prim=new Date(ano,mes,1),ini=(prim.getDay()+6)%7,nd=new Date(ano,mes+1,0).getDate();
+  E._prevDias=porDia;E._prevMeta={ano,mes,foraMes};
+  if(!E._prevFiltro)E._prevFiltro="todos";
+  desenhaPrevisao();
+}
+function filtraPrev(n){E._prevFiltro=n;desenhaPrevisao();}
+function desenhaPrevisao(){
+  const {ano,mes,foraMes}=E._prevMeta,porDia=E._prevDias,f=E._prevFiltro;
+  const hoje=new Date();hoje.setHours(0,0,0,0);
   const nomeMes=hoje.toLocaleDateString("pt-BR",{month:"long",year:"numeric"});
+  const passa=t=>f==="todos"||primeiroNome(t.assessor||"")===f;
+  // pílulas de filtro por assessor (cores do sistema antigo)
+  let pills=`<button class="btn btsm" onclick="filtraPrev('todos')" style="border-radius:20px;font-weight:700;border:2px solid ${f==="todos"?"var(--navy);background:var(--navy);color:white":"var(--border);background:white;color:var(--gray)"}">Todos</button>`;
+  OPERACIONAIS.forEach(n=>{const c=corDe(n),sel=f===n;
+    pills+=`<button class="btn btsm" onclick="filtraPrev('${n}')" style="border-radius:20px;font-weight:700;border:2px solid ${c.border};background:${sel?c.border:"white"};color:${sel?"white":c.text}">
+      <span style="background:${c.dot};width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px;vertical-align:middle"></span>${n}</button>`;});
+  // calendário
+  const prim=new Date(ano,mes,1),ini=(prim.getDay()+6)%7,nd=new Date(ano,mes+1,0).getDate();
   let cel=["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"].map(d=>`<div style="text-align:center;font-size:10px;font-weight:700;color:var(--gray);padding:4px">${d}</div>`).join("");
   for(let b=0;b<ini;b++)cel+=`<div class="cald fora"></div>`;
   for(let dia=1;dia<=nd;dia++){const k=`${ano}-${String(mes+1).padStart(2,"0")}-${String(dia).padStart(2,"0")}`;
-    const lst=porDia[k]||[],ehHoje=dia===hoje.getDate();
+    const lst=(porDia[k]||[]).filter(({t})=>passa(t)),ehHoje=dia===hoje.getDate();
     cel+=`<div class="cald ${ehHoje?"hoje":""}" onclick="verDia('${k}')">
       <div style="font-weight:700;font-size:12px;color:${ehHoje?"var(--dani)":"var(--text)"}">${dia}${ehHoje?' <span style="font-size:8px;background:var(--dani);color:white;border-radius:8px;padding:0 4px">HOJE</span>':""}</div>
-      ${lst.slice(0,4).map(({t,tipo})=>`<div class="calpin" style="${tipo==="estimado"?"opacity:.65;border-left-style:dashed":""}">${esc(primeiroNome(t.assessor))} · ${esc(String(t.cliente||"").split(" ")[0])}</div>`).join("")}
+      ${lst.slice(0,4).map(({t,tipo})=>{const c=corDe(t.assessor);
+        return `<div class="calpin" style="background:${c.bg};border-left-color:${c.border};color:${c.text};${tipo==="estimado"?"opacity:.65;border-left-style:dashed":""}">${esc(primeiroNome(t.assessor))} · ${esc(String(t.cliente||"").split(" ")[0])}</div>`;}).join("")}
       ${lst.length>4?`<div style="color:var(--dani);font-weight:700;margin-top:2px">+${lst.length-4}</div>`:""}</div>`;}
+  // resumo por assessor: hoje / esta semana / no mês (igual ao antigo)
+  const kHoje=hojeISO();
+  const segS=new Date(hoje);segS.setDate(hoje.getDate()-((hoje.getDay()+6)%7));
+  const domS=new Date(segS);domS.setDate(segS.getDate()+6);
+  const kIni=segS.toISOString().slice(0,10),kFim=domS.toISOString().slice(0,10);
+  const res={};OPERACIONAIS.forEach(n=>res[n]={hoje:0,sem:0,mes:0});
+  Object.entries(porDia).forEach(([k,l])=>l.forEach(({t})=>{const n=primeiroNome(t.assessor||"");if(!res[n])return;
+    res[n].mes++;if(k===kHoje)res[n].hoje++;if(k>=kIni&&k<=kFim)res[n].sem++;}));
+  const cards=OPERACIONAIS.filter(n=>f==="todos"||f===n).map(n=>{const c=corDe(n),r=res[n];
+    return `<div style="background:${c.bg};border:1.5px solid ${c.border};border-radius:10px;padding:10px 13px">
+      <div style="font-size:12px;font-weight:700;color:${c.text};margin-bottom:6px">${n}</div>
+      <div style="display:flex;gap:14px;text-align:center">
+        <div><div style="font-size:18px;font-weight:700;color:var(--red)">${r.hoje}</div><div style="font-size:9px;color:var(--gray)">hoje</div></div>
+        <div><div style="font-size:18px;font-weight:700;color:var(--amber)">${r.sem}</div><div style="font-size:9px;color:var(--gray)">semana</div></div>
+        <div><div style="font-size:18px;font-weight:700;color:${c.text}">${r.mes}</div><div style="font-size:9px;color:var(--gray)">no mês</div></div>
+      </div></div>`;}).join("");
   ge("conteudo").innerHTML=`<div class="painel"><div style="font-weight:700;color:var(--navy);text-transform:capitalize">${nomeMes}</div>
-    <div style="font-size:11px;color:var(--gray)">Cheio = data definida · tracejado = estimado pela capacidade · clique num dia para detalhes${foraMes?` · ${foraMes} além do mês`:""}</div></div>
-    <div class="calgrid">${cel}</div>`;
+    <div style="font-size:11px;color:var(--gray);margin-bottom:8px">Cheio = data definida · tracejado = estimado pela capacidade · clique num dia para detalhes${foraMes?` · ${foraMes} além do mês`:""}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">${pills}</div></div>
+    <div class="calgrid">${cel}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:14px">${cards}</div>`;
 }
 async function verDia(k){
-  const lst=(E._prevDias||{})[k]||[];const d=k.split("-");
-  ge("m-titulo").textContent=`${d[2]}/${d[1]}/${d[0]}`;
+  const f=E._prevFiltro||"todos";
+  const lst=((E._prevDias||{})[k]||[]).filter(({t})=>f==="todos"||primeiroNome(t.assessor||"")===f);
+  const d=k.split("-");
+  ge("m-titulo").textContent=`${d[2]}/${d[1]}/${d[0]}`+(f!=="todos"?` · ${f}`:"");
   ge("m-sub").textContent=`${lst.length} tarefa(s) prevista(s)`;
   let h=lst.length?lst.map(({t,tipo})=>cardTarefa(t,true)+(tipo==="estimado"?"":"")).join(""):`<div class="vazio">Nada previsto.</div>`;
   h+=`<div id="dia-feito" style="margin-top:12px"></div>`;
@@ -1836,16 +1882,33 @@ async function telaAgenda(){
   const chave=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
   const nomes=["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"];
   let grade=`<div class="calgrid" style="grid-template-columns:repeat(7,1fr)">`;
+  // projeção da semana: além das tarefas com data marcada, distribui as
+  // atrasadas/sem data pelos dias úteis respeitando o teto diário (igual à Previsão)
+  const kHoje=chave(hoje);
+  const teto=Math.min(Math.floor(capDe(E.perfil.nome_sistema)/20),10);
+  const fixasDia={},usoDia={};
+  dias.forEach(d=>{const k=chave(d);
+    fixasDia[k]=ts.filter(t=>String(t.data_revisao_dt||"").slice(0,10)===k&&!t._concluida);
+    usoDia[k]=fixasDia[k].length;});
+  const estimDia={};dias.forEach(d=>estimDia[chave(d)]=[]);
+  const pend=ts.filter(t=>{if(t._concluida||t._delegada||t._emCorrecao)return false;
+    const dr=String(t.data_revisao_dt||"").slice(0,10);return !dr||dr<kHoje;})
+    .sort((a,b)=>(a._g-b._g)||((a._dias??9)-(b._dias??9)));
+  pend.forEach(t=>{for(const d of dias){const k=chave(d);
+    if(k<kHoje||d.getDay()===0||d.getDay()===6)continue;
+    if(usoDia[k]<teto){estimDia[k].push(t);usoDia[k]++;return;}}});
   dias.forEach((d,i)=>{const k=chave(d),ehHoje=d.getTime()===hoje.getTime();
     const reuDia=minhasReu.filter(r=>String(r.data_dt||"").slice(0,10)===k);
-    const tarDia=ts.filter(t=>String(t.data_revisao_dt||"").slice(0,10)===k&&!t._concluida);
+    const tarDia=fixasDia[k],estDia=estimDia[k]||[];
+    const pins=tarDia.map(t=>({t,est:false})).concat(estDia.map(t=>({t,est:true})));
     grade+=`<div class="cald ${ehHoje?"hoje":""}">
       <div style="font-size:10px;font-weight:700;color:var(--gray)">${nomes[i]}</div>
       <div style="font-weight:700;font-size:13px;color:${ehHoje?"var(--dani)":"var(--text)"}">${d.getDate()}</div>
       ${reuDia.map(r=>`<div class="calpin" style="background:#EFF6FF;border-left-color:var(--dani)">&#128197; ${esc(r.titulo)}</div>`).join("")}
-      ${tarDia.slice(0,3).map(t=>`<div class="calpin">&#128203; ${esc(String(t.cliente||"").split(" ")[0])}</div>`).join("")}
-      ${tarDia.length>3?`<div style="color:var(--dani);font-weight:700">+${tarDia.length-3}</div>`:""}</div>`;});
-  grade+=`</div>`;
+      ${pins.slice(0,3).map(({t,est})=>`<div class="calpin" style="${est?"opacity:.65;border-left-style:dashed":""}">&#128203; ${esc(String(t.cliente||"").split(" ")[0])}</div>`).join("")}
+      ${pins.length>3?`<div style="color:var(--dani);font-weight:700">+${pins.length-3}</div>`:""}</div>`;});
+  grade+=`</div>
+  <div style="font-size:11px;color:var(--gray);margin-top:4px">Cheio = data marcada · tracejado = estimado pela sua capacidade (até ${teto}/dia)</div>`;
   const hojeK=chave(hoje);
   const reuHoje=minhasReu.filter(r=>String(r.data_dt||"").slice(0,10)===hojeK)
     .sort((a,b)=>String(a.horario||"").localeCompare(String(b.horario||"")));
