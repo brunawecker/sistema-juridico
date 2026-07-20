@@ -513,6 +513,11 @@ async function entrou(){
   montarVerComo(); faixaVerComo(); montarMenu();
 }
 function nomeCompletoDe(sis){const m=E.equipe.find(x=>x.nome_sistema===sis);return m?m.nome_completo:"";}
+function loginDe(n){if(!n)return "";const s=String(n).trim().toLowerCase();
+  const m=(E.equipe||[]).find(x=>String(x.nome_sistema||"").toLowerCase()===s
+    ||String(x.nome_completo||"").toLowerCase()===s
+    ||primeiroNome(x.nome_completo||"").toLowerCase()===s);
+  return m?m.nome_sistema:String(n).trim();}
 function ehMeuNome(n){if(!n)return false;const p=E.perfil,nl=String(n).toLowerCase();
   return nl===String(p.nome_sistema).toLowerCase()||nl===String(nomeCompletoDe(p.nome_sistema)||"").toLowerCase()||nl===primeiroNome(nomeCompletoDe(p.nome_sistema)).toLowerCase();}
 
