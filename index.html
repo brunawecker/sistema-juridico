@@ -194,6 +194,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
         <span class="tbt" id="tbt">—</span>
       </div>
       <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap">
+        <span id="chip-timer" style="display:none;background:#F0FDF4;border:1px solid #BBF7D0;
+          border-radius:16px;padding:4px 12px;font-size:12px;color:#15803D;font-weight:600;
+          cursor:pointer" onclick="pararAvulsa()" title="Clique para encerrar e salvar o tempo">
+          &#9201; <span id="chip-timer-desc"></span> <span id="chip-timer-num" style="font-family:'DM Mono'">0:00</span> &#9632;</span>
         <span id="area-vercomo"></span>
         <button class="btn bts btsm" onclick="recarregar()">&#8635;</button>
         <button class="btn bts btsm" onclick="sair()">Sair</button>
@@ -212,6 +216,22 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <button class="mfecha" onclick="fecharModal()">&#10005;</button></div>
   <div class="mcorpo" id="m-corpo"></div>
 </div></div>
+
+<!-- MODAL 2 (sobreposto: correção, encerrar, delegar...) -->
+<div class="mfundo" id="modal2" style="z-index:300"><div class="mcaixa" style="max-width:520px">
+  <div class="mtopo"><div><div class="mtit" id="m2-titulo">—</div><div class="msub" id="m2-sub">—</div></div>
+    <button class="mfecha" onclick="fecharModal2()">&#10005;</button></div>
+  <div class="mcorpo" id="m2-corpo"></div>
+</div></div>
+
+<!-- FAB: criar novo -->
+<div id="fab-area" style="position:fixed;bottom:22px;right:22px;z-index:150;display:none;
+  flex-direction:column;align-items:flex-end;gap:7px">
+  <div id="fab-menu" style="display:none;flex-direction:column;gap:5px;align-items:flex-end"></div>
+  <button id="fab-btn" onclick="toggleFab()" style="width:52px;height:52px;border-radius:50%;
+    background:var(--navy);color:white;border:none;font-size:24px;cursor:pointer;
+    box-shadow:0 4px 16px rgba(0,0,0,.25)">+</button>
+</div>
 
 <div id="toast"></div>
 
@@ -240,71 +260,222 @@ const CAP={Ygor:450,Thiago:450,Madu:450,Malu:360,Laura:360,"João":360,Mateus:42
   Danielly:480,Bruna:480,Eduarda:480};
 const capDe=n=>CAP[n]||420;
 const OPERACIONAIS=["Ygor","Thiago","Madu","Malu","Laura","João","Mateus"];
+// Listas do sistema antigo (Code.gs / Index.html)
+const OPERACOES=["Audiência","Análise Prescricional","Cancelar transação","Execução Fiscal","Estadual","Emissão CPEN","Embargos à Execução","ExcPreEx - Prescrição","E-Processo","FGTS","Laudo OPF","Laudo CAPAG","Levantamento - Cliente Villela","MS","MS Migração","MS Impedimento","MS laudo CAPAG","MS CND","Monitoramento","NJP","Negociação Estadual","Outros","Petição","Parcelar","Proposta Comercial - Parecer Tributário","Protesto","PRDI","Renegociação","Risco de bloqueio","Restituição SN","Revenda","Recurso","Simulação","TAX","Transacionar","TIS","Contabilize","Contrato/Aditivo"];
+const TEMPOS_PADRAO={"Execução Fiscal":15,"Proposta Comercial - Parecer Tributário":25,"MS":35,"MS Migração":35,"MS Impedimento":35,"MS laudo CAPAG":35,"MS CND":35,"Transacionar":20,"Laudo CAPAG":25,"Laudo OPF":25,"Monitoramento":10,"Audiência":60,"NJP":20,"Renegociação":20,"Recurso":30,"Embargos à Execução":30,"Emissão CPEN":15,"PRDI":20,"Protesto":15,"Estadual":20,"E-Processo":15,"FGTS":20,"Petição":30,"Parcelar":15,"Simulação":20,"TAX":25,"TIS":20,"Contabilize":20,"Restituição SN":20,"Risco de bloqueio":15,"Revenda":15,"Cancelar transação":15,"Levantamento - Cliente Villela":30,"Outros":20,"Análise Prescricional":30,"ExcPreEx - Prescrição":25,"Negociação Estadual":20,_default:20};
+const tempoDe=op=>TEMPOS_PADRAO[op]||TEMPOS_PADRAO._default;
+const CORR_HEADS=["Danielly","Bruna","Eduarda","Ygor","Madu","Malu"];
+const AUTORIZADOS_DELEGAR=["Malu","Ygor","Madu","Bruna","Danielly","Eduarda"];
+const PROP_PRODUTOS=["MANDADO DE SEGURANÇA","ÊXITO TRANSAÇÃO","HT","HT MUNICIPAL","LAUDO CAPAG","GARANTIAS","SCORE","ASSESSORIA","TAX","FGTS","BANCÁRIO","CONTABILIZE"];
+const PROP_VERTICAIS=["REGULARIZE","AUDITE","BACARIZE","CONCILIE","CONTABILIZE","RECUPERE","RENEGOCIE","RNC","VILLELA IP","VBB"];
+const VERTICAIS_CLIENTE=["REGULARIZE","RECUPERE","RENEGOCIE","GOLDEN","CONTABILIZE","A PREENCHER"];
+const REGIMES=["Simples Nacional","Lucro Presumido","Lucro Real","MEI","Inativa"];
 
 // ================================================================= DADOS
 // As telas chamam DB.*, sem saber se falam com o servidor local ou o Supabase.
-const L = {  // modo local (servidor de teste)
+const L = {  // modo local (servidor de teste na máquina)
   f:async(rota,opt={})=>{const r=await fetch(rota,{...opt,headers:{...(opt.headers||{}),
     "X-Email":E.emailTeste||"","Content-Type":"application/json"}});
-    if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.erro||("HTTP "+r.status));}return r.json();},
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok||j.erro||(j.ok===false&&j.erro!==undefined&&j.erro!==null))
+      throw new Error(j.erro||("HTTP "+r.status));
+    return j;},
   perfil(){return this.f("/api/perfil");},
   tarefas(){return this.f("/api/tarefas");},
   historico(id){return this.f("/api/historico?id="+encodeURIComponent(id));},
   historicoHoje(){return this.f("/api/historico_hoje");},
   historicoPeriodo(d){return this.f("/api/historico_periodo?dias="+d);},
+  historicoDia(d){return this.f("/api/historico_dia?d="+d);},
   sessoesHoje(){return this.f("/api/sessoes_hoje");},
-  clientes(q){return this.f("/api/clientes?q="+encodeURIComponent(q||""));},
+  sessaoAtiva(){return this.f("/api/sessao_ativa");},
+  clientes(q){return this.f("/api/clientes").then(cs=>filtraLocalClientes(cs,q));},
   clienteTarefas(id){return this.f("/api/cliente_tarefas?id="+encodeURIComponent(id));},
   casos(){return this.f("/api/casos");},
   propostas(){return this.f("/api/propostas");},
   tarefasFixas(){return this.f("/api/tarefas_fixas");},
   reunioes(){return this.f("/api/reunioes");},
   snapshot(){return this.f("/api/snapshot");},
+  cobranca(){return this.f("/api/cobranca");},
   equipe(){return this.f("/api/equipe");},
-  nota(o){return this.f("/api/nota",P({id_novo:o.id_historico,id_tarefa:o.id_tarefa,id_cliente:o.id_cliente,tipo:o.tipo,texto:o.texto}));},
-  tempo(o){return this.f("/api/tempo",P({id_novo:o.id_historico,id_tarefa:o.id_tarefa,id_cliente:o.id_cliente,minutos:o.minutos}));},
-  concluir(t,x){return this.f("/api/concluir",P({id_tarefa:t.id_tarefa,linha:t.linha,id_cliente:t.id_cliente,check:x.check,proximo:x.proximo,proximo_br:brData(x.proximo),id_novo:idNovo("HISW")}));},
-  encerrar(o){return this.f("/api/encerrar",P(o));},
-  reabrir(o){return this.f("/api/reabrir",P(o));},
+  nota(o){return this.f("/api/nota",P(o));},
+  tempo(o){return this.f("/api/tempo",P(o));},
+  histEditar(id,linha,texto){return this.f("/api/hist_editar",P({id_historico:id,linha,texto}));},
+  tarefaUpdate(t,x){return this.f("/api/tarefa_update",P({id_tarefa:t.id_tarefa,linha:t.linha,id_cliente:t.id_cliente,...x}));},
+  concluir(t,x){return this.f("/api/concluir",P({id_tarefa:t.id_tarefa,linha:t.linha,id_cliente:t.id_cliente,check:x.check,proximo:x.proximo,proximo_br:brData(x.proximo)}));},
+  encerrar(t,x){return this.f("/api/encerrar",P({id_tarefa:t.id_tarefa,linha:t.linha,id_cliente:t.id_cliente,...x}));},
+  reabrir(x){return this.f("/api/reabrir",P(x));},
+  correcaoEnviar(t,x){return this.f("/api/correcao_enviar",P({id_tarefa:t.id_tarefa,linha:t.linha,id_cliente:t.id_cliente,...x,retorno_br:brData(x.retorno)}));},
+  correcaoDevolver(t){return this.f("/api/correcao_devolver",P({id_tarefa:t.id_tarefa,linha:t.linha,id_cliente:t.id_cliente}));},
+  delegar(t,x){return this.f("/api/delegar",P({id_tarefa:t.id_tarefa,...x}));},
+  impulsoFinalizar(id){return this.f("/api/impulso_finalizar",P({id_tarefa:id}));},
+  criarTarefa(d){return this.f("/api/criar_tarefa",P(d));},
+  criarCliente(d){return this.f("/api/criar_cliente",P(d));},
+  criarProposta(d){return this.f("/api/criar_proposta",P(d));},
+  negociacao(d){return this.f("/api/negociacao",P(d));},
+  propostaUpdate(d){return this.f("/api/proposta_update",P(d));},
   clienteUpdate(id,campos){return this.f("/api/cliente_update",P({id_cliente:id,campos}));},
+  definirAssessor(id,novo){return this.f("/api/definir_assessor",P({id_cliente:id,novo}));},
+  converterCliente(id){return this.f("/api/converter_cliente",P({id_cliente:id}));},
+  fixaAdd(d){return this.f("/api/fixa_add",P(d));},
   fixaToggle(id,ativo){return this.f("/api/fixa_toggle",P({id_fixa:id,ativo}));},
-  reuniaoAdd(o){return this.f("/api/reuniao_add",P(o));},
+  fixaDel(id){return this.f("/api/fixa_del",P({id_fixa:id}));},
+  reuniaoAdd(d){return this.f("/api/reuniao_add",P(d));},
   reuniaoDel(id){return this.f("/api/reuniao_del",P({id_reuniao:id}));},
-  propostaUpdate(o){return this.f("/api/proposta_update",P(o));},
+  sessaoIniciar(d){return this.f("/api/sessao_iniciar",P(d));},
+  sessaoConcluir(min){return this.f("/api/sessao_concluir",P({minutos:min}));},
+  liberarAtrasadas(a,q){return this.f("/api/liberar_atrasadas",P({assessor:a,qtd:q}));},
   verComo(a){return this.f("/api/vercomo",P({alvo:a}));},
   verComoSair(){return this.f("/api/vercomo_sair",P({}));},
 };
 function P(body){return{method:"POST",body:JSON.stringify(body)};}
-
-const S = {  // modo Supabase (site publicado)
-  async perfil(){const{data}=await supa.from("meu_perfil").select("*");return data&&data[0];},
-  async tarefas(){const{data,error}=await supa.from("operacional").select("*").order("data_revisao_dt",{ascending:true,nullsFirst:false});if(error)throw error;return data||[];},
-  async historico(id){const{data}=await supa.from("historico").select("*").eq("id_tarefa",id).order("data_dt",{ascending:false,nullsFirst:false}).order("linha",{ascending:false}).limit(300);return data||[];},
-  async historicoHoje(){const{data}=await supa.from("historico").select("*").eq("data_dt",hojeISO());return data||[];},
-  async historicoPeriodo(d){const lim=new Date();lim.setDate(lim.getDate()-d);const{data}=await supa.from("historico").select("*").gte("data_dt",lim.toISOString().slice(0,10));return data||[];},
-  async sessoesHoje(){const{data}=await supa.from("sessoes").select("*").eq("data_dt",hojeISO());return data||[];},
-  async clientes(q){let b=supa.from("clientes").select("*").order("nome").limit(300);if(q)b=b.ilike("nome","%"+q+"%");const{data}=await b;return data||[];},
-  async clienteTarefas(id){const a=await supa.from("operacional").select("*").eq("id_cliente",id);const e=await supa.from("casos_encerrados").select("*").eq("id_cliente",id);return{ativas:a.data||[],encerradas:e.data||[]};},
-  async casos(){const{data}=await supa.from("casos_encerrados").select("*").order("data_encerramento_dt",{ascending:false,nullsFirst:false});return data||[];},
-  async propostas(){const{data}=await supa.from("propostas").select("*").order("linha",{ascending:false});return data||[];},
-  async tarefasFixas(){const{data}=await supa.from("tarefas_fixas").select("*").order("id_fixa");return data||[];},
-  async reunioes(){const{data}=await supa.from("reunioes").select("*").order("data_dt",{ascending:false,nullsFirst:false});return data||[];},
-  async snapshot(){const{data}=await supa.from("snapshot_diario").select("*").order("data_dt");return data||[];},
-  async equipe(){const{data}=await supa.from("equipe").select("nome_sistema,nome_completo,cargo,head,status,email").order("nome_sistema");return data||[];},
-  async nota(o){const{error}=await supa.from("historico").insert(o);if(error)throw error;},
-  async tempo(o){const{error}=await supa.from("historico").insert({id_historico:o.id_historico,id_tarefa:o.id_tarefa,id_cliente:o.id_cliente,data:brHoje(),data_dt:hojeISO(),autor:E.perfil.nome_sistema,tipo:"TIMER",texto:`Tempo registrado: ${o.minutos} min`,origem:"SITE"});if(error)throw error;},
-  async concluir(t,x){const{error}=await supa.from("operacional").update({status_tarefa:"AGUARDANDO",check_:x.check,data_revisao_dt:x.proximo,data_revisao:brData(x.proximo)}).eq("id_tarefa",t.id_tarefa).eq("linha",t.linha);if(error)throw error;await supa.from("historico").insert({id_historico:idNovo("HISW"),id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,data:brHoje(),data_dt:hojeISO(),autor:E.perfil.nome_sistema,tipo:"ASSESSOR",texto:`Tarefa concluída pelo site — próxima revisão ${brData(x.proximo)}.`,origem:"SITE"});},
-  async encerrar(o){const{data,error}=await supa.rpc("encerrar_caso",{p_id_tarefa:o.id_tarefa,p_linha:o.linha,p_id_enc:o.id_novo_enc,p_motivo:o.motivo,p_resultado:o.resultado||"",p_nota:o.nota||"",p_id_hist:o.id_novo_hist});if(error)throw error;if(!data)throw new Error("não foi possível encerrar");},
-  async reabrir(o){const{data,error}=await supa.rpc("reabrir_caso",{p_id_enc:o.id_encerrado,p_linha:o.linha,p_nova_tarefa:o.id_nova_tarefa,p_check:o.check,p_proximo:o.proximo});if(error)throw error;if(!data)throw new Error("não foi possível reabrir");},
-  async clienteUpdate(id,campos){const{error}=await supa.from("clientes").update(campos).eq("id_cliente",id);if(error)throw error;},
-  async fixaToggle(id,ativo){const{error}=await supa.from("tarefas_fixas").update({ativo:ativo?"SIM":"NAO"}).eq("id_fixa",id);if(error)throw error;},
-  async reuniaoAdd(o){const{error}=await supa.from("reunioes").insert({id_reuniao:o.id_novo,data:brHoje(),data_dt:hojeISO(),assessor:E.perfil.nome_sistema,titulo:o.titulo,cliente:o.cliente||"",id_cliente:o.id_cliente,horario:o.horario||"",horario_hr:o.horario||null,duracao_min:String(o.duracao||30),duracao_min_num:o.duracao||30,obs:o.obs||""});if(error)throw error;},
-  async reuniaoDel(id){await supa.from("reunioes").delete().eq("id_reuniao",id);},
-  async propostaUpdate(o){const{error}=await supa.from("propostas").update({status:o.status,fechada:o.fechada}).eq("id_proposta",o.id_proposta);if(error)throw error;},
-  async verComo(a){const{error}=await supa.from("ver_como").insert({admin_email:E.perfil.email,alvo:a});if(error)throw error;},
-  async verComoSair(){await supa.from("ver_como").update({encerrado_em:new Date().toISOString()}).is("encerrado_em",null);},
-};
+function filtraLocalClientes(cs,q){if(!q)return cs;const t=q.toLowerCase(),dig=q.replace(/\D/g,"");
+  return cs.filter(c=>String(c.nome||"").toLowerCase().includes(t)||String(c.id_cliente||"").toLowerCase().includes(t)
+    ||(dig.length>=3&&String(c.cnpj_cpf||"").replace(/\D/g,"").includes(dig)));}
 function brHoje(){const d=new Date();return String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+String(d.getFullYear()).slice(-2);}
+function horaAgora(){const d=new Date();return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");}
+
+// modo Supabase (site publicado): mesmas operações, direto no banco
+async function rpcS(nome,args){const{data,error}=await supa.rpc(nome,args);if(error)throw new Error(error.message);return data;}
+async function novoIdS(p){return rpcS("novo_id",{p_prefixo:p});}
+async function histS(id_tarefa,id_cliente,tipo,texto){const hid=await novoIdS("HIS");
+  const{error}=await supa.from("historico").insert({id_historico:hid,id_tarefa:id_tarefa,id_cliente:id_cliente,
+    data:brHoje(),data_dt:hojeISO(),autor:E.perfil.nome_sistema,tipo:tipo,texto:texto,origem:"SITE"});
+  if(error)throw new Error(error.message);return hid;}
+function okS(r){if(r.error)throw new Error(r.error.message);return r.data;}
+const S = {
+  async perfil(){const{data}=await supa.from("meu_perfil").select("*");return data&&data[0];},
+  async tarefas(){return okS(await supa.from("operacional").select("*").order("data_revisao_dt",{ascending:true,nullsFirst:false}).limit(5000))||[];},
+  async historico(id){return okS(await supa.from("historico").select("*").eq("id_tarefa",id).order("data_dt",{ascending:false,nullsFirst:false}).order("linha",{ascending:false}).limit(500))||[];},
+  async historicoHoje(){return okS(await supa.from("historico").select("*").eq("data_dt",hojeISO()))||[];},
+  async historicoPeriodo(d){const lim=new Date();lim.setDate(lim.getDate()-d);
+    return okS(await supa.from("historico").select("*").gte("data_dt",lim.toISOString().slice(0,10)))||[];},
+  async historicoDia(d){return okS(await supa.from("historico").select("*").eq("data_dt",d))||[];},
+  async sessoesHoje(){return okS(await supa.from("sessoes").select("*").eq("data_dt",hojeISO()).order("linha"))||[];},
+  async sessaoAtiva(){const r=okS(await supa.from("sessoes").select("*").eq("data_dt",hojeISO()).eq("status","ATIVO").eq("assessor",E.perfil.nome_sistema).order("linha",{ascending:false}).limit(1))||[];return r[0]||null;},
+  async clientes(q){let b=supa.from("clientes").select("*").order("nome").limit(5000);if(q)b=b.ilike("nome","%"+q+"%");
+    const dados=okS(await b)||[];return q?filtraLocalClientes(dados.length?dados:okS(await supa.from("clientes").select("*").order("nome").limit(5000))||[],q):dados;},
+  async clienteTarefas(id){const a=await supa.from("operacional").select("*").eq("id_cliente",id);
+    const e=await supa.from("casos_encerrados").select("*").eq("id_cliente",id);
+    return{ativas:a.data||[],encerradas:e.data||[]};},
+  async casos(){return okS(await supa.from("casos_encerrados").select("*").order("data_encerramento_dt",{ascending:false,nullsFirst:false}).limit(1000))||[];},
+  async propostas(){return okS(await supa.from("propostas").select("*").order("linha",{ascending:false}))||[];},
+  async tarefasFixas(){return okS(await supa.from("tarefas_fixas").select("*").order("id_fixa"))||[];},
+  async reunioes(){return okS(await supa.from("reunioes").select("*").order("data_dt",{ascending:false,nullsFirst:false}).limit(500))||[];},
+  async snapshot(){return okS(await supa.from("snapshot_diario").select("*").order("data_dt"))||[];},
+  async cobranca(){return okS(await supa.from("cobranca").select("*").order("linha"))||[];},
+  async equipe(){return okS(await supa.from("equipe").select("nome_sistema,nome_completo,cargo,head,status,email").order("nome_sistema"))||[];},
+  async nota(o){await histS(o.id_tarefa,o.id_cliente,o.tipo,o.texto);return{ok:true};},
+  async tempo(o){await histS(o.id_tarefa,o.id_cliente,"TIMER","Tempo registrado: "+o.minutos+" min");return{ok:true};},
+  async histEditar(id,linha,texto){const r=await supa.from("historico").update({texto:texto}).eq("id_historico",id).eq("linha",linha).select();okS(r);
+    if(!(r.data||[]).length)throw new Error("Só é possível editar andamento de hoje, seu (head edita qualquer um), e nunca TIMER.");return{ok:true};},
+  async tarefaUpdate(t,x){const u={...(x.campos||{})};
+    if(x.data_revisao){u.data_revisao_dt=x.data_revisao;u.data_revisao=brData(x.data_revisao);}
+    if(x.prazo_fatal){u.prazo_fatal_dt=x.prazo_fatal;u.prazo_fatal=brData(x.prazo_fatal);}
+    okS(await supa.from("operacional").update(u).eq("id_tarefa",t.id_tarefa).eq("linha",t.linha));
+    if(x.hist_texto)await histS(t.id_tarefa,t.id_cliente,x.hist_tipo||"ASSESSOR",x.hist_texto);
+    return{ok:true};},
+  async concluir(t,x){okS(await supa.from("operacional").update({status_tarefa:"AGUARDANDO",check_:x.check,
+      data_revisao_dt:x.proximo,data_revisao:brData(x.proximo)}).eq("id_tarefa",t.id_tarefa).eq("linha",t.linha));
+    await histS(t.id_tarefa,t.id_cliente,"ASSESSOR","Tarefa concluída pelo site — próxima revisão "+brData(x.proximo)+".");return{ok:true};},
+  async encerrar(t,x){const enc=await novoIdS("ENC"),hid=await novoIdS("HIS");
+    const ok=await rpcS("encerrar_caso",{p_id_tarefa:t.id_tarefa,p_linha:t.linha,p_id_enc:enc,
+      p_motivo:x.motivo,p_resultado:x.resultado||"",p_nota:x.nota||"",p_id_hist:hid});
+    if(!ok)throw new Error("não foi possível encerrar");return{ok:true};},
+  async reabrir(x){const nova=await novoIdS("OP");
+    const ok=await rpcS("reabrir_caso",{p_id_enc:x.id_encerrado,p_linha:x.linha,p_nova_tarefa:nova,p_check:x.check,p_proximo:x.proximo});
+    if(!ok)throw new Error("não foi possível reabrir");return{ok:true};},
+  async correcaoEnviar(t,x){okS(await supa.from("operacional").update({correcao_head:x.head,correcao_link:x.link||"",
+      correcao_justif:x.justificativa||"",correcao_data:brHoje(),correcao_data_dt:hojeISO(),
+      correcao_retorno:brData(x.retorno),correcao_retorno_dt:x.retorno}).eq("id_tarefa",t.id_tarefa).eq("linha",t.linha));
+    await histS(t.id_tarefa,t.id_cliente,"CORRECAO","Enviada para correção → "+x.head+" (retorno "+brData(x.retorno)+")");return{ok:true};},
+  async correcaoDevolver(t){okS(await supa.from("operacional").update({correcao_head:"",correcao_data:"",correcao_data_dt:null,
+      correcao_retorno:"",correcao_retorno_dt:null,check_:"IMEDIATO",status_tarefa:"AGUARDANDO",
+      data_revisao:brData(hojeISO()),data_revisao_dt:hojeISO()}).eq("id_tarefa",t.id_tarefa).eq("linha",t.linha));
+    await histS(t.id_tarefa,t.id_cliente,"CORRECAO","Correção concluída — devolvida ao assessor (imediato)");return{ok:true};},
+  async delegar(t,x){const sub=await novoIdS("OP"),hid=await novoIdS("HIS");
+    await rpcS("delegar_impulso",{p_id_tarefa:t.id_tarefa,p_para:x.para,p_desc:x.descricao,
+      p_freq:x.freq||"IMEDIATO",p_sub_id:sub,p_hist_id:hid});return{ok:true,sub:sub};},
+  async impulsoFinalizar(id){const hid=await novoIdS("HIS");
+    const ok=await rpcS("finalizar_impulso",{p_sub_id:id,p_hist_id:hid});
+    if(!ok)throw new Error("não foi possível finalizar");return{ok:true};},
+  async criarTarefa(d){const op=await novoIdS("OP");
+    okS(await supa.from("operacional").insert({id_tarefa:op,id_cliente:d.id_cliente,advogada:d.head||"",
+      data_inclusao:brHoje(),cliente:d.cliente||"",cnpj_cpf:d.cnpj||"",check_:d.check||"IMEDIATO",
+      operacao:d.operacao||"",assessor:d.assessor||"",status_tarefa:"AGUARDANDO",
+      numero_processual:d.numero_proc||"",estado:d.estado||"",supervisao:d.supervisao||"",
+      prazo_fatal:d.prazo_fatal?brData(d.prazo_fatal):null,prazo_fatal_dt:d.prazo_fatal||null,
+      data_revisao:brData(d.revisao),data_revisao_dt:d.revisao}));
+    if(d.supervisao)await histS(op,d.id_cliente,"SUPERVISÃO",d.supervisao);
+    return{ok:true,id:op};},
+  async criarCliente(d){const cl=await novoIdS("CL");
+    okS(await supa.from("clientes").insert({id_cliente:cl,nome:d.nome,cnpj_cpf:d.cnpj||"",head:d.head||"",
+      vertical:d.vertical||"A PREENCHER",regime:d.regime||"",municipio:d.municipio||"",uf:d.uf||"",
+      resumo_da_venda:d.resumo||"",situacao:d.situacao||"OFICIAL"}));return{ok:true,id:cl};},
+  async criarProposta(d){let idc=d.id_cliente||"";
+    if(d.novo_cliente&&d.cliente){idc=await novoIdS("CL");
+      okS(await supa.from("clientes").insert({id_cliente:idc,nome:d.cliente,cnpj_cpf:d.cnpj||"",
+        head:d.responsavel||"",vertical:"PROSPECÇÃO",situacao:"PROSPECCAO"}));}
+    const pr=await novoIdS("PROP");
+    okS(await supa.from("propostas").insert({id_proposta:pr,data_lancamento:brHoje(),
+      data_proposta:brData(d.data),data_proposta_dt:d.data,executor:d.executor||"",responsavel:d.executor||"",
+      quem_pediu:d.quem_pediu||"",cliente:d.cliente||"",id_cliente:idc,
+      prospeccao:d.novo_cliente?"SIM":"NÃO",produtos:d.produtos||"",verticais:d.verticais||"",
+      valor:String(d.valor||0),valor_num:d.valor||0,cond_pagamento:d.cond||"",origem:d.origem||"",
+      forma_contato:d.contato||"",forma_parecer:d.parecer||"",link_sharepoint:d.sharepoint||"",
+      tempo_min:String(d.tempo||0),tempo_min_num:d.tempo||0,status:d.status||"Enviada",obs:d.obs||"",fechada:"NÃO"}));
+    if(idc)await histS("",idc,"PROPOSTA","Proposta "+pr+" lançada — R$ "+(d.valor||0)+" ("+(d.status||"Enviada")+")");
+    return{ok:true,id:pr,id_cliente:idc};},
+  async negociacao(d){const r=okS(await supa.from("propostas").select("negociacao_log,id_cliente").eq("id_proposta",d.id_proposta));
+    if(!r||!r.length)throw new Error("proposta não encontrada");
+    const log=(r[0].negociacao_log||""),idc=r[0].id_cliente;
+    const u={negociacao_log:d.linha_log+(log?"\n"+log:""),proximo_passo:d.passo||"",data_retorno:d.retorno||""};
+    if(d.cond)u.cond_atual=d.cond; if(d.valor)u.valor_atual=d.valor; if(d.perda)u.motivo_perda=d.perda;
+    if(d.etapa){u.status=d.etapa;if(d.etapa==="Aceita")u.fechada="SIM";}
+    okS(await supa.from("propostas").update(u).eq("id_proposta",d.id_proposta));
+    let conv=false;
+    if(d.etapa==="Aceita"&&idc)conv=!!(await rpcS("converter_cliente_oficial",{p_id_cliente:idc}));
+    return{ok:true,convertido:conv};},
+  async propostaUpdate(d){okS(await supa.from("propostas").update({status:d.status,fechada:d.fechada||undefined}).eq("id_proposta",d.id_proposta));
+    if(d.fechada==="SIM"){const r=okS(await supa.from("propostas").select("id_cliente").eq("id_proposta",d.id_proposta));
+      if(r&&r[0]&&r[0].id_cliente)await rpcS("converter_cliente_oficial",{p_id_cliente:r[0].id_cliente});}
+    return{ok:true};},
+  async clienteUpdate(id,campos){okS(await supa.from("clientes").update(campos).eq("id_cliente",id));return{ok:true};},
+  async definirAssessor(id,novo){const n=await rpcS("definir_assessor_cliente",{p_id_cliente:id,p_novo:novo});return{ok:true,reatribuidas:n};},
+  async converterCliente(id){const ok=await rpcS("converter_cliente_oficial",{p_id_cliente:id});return{ok:!!ok};},
+  async fixaAdd(d){const fx=await novoIdS("FIX");
+    okS(await supa.from("tarefas_fixas").insert({id_fixa:fx,titulo:d.titulo,frequencia:d.freq,assessor:d.assessor,
+      head_clientes:d.head||"",tempo_min:String(d.tempo||20),tempo_min_num:d.tempo||20,ativo:"SIM",
+      criado_por:E.perfil.nome_sistema}));return{ok:true,id:fx};},
+  async fixaToggle(id,ativo){okS(await supa.from("tarefas_fixas").update({ativo:ativo?"SIM":"NAO"}).eq("id_fixa",id));return{ok:true};},
+  async fixaDel(id){const r=await supa.from("tarefas_fixas").delete().eq("id_fixa",id).select();okS(r);
+    if(!(r.data||[]).length)throw new Error("Apagar tarefa fixa é ação de head.");return{ok:true};},
+  async reuniaoAdd(d){const reu=await novoIdS("REU");
+    okS(await supa.from("reunioes").insert({id_reuniao:reu,data:brHoje(),data_dt:hojeISO(),
+      assessor:E.perfil.nome_sistema,titulo:d.titulo,cliente:d.cliente||"",id_cliente:d.id_cliente||null,
+      horario:d.horario||"",horario_hr:d.horario||null,duracao_min:String(d.duracao||30),
+      duracao_min_num:d.duracao||30,obs:d.obs||""}));
+    if(d.id_cliente)await histS("",d.id_cliente,"REUNIÃO","Reunião: "+d.titulo+(d.horario?" às "+d.horario:"")+" ("+(d.duracao||30)+"min)");
+    return{ok:true,id:reu};},
+  async reuniaoDel(id){okS(await supa.from("reunioes").delete().eq("id_reuniao",id));return{ok:true};},
+  async sessaoIniciar(d){await supa.from("sessoes").update({status:"INTERROMPIDO",hora_fim:horaAgora(),hora_fim_hr:horaAgora()})
+      .eq("status","ATIVO").eq("data_dt",hojeISO()).eq("assessor",E.perfil.nome_sistema);
+    const ses=await novoIdS("SES");
+    okS(await supa.from("sessoes").insert({id_sessao:ses,data:brHoje(),data_dt:hojeISO(),
+      assessor:E.perfil.nome_sistema,id_tarefa:d.id_tarefa||"",cliente:d.cliente||"",operacao:d.operacao||"",
+      hora_inicio:horaAgora(),hora_inicio_hr:horaAgora(),duracao_min:"0",duracao_min_num:0,status:"ATIVO"}));
+    return{ok:true,id:ses};},
+  async sessaoConcluir(min){okS(await supa.from("sessoes").update({status:"CONCLUIDO",hora_fim:horaAgora(),
+      hora_fim_hr:horaAgora(),duracao_min:String(min||0),duracao_min_num:min||0})
+      .eq("status","ATIVO").eq("data_dt",hojeISO()).eq("assessor",E.perfil.nome_sistema));return{ok:true};},
+  async liberarAtrasadas(a,q){const cand=okS(await supa.from("operacional").select("linha,check_,data_revisao_dt,status_tarefa")
+      .eq("assessor",a).lt("data_revisao_dt",hojeISO()).order("data_revisao_dt").limit(200))||[];
+    const alvo=cand.filter(t=>!["IMEDIATO","DIÁRIO","DIARIO"].includes(t.check_||"")&&!String(t.status_tarefa||"").includes("EM DIA")).slice(0,q||5);
+    if(alvo.length)okS(await supa.from("operacional").update({data_revisao_dt:hojeISO(),data_revisao:brData(hojeISO())})
+      .in("linha",alvo.map(t=>t.linha)));
+    return{ok:true,liberadas:alvo.length};},
+  async verComo(a){okS(await supa.from("ver_como").insert({admin_email:E.perfil.email,alvo:a}));return{ok:true};},
+  async verComoSair(){await supa.from("ver_como").update({encerrado_em:new Date().toISOString()}).is("encerrado_em",null);return{ok:true};},
+};
 const DB = MODO_SUPABASE ? S : L;
 
 // ================================================================= LOGIN
@@ -376,6 +547,7 @@ function montarMenu(){
     ["rel","&#128200;","Relatório Semanal",telaRelatorio],
     ["metrica","&#128640;","Impacto do Sistema",telaImpacto],
     ["enc","&#128193;","Casos Encerrados",telaCasos],
+    ["bill","&#128176;","Cobrança",telaCobranca],
     ["cli","&#127970;","Gestão de Clientes",telaClientes],
     ["prop","&#128203;","Propostas",telaPropostas],
     ["fix","&#128260;","Tarefas Fixas",telaFixas],
@@ -389,6 +561,8 @@ function montarMenu(){
     ["fix","&#128260;","Tarefas Fixas",telaFixas],
   ];
   E._itens=itens;
+  montarFab(vend);
+  retomarSessaoAtiva();
   const nav=ge("sb-nav"); nav.innerHTML="";
   itens.forEach(([v,ic,rot,fn])=>{const b=ce("button");b.className="ni";b.dataset.v=v;
     b.innerHTML=`<span class="ni-i">${ic}</span>${rot}`;b.onclick=()=>{fn();fecharMenu();};nav.appendChild(b);});
@@ -406,87 +580,568 @@ function erro(m){ge("conteudo").innerHTML=`<div class="vazio">&#9888; ${esc(m)}<
 function classificar(t){
   const d=diasAte(t.data_revisao_dt), st=String(t.status_tarefa||"");
   t._dias=d; t._concluida=st.includes("EM DIA"); t._delegada=st.includes("DELEGADA");
+  t._emCorrecao=!!String(t.correcao_head||"").trim();
+  t._impulso=String(t.supervisao||"").includes("IMPULSO de");
   const pf=diasAte(t.prazo_fatal_dt); t._pfDias=pf; t._prazoAlerta=(pf!==null&&pf<=5);
+  t._tempo=tempoDe(t.operacao);
+  let chk=String(t.check_||"");
+  // AGUARDANDO converte pela proximidade do prazo (regra do Code.gs)
+  if(chk==="AGUARDANDO"){
+    if(pf!==null&&pf<=5){chk="IMEDIATO";}
+    else if(d!==null&&d<=0){chk="DIÁRIO";}
+    else chk="AGUARDANDO_FUTURO";
+  }
+  t._chk=chk;
   t._atrasada=!t._concluida&&d!==null&&d<0;
   if(t._delegada)t._g=0;
-  else if(String(t.check_||"")==="IMEDIATO"&&!t._concluida)t._g=1;
-  else if(t._atrasada)t._g=2;
-  else if(!t._concluida&&(d===0||/DI[ÁA]RIO/.test(t.check_||"")))t._g=3;
+  else if(chk==="IMEDIATO"&&!t._concluida)t._g=1;
+  else if(t._atrasada&&chk!=="IMEDIATO")t._g=2;
+  else if(!t._concluida&&(d===0||/DI[ÁA]RIO/.test(chk)))t._g=3;
   else t._g=4;
   return t;
 }
-function cardTarefa(t,mostrarAssessor){
+function cardTarefa(t,mostrarAssessor,mostrarTempo){
   const ec={IMEDIATO:'<span class="tag ti">IMEDIATO</span>',"DIÁRIO":'<span class="tag td2">DIÁRIO</span>',
     DIARIO:'<span class="tag td2">DIÁRIO</span>',SEMANAL:'<span class="tag ts">SEMANAL</span>',
-    MENSAL:'<span class="tag tm">MENSAL</span>'}[t.check_]||(t.check_?`<span class="tag tm">${esc(t.check_)}</span>`:"");
-  const es=t._concluida?'<span class="tag tek">EM DIA</span>':(t._atrasada?'<span class="tag ti">ATRASADO</span>':"");
+    MENSAL:'<span class="tag tm">MENSAL</span>',AGUARDANDO:'<span class="tag tm">AGUARDANDO</span>',
+    AGUARDANDO_FUTURO:'<span class="tag tm">AGUARDANDO</span>'}[t._chk||t.check_]
+    ||(t.check_?`<span class="tag tm">${esc(t.check_)}</span>`:"");
+  const es=t._delegada?`<span class="tag" style="background:#1F4E79;color:white">${esc(t.status_tarefa)}</span>`
+    :t._concluida?'<span class="tag tek">EM DIA</span>':(t._atrasada?'<span class="tag ti">ATRASADO</span>':"");
+  const hd=t.advogada==="Danielly"?'<span class="tag tda">Danielly</span>'
+    :t.advogada==="Eduarda"?'<span class="tag" style="background:#7B2D8B;color:white">Eduarda</span>'
+    :t.advogada==="Bruna"?'<span class="tag" style="background:var(--green-lt);color:var(--green)">Bruna</span>':"";
+  const fin=t._inad?'<span class="tag ti" title="Cobrança vencida">&#128184;</span>'
+    :t._pago?'<span class="tag tek" title="Pagou este mês">&#10003;</span>'
+    :t._prov?'<span class="tag" style="background:var(--ice);color:var(--dani)" title="Provisionado no mês">&#128176;</span>':"";
   const dt=t._dias===null?"":t._atrasada?`<span class="tdy ov">${Math.abs(t._dias)}d atraso</span>`:
     (t._dias===0&&!t._concluida?`<span class="tdy ov">vence hoje</span>`:`<span class="tdy ok">rev ${brData(t.data_revisao_dt)}</span>`);
   const pf=t._prazoAlerta?`<span class="tag ti">&#9888; ${brData(t.prazo_fatal_dt)}</span>`:"";
   const ass=mostrarAssessor&&t.assessor?`<span class="tco">&#128100; ${esc(t.assessor)}</span>`:"";
+  const tmp=mostrarTempo?`<span class="tco" style="font-family:'DM Mono'">&#9201;${t._tempo}min</span>`:"";
   return `<div class="tc u${t._g||5}" onclick="abrirTarefa('${esc(t.id_tarefa)}')"><div style="flex:1;min-width:0">
-    <div class="tcc">${esc(t.cliente)}</div><div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${ec}${es}${pf}${ass}</div></div>${dt}</div>`;
+    <div class="tcc">${esc(t.cliente)}${fin}</div>
+    <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${ec}${es}${hd}${pf}${ass}${tmp}</div></div>${dt}</div>`;
+}
+// Banner de prazos fatais desta semana (clicável)
+function bannerPrazoFatal(ts){
+  const crit=ts.filter(t=>t._pfDias!==null&&t._pfDias<=7&&!t._concluida).sort((a,b)=>a._pfDias-b._pfDias);
+  if(!crit.length)return"";
+  const itens=crit.slice(0,6).map(c=>{const cor=c._pfDias<0?"#7B0000":c._pfDias<=2?"var(--red)":"var(--amber)";
+    const txt=c._pfDias<0?`venceu há ${Math.abs(c._pfDias)}d`:c._pfDias===0?"VENCE HOJE":c._pfDias===1?"vence amanhã":`em ${c._pfDias} dias`;
+    return `<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(c.id_tarefa)}')">
+      <span>${esc(c.cliente)} · ${esc(c.operacao||"")}${c.assessor?" · "+esc(c.assessor):""}</span>
+      <b style="color:${cor};white-space:nowrap">&#9888; ${txt}</b></div>`;}).join("");
+  return `<div class="painel" style="background:var(--red-lt);border-color:var(--red)">
+    <div style="font-weight:700;color:var(--red);margin-bottom:6px">&#9888; ${crit.length} tarefa(s) com prazo fatal esta semana</div>${itens}</div>`;
+}
+// Enriquecimento financeiro (badges): provisionado / pago / inadimplente
+function aplicarFinanceiro(ts){
+  const m=E._bilMap; if(!m)return;
+  ts.forEach(t=>{const c=String(t.cnpj_cpf||"").replace(/\D/g,"");const b=m[c];
+    if(b){t._prov=true;t._pago=b.pago;t._inad=b.inad;}});
+}
+async function carregarFinanceiro(){
+  if(E._bilMap)return;
+  try{const rows=await DB.cobranca();const m={};
+    rows.forEach(r=>{const c=String(r.cnpj_cpf||"").replace(/\D/g,"");if(!c)return;
+      const o=m[c]=m[c]||{pago:false,inad:false};
+      if(r.status_pgto==="PAGO")o.pago=true;if(r.status_pgto==="ATRASADO")o.inad=true;});
+    E._bilMap=m;}catch(e){E._bilMap={};}
 }
 
 // ======================================================= TELA: MINHAS
 async function telaMinhas(){
   setNav("minhas","Minhas Tarefas"); carregando();
-  let data; try{data=await DB.tarefas();}catch(e){return erro(e.message);}
-  let ts=(data||[]).map(classificar);
-  if(E.perfil.head_sim){E._todas=ts.length;ts=ts.filter(t=>ehMeuNome(t.assessor));}
-  E.tarefas=ts;
-  const vis=ts.filter(t=>t._g>=1);
-  const g={1:[],2:[],3:[],4:[]};vis.forEach(t=>{const k=(t._g===1&&t._concluida)?4:t._g;g[k].push(t);});
-  const imed=g[1].length,atr=g[2].length;
-  let h=`<div class="sg">
-    <div class="sc"><div class="sl">Minhas tarefas</div><div class="sv">${vis.length}</div></div>
-    <div class="sc"><div class="sl">Imediatas</div><div class="sv ${imed?"red":"green"}">${imed}</div></div>
-    <div class="sc"><div class="sl">Em atraso</div><div class="sv ${atr?"red":"green"}">${atr}</div></div>
-    <div class="sc"><div class="sl">Para hoje</div><div class="sv ${g[3].length?"amber":"green"}">${g[3].length}</div></div></div>`;
-  if(E.perfil.head_sim)h+=`<div class="aviso info" style="margin-bottom:10px">Como head você acessa as ${E._todas} tarefas da equipe (veja o Painel Geral). Aqui estão as suas.</div>`;
-  const rot={1:"&#128308; Imediatas",2:"&#128992; Em atraso",3:"&#128309; Para hoje",4:"&#128995; Agendadas / em dia"};
-  let algum=false;
-  [1,2,3,4].forEach(k=>{if(!g[k].length)return;algum=true;
-    h+=`<div class="grupo-t"><span>${rot[k]}</span><span class="qt">${g[k].length}</span></div>`+g[k].map(t=>cardTarefa(t)).join("");});
-  if(!algum)h+=`<div class="vazio"><div style="font-size:30px">&#127881;</div><p style="font-weight:600;margin-top:8px">Nenhuma tarefa pendente!</p></div>`;
+  let dados,reun;try{[dados,reun]=await Promise.all([DB.tarefas(),DB.reunioes()]);await carregarFinanceiro();}
+  catch(e){return erro(e.message);}
+  let ts=(dados||[]).map(classificar); aplicarFinanceiro(ts);
+  E._todasBanco=ts;
+  const minhas=ts.filter(t=>ehMeuNome(t.assessor));
+  E.tarefas=ts;  // todas visíveis (head enxerga tudo; abrirTarefa acha qualquer uma)
+  const nome=E.perfil.nome_sistema;
+  const emCorr=minhas.filter(t=>t._emCorrecao&&!t._delegada);
+  const deleg=minhas.filter(t=>t._delegada);
+  const ativas=minhas.filter(t=>!t._emCorrecao&&!t._delegada&&t.id_tarefa);
+  // reuniões de hoje
+  const hjBR=brHoje(), hjISO=hojeISO();
+  const meetings=(reun||[]).filter(r=>r.assessor===nome&&(r.data===hjBR||String(r.data_dt||"").slice(0,10)===hjISO));
+  const minReu=meetings.reduce((s,m)=>s+(parseInt(m.duracao_min_num||m.duracao_min)||30),0);
+  // capacidade (algoritmo do Code.gs)
+  const cap=capDe(nome), capDisp=Math.max(60,cap-minReu);
+  const imed=ativas.filter(t=>t._g===1), atr=ativas.filter(t=>t._g===2).sort((a,b)=>a._dias-b._dias),
+        diar=ativas.filter(t=>t._g===3&&/DI[ÁA]RIO/.test(t._chk)),
+        hoje0=ativas.filter(t=>t._g===3&&!/DI[ÁA]RIO/.test(t._chk));
+  const dow=new Date().getDay();
+  const semanal=ativas.filter(t=>t._chk==="SEMANAL"&&t._dias>0&&t._dias<=6&&(dow===1||dow===2));
+  const mensal=ativas.filter(t=>t._chk==="MENSAL"&&t._dias>0&&t._dias<=7);
+  // peso financeiro nas semanais/mensais: quem pagou vem primeiro
+  const pesoF=t=>t._pago?0:(t._prov?1:2);
+  semanal.sort((a,b)=>pesoF(a)-pesoF(b)||b._dias-a._dias);
+  mensal.sort((a,b)=>pesoF(a)-pesoF(b)||b._dias-a._dias);
+  const plano=[],jaAdd={};
+  const push1=(t,urg)=>{const k=t.id_tarefa;if(k&&jaAdd[k])return false;if(k)jaAdd[k]=true;t._urg=urg;plano.push(t);return true;};
+  imed.forEach(t=>push1(t,1));
+  diar.forEach(t=>push1(t,t._dias<0?2:3));
+  let rem=Math.max(0,capDisp-imed.reduce((s,t)=>s+t._tempo,0)-diar.reduce((s,t)=>s+t._tempo,0));
+  let nAtr=0;
+  for(const t of atr){if(rem<=0&&nAtr>=3)break;if(!push1(t,2))continue;rem-=t._tempo;nAtr++;}
+  const backlogAtr=Math.max(0,atr.length-nAtr);
+  rem=Math.max(0,rem);
+  for(const t of hoje0.concat(semanal).concat(mensal)){if(rem<=0)break;if(!push1(t,t._dias===0?3:4))continue;rem-=t._tempo;}
+  plano.sort((a,b)=>a._urg-b._urg||a._dias-b._dias);
+  const planejado=plano.reduce((s,t)=>s+t._tempo,0);
+  const pct=Math.min(100,Math.round(planejado/capDisp*100));
+  E._plano=plano;E._minhasTodas=minhas;
+  // ------- monta html
+  let h=bannerPrazoFatal(ativas);
+  const pctCor=pct>90?"var(--red)":pct>70?"var(--amber)":"var(--green)";
+  h+=`<div class="painel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+    <b style="color:var(--navy)">&#128202; Capacidade do dia</b>
+    <span style="display:flex;gap:4px">
+      <button class="btn ${E._vis!=="kanban"?"btp":"bts"} btsm" onclick="E._vis='lista';desenhaMinhas()">&#9776; Lista</button>
+      <button class="btn ${E._vis==="kanban"?"btp":"bts"} btsm" onclick="E._vis='kanban';desenhaMinhas()">&#9707; Kanban</button></span></div>
+    <div style="display:flex;align-items:center;gap:8px"><div class="cap" style="flex:1"><div style="width:${pct}%;background:${pctCor}"></div></div>
+    <b style="color:${pctCor}">${pct}%</b></div>
+    <div style="font-size:11px;color:var(--gray);margin-top:4px">&#9201; ${fmtMin(planejado)} de ${fmtMin(capDisp)} disponíveis
+      ${minReu?`· &#128197; ${fmtMin(minReu)} em reuniões`:""} · &#128203; ${ativas.length} no portfólio (mostrando ${plano.length})</div></div>`;
+  if(meetings.length)h+=`<div class="painel"><div class="bloco-t">&#128197; Compromissos hoje</div>`+
+    meetings.map(m=>`<div class="linha-item"><span><b>${esc(m.horario||"—")}</b> ${esc(m.titulo)}${m.cliente?" · "+esc(m.cliente):""}</span>
+      <span>${esc(m.duracao_min||m.duracao_min_num||30)}min <button class="btn bts btsm" onclick="removerReuniao('${esc(m.id_reuniao)}')">&#10005;</button></span></div>`).join("")+`</div>`;
+  if(emCorr.length)h+=`<div class="painel" style="background:#F5F2FC;border-color:#D9CEF0">
+    <div class="bloco-t" style="color:#6B4FBF">&#9999; ${emCorr.length} aguardando correção</div>`+
+    emCorr.map(t=>`<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')">
+      <span>${esc(t.cliente)} · ${esc(t.operacao||"")}</span>
+      <span style="color:#6B4FBF">→ ${esc(t.correcao_head)}${t.correcao_retorno_dt?" · retorno "+brData(t.correcao_retorno_dt):""}</span></div>`).join("")+`</div>`;
+  if(deleg.length)h+=`<div class="painel" style="background:#EEF3F9;border-color:#C9D8EA">
+    <div class="bloco-t" style="color:#1F4E79">&#129309; Delegadas — aguardando retorno (${deleg.length}) <span style="font-weight:400">— não contam na capacidade</span></div>`+
+    deleg.map(t=>`<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')">
+      <span>${esc(t.cliente)} · ${esc(t.operacao||"")}</span><b>${esc(t.status_tarefa)}</b></div>`).join("")+`</div>`;
+  if(backlogAtr>0)h+=`<div class="aviso info" style="margin-bottom:10px">&#128230; Backlog: ${backlogAtr} atrasada(s) fora da capacidade de hoje — entram nos próximos dias (ou a head pode liberar mais).</div>`;
+  h+=`<div class="sg">
+    <div class="sc"><div class="sl">Hoje</div><div class="sv">${plano.length}</div></div>
+    <div class="sc"><div class="sl">Imediatas</div><div class="sv ${imed.length?"red":"green"}">${imed.length}</div></div>
+    <div class="sc"><div class="sl">Em atraso</div><div class="sv ${atr.length?"red":"green"}">${atr.length}</div></div>
+    <div class="sc"><div class="sl">Capacidade</div><div class="sv" style="color:${pctCor}">${pct}%</div></div></div>`;
+  h+=`<div class="flr"><input class="si" id="mt-q" placeholder="&#128269; Filtrar por cliente..." oninput="desenhaMinhas()">
+    <select class="fsel" id="mt-u" onchange="desenhaMinhas()"><option value="">Todas</option>
+      <option value="1">&#128308; Imediatas</option><option value="2">&#128992; Atrasadas</option>
+      <option value="3">&#128309; Hoje</option></select></div>
+    <div id="mt-lista"></div>
+    <div id="mt-corrigir"></div>`;
   ge("conteudo").innerHTML=h;
+  desenhaMinhas();
+  if(E.perfil.head_sim||CORR_HEADS.includes(nome))painelParaCorrigir("mt-corrigir");
 }
+function desenhaMinhas(){
+  const alvo=ge("mt-lista");if(!alvo)return;
+  const q=(ge("mt-q")?.value||"").toLowerCase(), u=ge("mt-u")?.value||"";
+  let lista=E._plano||[];
+  if(q)lista=(E._minhasTodas||[]).filter(t=>!t._delegada&&!t._emCorrecao&&
+    (String(t.cliente||"").toLowerCase().includes(q)||String(t.operacao||"").toLowerCase().includes(q)));
+  if(u)lista=lista.filter(t=>String(t._urg||t._g)===u);
+  if(E._vis==="kanban"){alvo.innerHTML=renderKanban(lista);return;}
+  const rot={1:"&#128308; Imediatas",2:"&#128992; Urgentes / Em atraso",3:"&#128309; Para hoje",4:"&#128995; Completando capacidade"};
+  const g={1:[],2:[],3:[],4:[]};lista.forEach(t=>g[t._urg||4]?.push(t));
+  let h="";let algum=false;
+  [1,2,3,4].forEach(k=>{if(!g[k].length)return;algum=true;
+    h+=`<div class="grupo-t"><span>${rot[k]}</span><span class="qt">${g[k].length} · ~${g[k].reduce((s,t)=>s+t._tempo,0)}min</span></div>`
+      +g[k].map(t=>cardTarefa(t,false,true)).join("");});
+  alvo.innerHTML=algum?h:`<div class="vazio"><div style="font-size:30px">&#127881;</div>
+    <p style="font-weight:600;margin-top:8px">Nenhuma tarefa pendente!</p></div>`;
+}
+function renderKanban(lista){
+  const cols=[[1,"&#128308; Imediatas","#FCE4D6"],[2,"&#128992; Urgentes","#FFF2CC"],
+              [3,"&#128309; Hoje","#DBEAFE"],[4,"&#128995; Agendadas","#EDE9FE"]];
+  return `<div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:8px">`+cols.map(([k,rot,bg])=>{
+    const ct=lista.filter(t=>(t._urg||t._g)===k);
+    return `<div style="flex:0 0 260px;background:var(--gray-lt);border-radius:12px;padding:9px">
+      <div style="font-size:11px;font-weight:700;background:${bg};border-radius:6px;padding:5px 8px;margin-bottom:8px">${rot} (${ct.length})</div>
+      ${ct.map(t=>`<div class="tc u${k}" style="margin-bottom:6px" onclick="abrirTarefa('${esc(t.id_tarefa)}')">
+        <div style="flex:1;min-width:0"><div class="tcc">${esc(t.cliente)}</div>
+        <div class="tco">${esc(t.operacao||"")}</div>
+        <div class="tco" style="font-family:'DM Mono';margin-top:4px">&#9201; ~${t._tempo}min</div></div></div>`).join("")}</div>`;
+  }).join("")+`</div>`;
+}
+// Painel "Para corrigir" (heads veem todas; quem delega vê as direcionadas a si)
+async function painelParaCorrigir(alvoId){
+  const box=ge(alvoId);if(!box)return;
+  const todas=(E._todasBanco||[]).filter(t=>t._emCorrecao);
+  const meu=E.perfil.nome_sistema.toLowerCase();
+  const minhas=todas.filter(t=>String(t.correcao_head||"").toLowerCase()===meu);
+  const lista=E.perfil.head_sim?todas:minhas;
+  if(!lista.length){box.innerHTML="";return;}
+  const dias=v=>v?diasAte(String(v).slice(0,10)):99;
+  box.innerHTML=`<div class="painel" style="border-color:#D9CEF0;margin-top:14px">
+    <div class="bloco-t" style="color:#6B4FBF">&#9999; Para corrigir · ${lista.length}${E.perfil.head_sim&&minhas.length?` (${minhas.length} com você)`:""}</div>`+
+    lista.map(t=>{const d=dias(t.correcao_retorno_dt);
+      const cor=d<0?"var(--red)":d<=1?"var(--amber)":"var(--gray)";
+      const txt=d<0?"venceu":d===0?"vence hoje":d===1?"vence amanhã":"retorno "+brData(t.correcao_retorno_dt);
+      return `<div style="border-bottom:1px solid var(--gray-lt);padding:8px 0">
+        <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
+        <div style="cursor:pointer;flex:1" onclick="abrirTarefa('${esc(t.id_tarefa)}')">
+          <b style="color:var(--navy)">${esc(t.cliente)}</b> <span class="tco">${esc(t.operacao||"")} · &#128100; ${esc(t.assessor||"")}</span><br>
+          <span style="font-size:11px;color:#6B4FBF">Correção → ${esc(t.correcao_head)}</span>
+          <span style="font-size:11px;color:${cor};font-weight:600;margin-left:6px">${txt}</span></div>
+        <span style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
+          ${t.correcao_link?`<a href="${esc(t.correcao_link)}" target="_blank" style="font-size:11px;color:var(--dani)">&#128193; Pasta</a>`:""}
+          <button class="btn btp btsm" onclick="devolverCorrecao('${esc(t.id_tarefa)}',${t.linha})">&#8617; Devolver ao assessor</button></span></div>
+        ${t.correcao_justif?`<div style="font-size:11px;color:var(--gray);font-style:italic;margin-top:3px">Justificativa: ${esc(t.correcao_justif)}</div>`:""}</div>`;}).join("")+`</div>`;
+}
+async function devolverCorrecao(id,linha){
+  try{await DB.correcaoDevolver({id_tarefa:id,linha:linha,id_cliente:(E.tarefas.find(x=>x.id_tarefa===id)||{}).id_cliente});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Devolvida ao assessor (imediato)!","ok");recarregar();
+}
+async function removerReuniao(id){
+  try{await DB.reuniaoDel(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Removido","ok");recarregar();
+}
+
+// =================================================== CARD DA TAREFA
+async function abrirTarefa(id){
+  const t=E.tarefas.find(x=>x.id_tarefa===id);if(!t)return;E.atual=t;
+  ge("m-titulo").textContent=t.cliente||"";
+  ge("m-sub").innerHTML=`<span style="cursor:pointer" title="Clique para corrigir o tipo" onclick="editarOperacao()">${esc(t.operacao||"")} &#9998;</span> · ${esc(t.advogada||"")} · ${esc(t.check_||"")} · ${esc(t.assessor||"")}`;
+  ge("m-corpo").innerHTML=`<div class="carregando"><div class="spin"></div></div>`;
+  ge("modal").classList.add("aberto"); iniciarTimer();
+  try{await DB.sessaoIniciar({id_tarefa:t.id_tarefa,cliente:t.cliente,operacao:t.operacao});}catch(e){}
+  let hist=[];try{hist=await DB.historico(id);}catch(e){toast("Erro no histórico: "+e.message,"erro");}
+  E._hist=hist;desenharCard(t,hist||[]);
+}
+function desenharCard(t,hist){
+  const isHead=E.perfil.head_sim, meuNome=E.perfil.nome_sistema;
+  const vis=hist.filter(h=>h.tipo!=="TIMER");
+  const tot=hist.filter(h=>h.tipo==="TIMER").reduce((s,h)=>s+parseInt((String(h.texto||"").match(/(\d+)\s*min/)||[0,0])[1]),0);
+  const minHoje=hist.filter(h=>h.tipo==="TIMER"&&String(h.data_dt||"").slice(0,10)===hojeISO())
+    .reduce((s,h)=>s+parseInt((String(h.texto||"").match(/(\d+)\s*min/)||[0,0])[1]),0);
+  const followUps=vis.filter(en=>/follow-?up|cobrei|AGUARDANDO/i.test(en.texto||"")).length;
+  let h="";
+  if(isHead&&(tot>0||minHoje>0))h+=`<div class="painel" style="padding:8px 12px;display:flex;gap:16px">
+    <span class="bloco-t" style="margin:0">&#9201; Tempo investido</span>
+    <span style="font-size:13px">Hoje: <b>${fmtMin(minHoje)}</b></span>
+    <span style="font-size:13px">Total: <b>${fmtMin(tot)}</b></span></div>`;
+  h+=`<div class="dados">
+    ${t.cnpj_cpf?`<div>CNPJ/CPF:<br><b style="font-family:'DM Mono'">${esc(t.cnpj_cpf)}</b></div>`:""}
+    <div>Nº processo:<br><span id="proc-ver">${t.numero_processual?`<b style="font-family:'DM Mono';font-size:11px">${esc(t.numero_processual)}</b> `:""}
+      <button class="btn bts btsm" style="padding:1px 8px;font-size:10px" onclick="editarProcesso()">${t.numero_processual?"&#9998;":"+ Informar"}</button></span>
+      <span id="proc-ed" style="display:none"><input class="fsel" id="proc-in" style="width:180px;font-family:'DM Mono';font-size:11px" placeholder="0000000-00.0000..." value="${esc(t.numero_processual||"")}">
+      <button class="btn btp btsm" onclick="salvarProcesso()">&#128190;</button></span></div>
+    ${t.vara?`<div>Vara:<br><b>${esc(t.vara)}</b></div>`:""}${t.tribunal?`<div>Tribunal:<br><b>${esc(t.tribunal)}</b></div>`:""}
+    ${t.estado?`<div>Estado:<br><b>${esc(t.estado)}</b></div>`:""}
+    <div>Frequência:<br><b>${esc(t.check_||"—")}</b></div>
+    <div>Próxima revisão:<br><b>${brData(t.data_revisao_dt)||"—"}</b></div>
+    ${t.prazo_fatal_dt?`<div>Prazo fatal:<br><b style="color:${t._prazoAlerta?"var(--red)":"var(--navy)"}">${brData(t.prazo_fatal_dt)}</b></div>`:""}
+    <div>Responsável:<br><b>${esc(t.assessor||"—")}</b></div></div>
+    <div id="cli-extra" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"></div>`;
+  h+=`<div class="timerbox" style="margin-top:10px"><div><div style="font-size:10px;color:#166534;font-weight:600">&#9201; Tempo nesta sessão</div>
+    <div class="timernum" id="timer-num">0:00</div></div><div style="text-align:right">
+    <div style="font-size:11px;color:var(--gray)">${tot?"Total: "+fmtMin(tot):"Primeira sessão"}</div>
+    <button class="btn bts btsm" style="margin-top:5px" onclick="salvarTempo()">Salvar tempo</button></div></div>`;
+  if(t._impulso)h+=`<div class="painel" style="background:#EAF3EA;border-color:#BEDEBE">
+    <div style="font-size:12px;margin-bottom:7px"><b>&#129309; Este é um impulso delegado.</b> Quando terminar de verdade, finalize para devolver com o retorno ao responsável. Se for recorrente, o Concluir só fecha a rodada do dia.</div>
+    <button class="btn btp btsm" onclick="finalizarImpulso('${esc(t.id_tarefa)}')">&#128229; Finalizar impulso e devolver</button></div>`;
+  if(t.supervisao)h+=`<div class="bloco"><div class="bloco-t">Orientação da head</div>
+    <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:9px;padding:9px 12px;font-size:13px;color:#1E40AF;white-space:pre-line">${esc(t.supervisao)}</div></div>`;
+  // andamento
+  const podeDelegar=isHead||AUTORIZADOS_DELEGAR.includes(meuNome);
+  h+=`<div class="bloco"><div class="bloco-t">Adicionar andamento</div>
+    <textarea class="fta" id="nota-texto" placeholder="Descreva o andamento…"></textarea>
+    <div class="linha-acao"><button class="btn btp btsm" onclick="salvarNota('ASSESSOR')">Salvar andamento</button>
+    ${isHead?`<button class="btn bts btsm" onclick="salvarNota('SUPERVISÃO')">&#128204; Orientação (head)</button>`:""}
+    ${podeDelegar?`<button class="btn bts btsm" onclick="abrirDelegar()">&#129309; Delegar</button>`:""}
+    <button class="btn bts btsm" style="color:#6B4FBF;border-color:#6B4FBF" onclick="abrirCorrecao()">&#9999; Enviar p/ correção</button></div></div>`;
+  // redistribuir (head)
+  if(isHead){const ops=OPERACIONAIS.filter(a=>a!==t.assessor).map(a=>`<option>${a}</option>`).join("");
+    h+=`<div class="bloco"><div class="bloco-t">Redistribuir tarefa</div><div class="linha-acao">
+      <select class="fsel" id="red-ass"><option value="">— escolher assessor —</option>${ops}</select>
+      <button class="btn bts btsm" onclick="redistribuir()">&#128100; Redistribuir</button></div></div>`;}
+  // aguardando / follow-up
+  const ehAg=String(t.check_||"")==="AGUARDANDO";
+  if(ehAg){h+=`<div class="bloco"><div class="bloco-t">&#9203; Em aguardando</div>
+    <div style="background:var(--amber-lt);border:1px solid #F9C74F;border-radius:9px;padding:10px 12px">
+    <div style="font-size:12px;color:#7F6000;margin-bottom:6px">Aguardando resposta do cliente ·
+      follow-ups já feitos: <b>${followUps}</b> · próximo: <b>${brData(t.data_revisao_dt)||"—"}</b> · prazo fatal: <b>${brData(t.prazo_fatal_dt)||"—"}</b></div>
+    <div class="linha-acao"><label style="font-size:11px">Reagendar em:</label>
+      <select class="fsel" id="ag-freq">${[3,5,7,10,14].map(n=>`<option ${n===7?"selected":""} value="${n}">${n} dias</option>`).join("")}</select>
+      <button class="btn btsm" style="background:var(--amber);color:white" onclick="avancarFollowUp()">&#128260; Cobrei o cliente — agendar próximo</button></div></div></div>`;}
+  else{h+=`<div class="bloco"><div class="bloco-t">&#9203; Colocar em aguardando</div>
+    <div style="background:#EFF6FF;border-radius:9px;padding:10px 12px">
+    <div style="font-size:12px;color:var(--dani);margin-bottom:6px">Para tarefas que dependem de resposta/documento do cliente. O sistema traz de volta a cada X dias; se faltar ≤5 dias para o prazo fatal, vira IMEDIATO sozinha.</div>
+    <div class="linha-acao"><label style="font-size:11px">Cobrar a cada:</label>
+      <select class="fsel" id="ag2-freq">${[3,5,7,10,14].map(n=>`<option ${n===7?"selected":""} value="${n}">${n} dias</option>`).join("")}</select>
+      <label style="font-size:11px">Prazo fatal:</label><input type="date" class="fsel" id="ag2-fatal" value="${t.prazo_fatal_dt?String(t.prazo_fatal_dt).slice(0,10):""}">
+      <button class="btn btsm" style="background:#1F4E79;color:white" onclick="colocarAguardando()">&#9203; Aguardando c/ follow-up</button></div></div></div>`;}
+  // concluir
+  h+=`<div class="bloco"><div class="bloco-t">Atualizar / concluir</div><div class="linha-acao">
+    <label style="font-size:11px;color:var(--gray)">Frequência:</label>
+    <select class="fsel" id="conc-check">${["IMEDIATO","DIÁRIO","SEMANAL","MENSAL"].map(c=>`<option ${t.check_===c?"selected":""}>${c}</option>`).join("")}</select>
+    <label style="font-size:11px;color:var(--gray)">ou volta em:</label><input type="date" class="fsel" id="conc-data">
+    <button class="btn bts btsm" onclick="salvarFreqData()">&#128190; Salvar</button>
+    <button class="btn btg btsm" onclick="concluirTarefa()">&#10003; Concluir</button></div>
+    <div style="font-size:11px;color:var(--gray);margin-top:5px">Sem data: volta pela frequência (diária +1, semanal +7, mensal +30).</div></div>`;
+  h+=`<div class="bloco"><button class="btn btx btw" onclick="abrirEncerrar()">&#128193; Encerrar caso definitivamente</button>
+    <div style="font-size:11px;color:var(--gray);text-align:center;margin-top:4px">Vai para Casos Encerrados (reabrível pela head)</div></div>`;
+  // histórico com edição
+  h+=`<div class="bloco"><div class="bloco-t">Histórico (${vis.length})</div>`;
+  h+=vis.length?vis.map(en=>{
+    const ehHoje=String(en.data_dt||"").slice(0,10)===hojeISO();
+    const meu2=ehMeuNome(en.autor);
+    const podeEd=ehHoje&&en.tipo!=="TIMER"&&(isHead||meu2);
+    return `<div class="hentrada"><div class="hbola ${en.tipo==="SUPERVISÃO"?"sup":en.tipo==="ENCERRAMENTO"?"enc":""}"></div>
+    <div style="flex:1"><div class="hmeta"><span class="hautor">${esc(en.autor)}</span>
+    <span class="hdata">${brData(en.data_dt)||esc(en.data)}</span><span class="htipo">${esc(en.tipo||"")}</span>
+    ${podeEd?`<button class="btn bts btsm" style="padding:0 6px;font-size:10px" onclick="editarAndamento('${esc(en.id_historico)}',${en.linha})">&#9998; editar</button>`:""}</div>
+    <div class="htexto" id="hx-${en.linha}">${esc(en.texto)}</div></div></div>`;}).join("")
+    :`<p style="font-size:13px;color:var(--gray)">Sem histórico.</p>`;
+  h+=`</div>`;
+  ge("m-corpo").innerHTML=h;
+  carregarCliExtra(t);
+}
+async function carregarCliExtra(t){
+  if(!t.id_cliente)return;const box=ge("cli-extra");if(!box)return;
+  try{const cs=await DB.clientes("");const c=cs.find(x=>x.id_cliente===t.id_cliente);if(!c)return;
+    E._cliCard=c;
+    box.innerHTML=`<span class="tag" style="background:#E3F2FD;color:#1565C0;cursor:pointer" onclick="editarRegimeCard()">&#127963; Regime: ${esc(c.regime||"—")} &#9998;</span>
+      <span class="tag" style="background:var(--amber-lt);color:#7F6000;cursor:pointer" onclick="editarEcacCard()">&#128273; e-CAC: ${esc(c.e_cac||"—")} &#9998;</span>
+      <span id="bil-card"></span>`;
+    // status de cobrança do cliente no card
+    await carregarFinanceiro();
+    const cnpj=String(t.cnpj_cpf||"").replace(/\D/g,"");const b=(E._bilMap||{})[cnpj];
+    const bc=ge("bil-card");
+    if(bc)bc.innerHTML=b?(b.inad?'<span class="tag ti">&#9888; cobrança em atraso — avisar head antes de contatar</span>'
+      :b.pago?'<span class="tag tek">&#10003; pagou este mês</span>':'<span class="tag" style="background:var(--ice);color:var(--dani)">&#128176; provisionado no mês</span>')
+      :'<span class="tag tm">sem cobrança no mês</span>';
+  }catch(e){}
+}
+function editarRegimeCard(){const c=E._cliCard;if(!c)return;
+  modal2("Regime tributário",esc(c.nome),`
+    <select class="fsel" id="m2-reg" style="width:100%">${["",...REGIMES].map(r=>`<option ${c.regime===r?"selected":""}>${r}</option>`).join("")}</select>
+    <button class="btn btp btw" style="margin-top:10px" onclick="salvarRegimeCard()">&#128190; Salvar no cadastro</button>`);}
+async function salvarRegimeCard(){const c=E._cliCard;
+  try{await DB.clienteUpdate(c.id_cliente,{regime:ge("m2-reg").value});}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Regime atualizado!","ok");fecharModal2();carregarCliExtra(E.atual);}
+function editarEcacCard(){const c=E._cliCard;if(!c)return;
+  modal2("e-CAC",esc(c.nome),`
+    <input class="fi" id="m2-ecac" placeholder="Ex: 07-95, GOV, Sem acesso" value="${esc(c.e_cac||"")}">
+    <button class="btn btp btw" onclick="salvarEcacCard()">&#128190; Salvar no cadastro</button>`);}
+async function salvarEcacCard(){const c=E._cliCard;
+  try{await DB.clienteUpdate(c.id_cliente,{e_cac:ge("m2-ecac").value});}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("e-CAC atualizado!","ok");fecharModal2();carregarCliExtra(E.atual);}
+function editarOperacao(){const t=E.atual;if(!t)return;
+  modal2("Corrigir tipo de operação",esc(t.cliente),`
+    <select class="fsel" id="m2-op" style="width:100%">${OPERACOES.map(o=>`<option ${t.operacao===o?"selected":""}>${o}</option>`).join("")}</select>
+    <button class="btn btp btw" style="margin-top:10px" onclick="salvarOperacao()">&#128190; Salvar</button>`);}
+async function salvarOperacao(){const t=E.atual,v=ge("m2-op").value;
+  try{await DB.tarefaUpdate(t,{campos:{operacao:v}});}catch(e){toast("Erro: "+e.message,"erro");return;}
+  t.operacao=v;toast("Tipo corrigido!","ok");fecharModal2();abrirTarefa(t.id_tarefa);}
+function editarProcesso(){ge("proc-ver").style.display="none";ge("proc-ed").style.display="inline";}
+async function salvarProcesso(){const t=E.atual,v=(ge("proc-in").value||"").trim();
+  if(!v){toast("Informe o número.","erro");return;}
+  try{await DB.tarefaUpdate(t,{campos:{numero_processual:v},
+    hist_texto:(t.numero_processual?`✏️ Nº do processo alterado: ${t.numero_processual} → ${v}`:`✏️ Nº do processo informado: ${v}`),hist_tipo:"HISTORICO"});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  t.numero_processual=v;toast("Nº do processo salvo!","ok");abrirTarefa(t.id_tarefa);}
+async function editarAndamento(idHist,linha){
+  const el=ge("hx-"+linha);const atual=el?el.textContent:"";
+  const novo=prompt("Editar andamento (só do próprio dia):",atual);
+  if(novo===null)return;const txt=String(novo).trim();
+  if(!txt){toast("O texto não pode ficar vazio.","erro");return;}
+  if(txt===atual.trim())return;
+  try{await DB.histEditar(idHist,linha,txt);}catch(e){toast(e.message,"erro");return;}
+  toast("Andamento atualizado!","ok");abrirTarefa(E.atual.id_tarefa);}
+async function salvarNota(tipo){
+  const txt=(ge("nota-texto").value||"").trim();if(!txt){toast("Escreva algo antes.","erro");return;}
+  const t=E.atual;
+  try{await DB.nota({id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,tipo:tipo,texto:txt});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Salvo!","ok");abrirTarefa(t.id_tarefa);}
+async function salvarTempo(){
+  const min=Math.round((Date.now()-E.timerIni)/60000);
+  if(min<1){toast("Menos de 1 minuto — nada a salvar.");return;}
+  const t=E.atual;
+  try{await DB.tempo({id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,minutos:min});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast(`Tempo salvo: ${min} min`,"ok");E.timerIni=Date.now();}
+async function salvarFreqData(){
+  const t=E.atual,check=ge("conc-check").value,dm=ge("conc-data").value;
+  try{await DB.tarefaUpdate(t,{campos:{check_:check},...(dm?{data_revisao:dm}:{})});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  t.check_=check;if(dm)t.data_revisao_dt=dm;toast("Salvo!","ok");}
+async function concluirTarefa(){
+  const t=E.atual,check=ge("conc-check").value,dm=ge("conc-data").value;
+  if(String(t.operacao||"").includes("Proposta Comercial")&&
+     !confirm("✔️ Confirmação obrigatória\n\nVocê já incluiu esta proposta na aba de Propostas?\n\nOK só se já foi lançada."))
+    {toast("Lance a proposta antes de concluir.","erro");return;}
+  let prox;if(dm)prox=dm;else{const d=new Date();d.setDate(d.getDate()+(/SEMANAL/.test(check)?7:/MENSAL/.test(check)?30:1));prox=d.toISOString().slice(0,10);}
+  if(!confirm(dm?`Concluir? A tarefa volta em ${brData(dm)}.`:`Concluir? Volta sozinha pela frequência (${check}).`))return;
+  try{await DB.concluir(t,{check,proximo:prox});await DB.sessaoConcluir(Math.round((Date.now()-E.timerIni)/60000));}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Concluída!","ok");fecharModal();recarregar();}
+async function colocarAguardando(){
+  const t=E.atual,freq=parseInt(ge("ag2-freq").value)||7,fatal=ge("ag2-fatal").value;
+  const prox=new Date();prox.setDate(prox.getDate()+freq);const pISO=prox.toISOString().slice(0,10);
+  try{await DB.tarefaUpdate(t,{campos:{check_:"AGUARDANDO"},data_revisao:pISO,...(fatal?{prazo_fatal:fatal}:{}),
+    hist_texto:`Tarefa definida como AGUARDANDO. Follow-up a cada ${freq} dias. Prazo fatal: ${fatal?brData(fatal):"não definido"}. Próximo retorno: ${brData(pISO)}.`});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast(`Aguardando! Próximo follow-up em ${freq} dias.`,"ok");fecharModal();recarregar();}
+async function avancarFollowUp(){
+  const t=E.atual,freq=parseInt(ge("ag-freq").value)||7;
+  const prox=new Date();prox.setDate(prox.getDate()+freq);const pISO=prox.toISOString().slice(0,10);
+  try{await DB.tarefaUpdate(t,{campos:{check_:"AGUARDANDO"},data_revisao:pISO,
+    hist_texto:`Follow-up realizado. Próximo retorno em ${freq} dias (${brData(pISO)}).`});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Follow-up registrado! Próximo: "+brData(pISO),"ok");fecharModal();recarregar();}
+async function redistribuir(){
+  const t=E.atual,novo=ge("red-ass").value;if(!novo){toast("Escolha um assessor.","erro");return;}
+  try{await DB.tarefaUpdate(t,{campos:{assessor:novo},
+    hist_texto:`Tarefa redistribuída de ${t.assessor||"—"} para ${novo}`});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Redistribuída!","ok");fecharModal();recarregar();}
+function abrirDelegar(){const t=E.atual;
+  const ops=OPERACIONAIS.filter(a=>a!==E.perfil.nome_sistema).map(a=>`<option>${a}</option>`).join("");
+  modal2("&#129309; Delegar impulso",esc(t.cliente)+" — pedir uma ação a outro assessor",`
+    <div class="linha-acao"><select class="fsel" id="dg-para"><option value="">Para quem?</option>${ops}</select>
+    <select class="fsel" id="dg-freq"><option value="IMEDIATO">Uma vez só (imediato)</option>
+      <option value="DIÁRIO">Repetir todo dia</option><option value="SEMANAL">Toda semana</option>
+      <option value="MENSAL">Todo mês</option></select></div>
+    <div style="font-size:11px;color:var(--gray);margin:6px 0">Se repetir: a pessoa conclui a rodada do dia e a tarefa volta na frequência, até "Finalizar impulso".</div>
+    <textarea class="fta" id="dg-txt" placeholder="O que precisa ser feito? Ex: Ligar para o cartório e confirmar o protocolo..."></textarea>
+    <button class="btn btp btw" style="margin-top:8px" onclick="confirmarDelegar()">&#129309; Enviar impulso</button>`);}
+async function confirmarDelegar(){
+  const t=E.atual,para=ge("dg-para").value,txt=(ge("dg-txt").value||"").trim();
+  if(!para){toast("Escolha para quem delegar.","erro");return;}
+  if(!txt){toast("Descreva o que precisa ser feito.","erro");return;}
+  try{await DB.delegar(t,{para,descricao:txt,freq:ge("dg-freq").value});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Impulso enviado para "+para+"!","ok");fecharModal2();fecharModal();recarregar();}
+async function finalizarImpulso(id){
+  if(!confirm("Finalizar este impulso e devolver a tarefa ao responsável com o seu retorno?\n\nDica: escreva antes o último andamento com o resultado."))return;
+  try{await DB.impulsoFinalizar(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Impulso finalizado! Retorno enviado.","ok");fecharModal();recarregar();}
+function abrirCorrecao(){const t=E.atual;
+  modal2("&#9999; Enviar para correção",esc(t.cliente)+" — a tarefa continua sua; vai para revisão",`
+    <div class="bloco-t">Enviar para *</div>
+    <select class="fsel" id="cr-head" style="width:100%">${["",...CORR_HEADS.filter(x=>x!==E.perfil.nome_sistema)].map(x=>`<option>${x}</option>`).join("")}</select>
+    <div class="bloco-t" style="margin-top:10px">Link da pasta (SharePoint) *</div>
+    <input class="fi" id="cr-link" placeholder="https://...sharepoint...">
+    <div class="bloco-t">Prazo de retorno</div>
+    <div class="linha-acao"><label><input type="radio" name="cr-pz" value="3" checked onchange="ge('cr-manual').style.display='none'"> Padrão — 3 dias úteis</label>
+    <label><input type="radio" name="cr-pz" value="m" onchange="ge('cr-manual').style.display='block'"> Definir manualmente</label></div>
+    <div id="cr-manual" style="display:none;margin-top:6px">
+      <input class="fsel" id="cr-dias" type="number" min="0" max="30" value="1" style="width:80px"> dias úteis
+      <textarea class="fta" id="cr-justif" style="margin-top:6px" placeholder="Justificativa (obrigatória para prazo diferente de 3)"></textarea></div>
+    <button class="btn btp btw" style="margin-top:10px" onclick="enviarCorrecao()">&#9999; Enviar para correção</button>`);}
+function somaDiasUteis(base,n){const d=new Date(base);let add=0;
+  while(add<n){d.setDate(d.getDate()+1);const w=d.getDay();if(w!==0&&w!==6)add++;}return d;}
+async function enviarCorrecao(){
+  const t=E.atual,head=ge("cr-head").value,link=(ge("cr-link").value||"").trim();
+  if(!head){toast("Escolha quem vai corrigir.","erro");return;}
+  if(!link){toast("Cole o link da pasta.","erro");return;}
+  const manual=document.querySelector('input[name="cr-pz"]:checked').value==="m";
+  let dias=3,justif="";
+  if(manual){dias=parseInt(ge("cr-dias").value)||0;justif=(ge("cr-justif").value||"").trim();
+    if(dias!==3&&!justif){toast("Justificativa obrigatória para prazo diferente de 3 dias.","erro");return;}}
+  const ret=somaDiasUteis(new Date(),dias).toISOString().slice(0,10);
+  try{await DB.correcaoEnviar(t,{head,link,justificativa:justif,retorno:ret});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Enviada para correção! Retorno "+brData(ret),"ok");fecharModal2();fecharModal();recarregar();}
+function abrirEncerrar(){const t=E.atual;
+  modal2("&#128193; Encerrar: "+esc(t.cliente),"Esta ação move para Casos Encerrados",`
+    <div class="bloco-t">Motivo *</div>
+    <select class="fsel" id="en-mot" style="width:100%">${["CONCLUÍDO","RENÚNCIA","PREJUDICADO","CANCELADO","MONITORAMENTO"].map(m=>`<option>${m}</option>`).join("")}</select>
+    <div class="bloco-t" style="margin-top:8px">Resultado judicial / desfecho</div>
+    <select class="fsel" id="en-res" style="width:100%"><option value=""></option>${["JF - Deferido","JF - Deferido parcial","JF - Indeferido","Regularizado","Negociação concluída","Prescrição reconhecida","Desistência","Outro"].map(m=>`<option>${m}</option>`).join("")}</select>
+    <div class="bloco-t" style="margin-top:8px">Nota de encerramento</div>
+    <textarea class="fta" id="en-nota" placeholder="O que foi entregue ao cliente? Resultado final..."></textarea>
+    <div class="linha-acao" style="margin-top:10px"><button class="btn btr" onclick="fazerEncerrar()">&#128193; Confirmar encerramento</button>
+    <button class="btn bts" onclick="fecharModal2()">Cancelar</button></div>`);}
+async function fazerEncerrar(){
+  const t=E.atual;
+  try{await DB.encerrar(t,{motivo:ge("en-mot").value,resultado:ge("en-res").value,nota:ge("en-nota").value});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Caso encerrado!","ok");fecharModal2();fecharModal();recarregar();}
+// -------- timer + modais base
+function iniciarTimer(){E.timerIni=Date.now();clearInterval(E.timerInt);
+  E.timerInt=setInterval(()=>{const s=Math.floor((Date.now()-E.timerIni)/1000);const el=ge("timer-num");
+    if(el)el.textContent=Math.floor(s/60)+":"+String(s%60).padStart(2,"0");},1000);}
+function fecharModal(){
+  clearInterval(E.timerInt);
+  const n=ge("nota-texto");if(n&&n.value.trim()&&!confirm("Há texto não salvo. Fechar mesmo assim?"))return;
+  const min=E.timerIni?Math.round((Date.now()-E.timerIni)/60000):0;
+  if(E.atual){DB.sessaoConcluir(min).catch(()=>{});
+    if(min>=1&&E.atual)DB.tempo({id_tarefa:E.atual.id_tarefa,id_cliente:E.atual.id_cliente,minutos:min}).catch(()=>{});}
+  ge("modal").classList.remove("aberto");E.atual=null;E.timerIni=null;}
+function modal2(titulo,sub,corpo){ge("m2-titulo").innerHTML=titulo;ge("m2-sub").innerHTML=sub;
+  ge("m2-corpo").innerHTML=corpo;ge("modal2").classList.add("aberto");}
+function fecharModal2(){ge("modal2").classList.remove("aberto");}
+ge("modal").addEventListener("click",ev=>{if(ev.target===ge("modal"))fecharModal();});
+ge("modal2").addEventListener("click",ev=>{if(ev.target===ge("modal2"))fecharModal2();});
 
 // ======================================================= TELA: PAINEL (head)
 async function telaPainel(){
   setNav("painel","Painel Geral"); carregando();
-  let data; try{data=await DB.tarefas();}catch(e){return erro(e.message);}
-  const ts=(data||[]).map(classificar); E.tarefas=ts;
-  const at=ts.filter(t=>t.id_tarefa);
-  const total=at.length, atr=at.filter(t=>t._atrasada).length,
-    imed=at.filter(t=>t._g===1).length, emDia=total-atr;
-  const porHead={Danielly:0,Bruna:0,Eduarda:0}, porAss={};
+  let data,ses;try{[data,ses]=await Promise.all([DB.tarefas(),DB.sessoesHoje()]);await carregarFinanceiro();}
+  catch(e){return erro(e.message);}
+  const ts=(data||[]).map(classificar);aplicarFinanceiro(ts);E.tarefas=ts;E._todasBanco=ts;
+  const at=ts.filter(t=>t.id_tarefa&&!t._delegada&&!t._emCorrecao);
+  const total=at.length,atr=at.filter(t=>t._atrasada).length,imed=at.filter(t=>t._g===1).length;
+  const porHead={Danielly:0,Bruna:0,Eduarda:0},porAss={};
   at.forEach(t=>{if(porHead[t.advogada]!==undefined)porHead[t.advogada]++;
     if(t.assessor)porAss[t.assessor]=(porAss[t.assessor]||0)+1;});
-  const ae=Object.entries(porAss).sort((a,b)=>b[1]-a[1]);
-  const mx=ae.length?ae[0][1]:1;
-  let h=`<div class="sg">
+  const ae=Object.entries(porAss).sort((a,b)=>b[1]-a[1]);const mx=ae.length?ae[0][1]:1;
+  // alerta de dia zerado + inatividade (sessões)
+  let alerta="";
+  const zerados=OPERACIONAIS.filter(n=>{
+    const dele=ts.filter(t=>t.assessor===n&&!t._delegada&&!t._emCorrecao);
+    const pend=dele.filter(t=>t._g>=1&&t._g<=3&&!t._concluida);
+    const atrFila=dele.filter(t=>t._atrasada).length;
+    return dele.length>0&&pend.length===0&&atrFila>0?atrFila:0;});
+  OPERACIONAIS.forEach(n=>{
+    const dele=ts.filter(t=>t.assessor===n&&!t._delegada&&!t._emCorrecao);
+    const pendHoje=dele.filter(t=>(t._g===1||t._g===3||(t._g===2))&&!t._concluida).length;
+    const naFila=dele.filter(t=>t._atrasada).length;
+    if(dele.length>0&&pendHoje===0&&naFila>0)
+      alerta+=`<div class="linha-item"><span>&#127881; <b>${esc(n)}</b> zerou o dia · ${naFila} atrasada(s) na fila</span>
+        <button class="btn btp btsm" onclick="liberarMais('${esc(n)}')">+ Liberar 5 atrasadas</button></div>`;});
+  // inatividade (dias úteis, depois das 9h): sem sessão há 2h+
+  const agora=new Date();let inativos="";
+  if(agora.getDay()>0&&agora.getDay()<6&&agora.getHours()>=9){
+    OPERACIONAIS.forEach(n=>{
+      const dele=(ses||[]).filter(s=>loginDe(s.assessor)===n);
+      if(!dele.length){inativos+=`<div class="linha-item"><b>${esc(n)}</b><span>sem atividade registrada hoje</span></div>`;return;}
+      let ult=0;dele.forEach(s=>{const m=String(s.status==="ATIVO"?s.hora_inicio:s.hora_fim||s.hora_inicio||"").match(/(\d{1,2}):(\d{2})/);
+        if(m){const v=(+m[1])*60+(+m[2]);if(v>ult)ult=v;}});
+      const agoraMin=agora.getHours()*60+agora.getMinutes();
+      if(ult&&agoraMin-ult>=120)inativos+=`<div class="linha-item"><b>${esc(n)}</b><span>inativo há ${fmtMin(agoraMin-ult)}</span></div>`;});
+  }
+  let h="";
+  if(alerta)h+=`<div class="painel" style="background:var(--green-lt);border-color:var(--green)">
+    <div class="bloco-t" style="color:var(--green)">Dia zerado</div>${alerta}</div>`;
+  if(inativos)h+=`<div class="painel" style="background:var(--amber-lt);border-color:var(--amber)">
+    <div class="bloco-t" style="color:#7F5200">&#9888; Sem atividade registrada</div>${inativos}</div>`;
+  h+=bannerPrazoFatal(at);
+  h+=`<div class="sg">
     <div class="sc"><div class="sl">Total</div><div class="sv">${total}</div></div>
-    <div class="sc"><div class="sl">Em dia</div><div class="sv green">${emDia}</div></div>
+    <div class="sc"><div class="sl">Em dia</div><div class="sv green">${total-atr}</div></div>
     <div class="sc"><div class="sl">Atrasadas</div><div class="sv ${atr?"red":"green"}">${atr}</div></div>
     <div class="sc"><div class="sl">Imediatas</div><div class="sv ${imed?"amber":"green"}">${imed}</div></div>
     <div class="sc"><div class="sl">Danielly</div><div class="sv">${porHead.Danielly}</div></div>
     <div class="sc"><div class="sl">Bruna</div><div class="sv">${porHead.Bruna}</div></div>
     <div class="sc"><div class="sl">Eduarda</div><div class="sv">${porHead.Eduarda}</div></div></div>`;
   h+=`<div class="painel"><div class="bloco-t">Carga por assessor</div>`+
-    ae.map(([n,c])=>{const pct=Math.round(c/mx*100),cor=c>150?"var(--red)":c>100?"var(--amber)":"var(--navy)";
-      return `<div class="barra"><span class="nm">${esc(n)}</span><div class="tk"><div class="fl" style="width:${pct}%;background:${cor}"></div></div><span class="vl" style="color:${cor}">${c}</span></div>`;}).join("")+`</div>`;
-  h+=`<div class="flr">
-    <input class="si" id="pf-q" placeholder="&#128269; Buscar cliente..." oninput="filtraPainel()">
+    ae.map(([n,c])=>{const p=Math.round(c/mx*100),cor=c>150?"var(--red)":c>100?"var(--amber)":"var(--navy)";
+      return `<div class="barra"><span class="nm">${esc(n)}</span><div class="tk"><div class="fl" style="width:${p}%;background:${cor}"></div></div><span class="vl" style="color:${cor}">${c}</span></div>`;}).join("")+`</div>`;
+  h+=`<div class="flr"><input class="si" id="pf-q" placeholder="&#128269; Buscar cliente..." oninput="filtraPainel()">
     <select class="fsel" id="pf-ass" onchange="filtraPainel()"><option value="">Todos assessores</option>${ae.map(([n])=>`<option>${esc(n)}</option>`).join("")}</select>
     <select class="fsel" id="pf-st" onchange="filtraPainel()"><option value="">Todos status</option><option value="atr">Em atraso</option><option value="imed">Imediatas</option><option value="dia">Em dia</option></select>
     <select class="fsel" id="pf-hd" onchange="filtraPainel()"><option value="">Todas heads</option><option>Danielly</option><option>Bruna</option><option>Eduarda</option></select></div>
-    <div id="pf-lista"></div>`;
-  ge("conteudo").innerHTML=h; filtraPainel();
+    <div id="pf-lista"></div><div id="pf-corrigir"></div>`;
+  ge("conteudo").innerHTML=h;filtraPainel();painelParaCorrigir("pf-corrigir");
 }
 function filtraPainel(){
   const q=(ge("pf-q").value||"").toLowerCase(),a=ge("pf-ass").value,st=ge("pf-st").value,hd=ge("pf-hd").value;
-  let f=E.tarefas.filter(t=>t.id_tarefa);
+  let f=E.tarefas.filter(t=>t.id_tarefa&&!t._delegada&&!t._emCorrecao);
   if(q)f=f.filter(t=>String(t.cliente||"").toLowerCase().includes(q));
   if(a)f=f.filter(t=>t.assessor===a);
   if(hd)f=f.filter(t=>t.advogada===hd);
@@ -494,91 +1149,119 @@ function filtraPainel(){
   if(st==="imed")f=f.filter(t=>t._g===1);
   if(st==="dia")f=f.filter(t=>!t._atrasada);
   f.sort((x,y)=>(x._dias??9999)-(y._dias??9999));
-  ge("pf-lista").innerHTML=f.length?f.slice(0,150).map(t=>cardTarefa(t,true)).join(""):`<div class="vazio">Nenhuma tarefa.</div>`;
+  ge("pf-lista").innerHTML=f.length?f.slice(0,150).map(t=>cardTarefa(t,true)).join("")
+    +(f.length>150?`<div class="vazio">… e mais ${f.length-150} (use os filtros)</div>`:"")
+    :`<div class="vazio">Nenhuma tarefa.</div>`;
 }
-
-// =================================================== TELA: POR ASSESSOR (head)
+async function liberarMais(assessor){
+  try{const r=await DB.liberarAtrasadas(assessor,5);
+    toast(r.liberadas+" tarefa(s) liberada(s) para "+assessor+"!","ok");}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  telaPainel();
+}
+// =================================================== TELA: POR ASSESSOR
 async function telaPorAssessor(){
   setNav("assessor","Por Assessor"); carregando();
-  let data; try{data=await DB.tarefas();}catch(e){return erro(e.message);}
-  const ts=(data||[]).map(classificar); E.tarefas=ts;
-  const grp={}; ts.filter(t=>t.id_tarefa).forEach(t=>{const a=t.assessor||"(sem assessor)";(grp[a]=grp[a]||[]).push(t);});
+  let data;try{data=await DB.tarefas();}catch(e){return erro(e.message);}
+  const ts=(data||[]).map(classificar);E.tarefas=ts;
+  const grp={};ts.filter(t=>t.id_tarefa).forEach(t=>{const a=t.assessor||"(sem assessor)";(grp[a]=grp[a]||[]).push(t);});
   const ord=Object.entries(grp).sort((a,b)=>b[1].length-a[1].length);
-  let h=ord.map(([n,lista])=>{const atr=lista.filter(t=>t._atrasada).length;
+  ge("conteudo").innerHTML=ord.map(([n,lista])=>{const atr=lista.filter(t=>t._atrasada).length;
     return `<details class="det" open><summary><span style="flex:1;font-weight:700;color:var(--navy)">${esc(n)}</span>
       <span class="tag ${atr?"ti":"tek"}">${lista.length} tarefas · ${atr} atrasadas</span></summary>
-      <div style="padding:8px 12px 12px">${lista.slice(0,50).map(t=>cardTarefa(t)).join("")}</div></details>`;}).join("");
-  ge("conteudo").innerHTML=h||`<div class="vazio">Sem tarefas.</div>`;
+      <div style="padding:8px 12px 12px">${lista.slice(0,60).map(t=>cardTarefa(t)).join("")}</div></details>`;}).join("")
+    ||`<div class="vazio">Sem tarefas.</div>`;
 }
-
 // =================================================== TELA: DIÁRIO (head)
 async function telaDiario(){
   setNav("diario","Acompanhamento Diário"); carregando();
-  let hist,ops; try{[hist,ops]=await Promise.all([DB.historicoHoje(),DB.tarefas()]);}catch(e){return erro(e.message);}
-  const mapaTarefa={}; (ops||[]).forEach(t=>{if(t.id_tarefa)mapaTarefa[t.id_tarefa]=t;});
+  let hist,ops;try{[hist,ops]=await Promise.all([DB.historicoHoje(),DB.tarefas()]);}catch(e){return erro(e.message);}
+  const ts=(ops||[]).map(classificar);E.tarefas=ts;
+  const mapa={};ts.forEach(t=>{if(t.id_tarefa)mapa[t.id_tarefa]=t;});
+  // painel de delegações ativas + movimentações de hoje
+  const delegAtivas=ts.filter(t=>t._impulso);
+  const movHoje=(hist||[]).filter(r=>/Impulso delegado|Retorno do impulso/.test(r.texto||""));
+  let h="";
+  if(delegAtivas.length||movHoje.length){
+    h+=`<div class="painel" style="background:#EEF3F9;border-color:#C9D8EA">
+      <div class="bloco-t" style="color:#1F4E79">&#129309; Delegações de impulso</div>`;
+    if(delegAtivas.length){h+=`<div style="font-size:12px;font-weight:700;margin-bottom:4px">Ativas agora (${delegAtivas.length})</div>`;
+      delegAtivas.forEach(a=>{const de=(String(a.supervisao||"").match(/IMPULSO de\s*([^|]+)\|/)||[])[1]||"?";
+        const ped=(String(a.supervisao||"").match(/Pedido:\s*([\s\S]+)$/)||[])[1]||"";
+        h+=`<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(a.id_tarefa)}')">
+          <span><b>${esc(de.trim())}</b> → <b>${esc(a.assessor)}</b> · ${esc(a.cliente)} · ${esc(a.check_||"")}<br>
+          <span style="color:var(--gray);font-size:11px">${esc(ped.slice(0,110))}</span></span></div>`;});}
+    if(movHoje.length){h+=`<div style="font-size:12px;font-weight:700;margin:8px 0 4px">Movimentações de hoje (${movHoje.length})</div>`;
+      movHoje.forEach(m=>{h+=`<div style="font-size:12px;padding:2px 0">${esc(m.autor)}: ${esc(String(m.texto||"").slice(0,130))}</div>`;});}
+    h+=`</div>`;}
   const por={};
-  (hist||[]).forEach(r=>{const a=loginDe(r.autor);if(!a||a==="Sistema")return;
+  (hist||[]).forEach(r=>{const a=loginDe(r.autor);if(!a||a==="Sistema"||a==="Migração")return;
     const o=por[a]=por[a]||{upd:0,min:0,tarefas:{}};
-    if(r.tipo==="TIMER"){const m=parseInt((String(r.texto||"").match(/(\d+)\s*min/)||[0,0])[1]);o.min+=m;
-      const k=r.id_tarefa||"—";(o.tarefas[k]=o.tarefas[k]||{cliente:"",op:"",min:0,and:[]}).min+=m;}
-    else{o.upd++;const k=r.id_tarefa||"—";const t=o.tarefas[k]=o.tarefas[k]||{cliente:"",op:"",min:0,and:[]};
-      if(r.texto)t.and.push(r.texto);}
-    Object.keys(o.tarefas).forEach(k=>{const t=mapaTarefa[k];if(t){o.tarefas[k].cliente=t.cliente;o.tarefas[k].op=t.operacao||"";}});});
+    const k=r.id_tarefa||"—";
+    const trf=o.tarefas[k]=o.tarefas[k]||{cliente:"",op:"",min:0,and:[]};
+    if(r.tipo==="TIMER"){const m=parseInt((String(r.texto||"").match(/(\d+)\s*min/)||[0,0])[1]);o.min+=m;trf.min+=m;}
+    else if(r.tipo!=="HISTORICO"){o.upd++;if(r.texto)trf.and.push({tipo:r.tipo,texto:r.texto});}
+    const mt=mapa[k];if(mt){trf.cliente=mt.cliente;trf.op=mt.operacao||"";}
+    else if(String(k).includes("FIX"))trf.cliente="📌 Tarefa fixa";
+    else if(k==="REUNIAO")trf.cliente="📅 Reunião";
+    else if(k==="AVULSA")trf.cliente="⏱️ Atividade";});
   const lista=Object.entries(por).sort((a,b)=>b[1].upd-a[1].upd);
-  if(!lista.length){ge("conteudo").innerHTML=`<div class="vazio"><div style="font-size:28px">&#9200;</div><p>Sem atividade registrada hoje ainda.</p></div>`;return;}
-  const mx=lista[0][1].upd||1;
-  ge("conteudo").innerHTML=`<div class="painel" style="margin-bottom:10px"><div class="bloco-t">Hoje — ${new Date().toLocaleDateString("pt-BR",{day:"numeric",month:"long"})}</div></div>`+
-    lista.map(([nome,d])=>{const nc=nomeCompletoDe(nome);
-    const tar=Object.values(d.tarefas).sort((a,b)=>b.min-a.min).map(t=>
-      `<div class="linha-item"><span>${esc(t.cliente||"Tarefa")}${t.op?" · "+esc(t.op):""}${t.and.length?` <span style="color:var(--gray)">(${t.and.length} andamento(s))</span>`:""}</span>${t.min?`<b>${t.min}min</b>`:""}</div>`).join("");
-    return `<div class="painel"><div style="display:flex;justify-content:space-between;margin-bottom:8px">
+  if(!lista.length&&!h){ge("conteudo").innerHTML=`<div class="vazio"><div style="font-size:28px">&#9200;</div><p>Sem atividade registrada hoje ainda.</p></div>`;return;}
+  const mx=Math.max(1,...lista.map(([,d])=>d.upd));
+  h+=lista.map(([nome,d],di)=>{const nc=nomeCompletoDe(nome);
+    const tar=Object.entries(d.tarefas).map(([tid,t],ti)=>{
+      const temAnd=t.and.length>0;
+      const and=temAnd?`<div id="and-${di}-${ti}" style="display:none;margin:4px 0 6px 14px;padding:8px 12px;background:var(--ice);border-radius:8px;border-left:3px solid var(--dani)">
+        ${t.and.map(a=>`<div style="font-size:12px;margin-bottom:4px"><span class="htipo">${esc(a.tipo)}</span> ${esc(a.texto)}</div>`).join("")}</div>`:"";
+      return `<div class="linha-item" ${temAnd?`style="cursor:pointer" onclick="ge('and-${di}-${ti}').style.display=ge('and-${di}-${ti}').style.display==='none'?'block':'none'"`:""}>
+        <span>${temAnd?"&#9656; ":""}${esc(t.cliente||"Tarefa "+tid)}${t.op?" · "+esc(t.op):""}${temAnd?` <span style="color:var(--dani);font-size:11px">ver ${t.and.length}</span>`:""}</span>
+        ${t.min?`<b>${t.min}min</b>`:""}</div>${and}`;}).join("");
+    return `<div class="painel"><div style="display:flex;justify-content:space-between;margin-bottom:6px">
       <span style="font-weight:700;color:var(--navy)">${esc(nome)}${nc?` <span style="font-weight:400;color:var(--gray);font-size:12px">(${esc(nc)})</span>`:""}</span>
       <span style="font-size:12px;color:var(--gray)">${d.upd} atualizações · ${fmtMin(d.min)}</span></div>
       <div class="cap"><div style="width:${Math.round(d.upd/mx*100)}%;background:var(--navy)"></div></div>${tar}</div>`;}).join("");
+  ge("conteudo").innerHTML=h;
 }
-function loginDe(autor){if(!autor)return"";const a=String(autor).toLowerCase();
-  for(const m of E.equipe){if(String(m.nome_sistema).toLowerCase()===a||String(m.nome_completo||"").toLowerCase()===a||primeiroNome(m.nome_completo).toLowerCase()===a)return m.nome_sistema;}
-  return autor;}
 
 // =================================================== TELA: CAPACIDADE (head)
 async function telaCapacidade(){
   setNav("cap","Capacidade da Equipe"); carregando();
-  let ops,hist,reu; try{[ops,hist,reu]=await Promise.all([DB.tarefas(),DB.historicoHoje(),DB.reunioes()]);}catch(e){return erro(e.message);}
-  const hojeBRs=brHoje();
-  const linhas=OPERACIONAIS.map(nome=>{
+  let ops,hist,reu;try{[ops,hist,reu]=await Promise.all([DB.tarefas(),DB.historicoHoje(),DB.reunioes()]);}catch(e){return erro(e.message);}
+  const hjBR=brHoje(),hjISO=hojeISO();
+  const linhasCap=OPERACIONAIS.map(nome=>{
     const minhas=(ops||[]).filter(t=>t.id_tarefa&&String(t.assessor||"").toLowerCase()===nome.toLowerCase());
     const imed=minhas.filter(t=>String(t.check_||"")==="IMEDIATO").length;
     const min=(hist||[]).filter(r=>r.tipo==="TIMER"&&loginDe(r.autor)===nome)
       .reduce((s,r)=>s+parseInt((String(r.texto||"").match(/(\d+)\s*min/)||[0,0])[1]),0);
     const upd=(hist||[]).filter(r=>r.tipo!=="TIMER"&&loginDe(r.autor)===nome).length;
-    const reunioes=(reu||[]).filter(r=>r.assessor===nome&&(brData(r.data_dt)===brData(hojeISO())||r.data===hojeBRs));
+    const reunioes=(reu||[]).filter(r=>r.assessor===nome&&(r.data===hjBR||String(r.data_dt||"").slice(0,10)===hjISO));
     const minReu=reunioes.reduce((s,r)=>s+(parseInt(r.duracao_min_num||r.duracao_min)||30),0);
-    const cap=capDe(nome), pct=Math.min(100,Math.round((min+minReu)/cap*100));
-    return {nome,portfolio:minhas.length,imed,min,upd,minReu,cap,pct};
+    const cap=capDe(nome),pct=Math.min(100,Math.round((min+minReu)/cap*100));
+    const mediaTarefa=20, capDia=Math.min(Math.floor((cap-minReu)/mediaTarefa),10);
+    return{nome,portfolio:minhas.length,imed,min,upd,minReu,cap,pct,capDia,reunioes};
   }).sort((a,b)=>b.pct-a.pct);
-  ge("conteudo").innerHTML=`<div class="painel" style="margin-bottom:10px"><div class="bloco-t">Capacidade de hoje (minutos trabalhados vs. carga do dia)</div></div>`+
-    linhas.map(p=>{const cor=p.pct>90?"var(--red)":p.pct>70?"var(--amber)":"var(--green)";
+  ge("conteudo").innerHTML=linhasCap.map(p=>{const cor=p.pct>90?"var(--red)":p.pct>70?"var(--amber)":"var(--green)";
     return `<div class="painel"><div style="display:flex;justify-content:space-between;margin-bottom:4px">
       <span style="font-weight:700;color:var(--navy)">${esc(p.nome)}</span>
       <span style="font-weight:700;color:${cor}">${p.pct}% <span style="font-weight:400;color:var(--gray);font-size:11px">de ${fmtMin(p.cap)}</span></span></div>
       <div class="cap"><div style="width:${p.pct}%;background:${cor}"></div></div>
-      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:6px;font-size:11px;color:var(--gray)">
-        <span>&#128203; ${p.portfolio} no portfólio</span><span style="color:var(--red)">&#128308; ${p.imed} imediatas</span>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:6px;font-size:11px;color:var(--gray)">
+        <span>&#128203; ${p.portfolio} portfólio</span><span style="color:var(--red)">&#128308; ${p.imed} imediatas</span>
         <span style="color:var(--green)">&#9201; ${fmtMin(p.min)} trabalhado</span><span>&#128221; ${p.upd} atualizações</span>
-        ${p.minReu?`<span>&#128197; ${fmtMin(p.minReu)} reuniões</span>`:""}</div></div>`;}).join("");
+        <span>cap/dia ~${p.capDia} tarefas</span>${p.minReu?`<span>&#128197; ${fmtMin(p.minReu)} reuniões</span>`:""}</div>
+      ${p.reunioes.length?p.reunioes.map(r=>`<div class="linha-item"><span>&#128197; ${esc(r.horario||"?")} ${esc(r.titulo)}</span><span>${esc(r.duracao_min||30)}min</span></div>`).join(""):""}</div>`;}).join("");
 }
-
-// =================================================== TELA: EM ANDAMENTO (head)
+// =================================================== TELA: EM ANDAMENTO
 async function telaAgora(){
   setNav("agora","Em Andamento Agora"); carregando();
-  let ses; try{ses=await DB.sessoesHoje();}catch(e){return erro(e.message);}
+  let ses;try{ses=await DB.sessoesHoje();}catch(e){return erro(e.message);}
   const por={};(ses||[]).forEach(s=>{const a=loginDe(s.assessor);(por[a]=por[a]||{ativo:null,feitas:[]});
     if(String(s.status||"")==="ATIVO")por[a].ativo=s;else por[a].feitas.push(s);});
   const agora=new Date();
   const cards=OPERACIONAIS.map(nome=>{const d=por[nome]||{ativo:null,feitas:[]};const a=d.ativo;
-    let dur="—"; if(a&&a.hora_inicio){const m=String(a.hora_inicio).match(/(\d{1,2}):(\d{2})/);
+    let dur="—";if(a&&a.hora_inicio){const m=String(a.hora_inicio).match(/(\d{1,2}):(\d{2})/);
       if(m){const ini=new Date();ini.setHours(+m[1],+m[2],0,0);let mn=Math.round((agora-ini)/60000);if(mn<0)mn=0;dur=fmtMin(mn);}}
-    const feitasMin=d.feitas.reduce((s,x)=>s+(parseInt(x.duracao_min_num||x.duracao_min)||0),0);
+    const fMin=d.feitas.reduce((s,x)=>s+(parseInt(x.duracao_min_num||x.duracao_min)||0),0);
     return `<div class="painel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
       <span style="font-weight:700;color:var(--navy)">${esc(nome)}</span>
       <span class="tag ${a?"tek":"tm"}">${a?"● Ativo":"○ Inativo"}</span></div>
@@ -586,22 +1269,110 @@ async function telaAgora(){
         <div style="font-family:'DM Mono';font-size:16px;font-weight:700;color:var(--navy);margin-top:4px">&#9201; ${dur}</div>
         <div style="font-size:10px;color:var(--gray)">início ${esc(a.hora_inicio||"")}</div>`
         :`<div style="font-size:12px;color:var(--gray)">Nenhuma tarefa em execução</div>`}
-      ${d.feitas.length?`<div style="font-size:11px;color:var(--green);margin-top:7px;border-top:1px solid var(--gray-lt);padding-top:6px">&#10003; ${d.feitas.length} concluída(s) hoje · ${fmtMin(feitasMin)}</div>`:""}</div>`;}).join("");
+      ${d.feitas.length?`<div style="font-size:11px;color:var(--green);margin-top:7px;border-top:1px solid var(--gray-lt);padding-top:6px">&#10003; ${d.feitas.length} sessão(ões) · ${fmtMin(fMin)}</div>`:""}</div>`;}).join("");
   ge("conteudo").innerHTML=`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px">${cards}</div>
     <div style="text-align:right;margin-top:10px;font-size:11px;color:var(--gray)">Atualizado ${agora.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</div>`;
 }
-
+// =================================================== TELA: PREVISÃO (head)
+async function telaPrevisao(){
+  setNav("prev","Previsão Mensal"); carregando();
+  let ops;try{ops=await DB.tarefas();}catch(e){return erro(e.message);}
+  const ts=(ops||[]).map(classificar).filter(t=>t.id_tarefa&&!t._delegada);E.tarefas=ts;
+  const hoje=new Date();hoje.setHours(0,0,0,0);
+  const ano=hoje.getFullYear(),mes=hoje.getMonth();
+  const porDia={},chave=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  // 1) tarefas com data futura DENTRO do mês ficam no dia delas
+  const semData=[];
+  ts.forEach(t=>{const dt=t.data_revisao_dt?new Date(t.data_revisao_dt+"T00:00:00"):null;
+    if(dt&&dt>=hoje&&dt.getMonth()===mes&&dt.getFullYear()===ano)
+      (porDia[chave(dt)]=porDia[chave(dt)]||[]).push({t,tipo:"agendado"});
+    else if(!t._concluida)semData.push(t);});
+  // 2) sem data / atrasadas: distribui pelos dias úteis respeitando o teto por assessor
+  const capDiaDe=n=>Math.min(Math.floor(capDe(n)/20),10);
+  const diasUteis=[];const dLoop=new Date(hoje);
+  while(dLoop.getMonth()===mes){const w=dLoop.getDay();if(w!==0&&w!==6)diasUteis.push(chave(dLoop));dLoop.setDate(dLoop.getDate()+1);}
+  const usoDia={};Object.entries(porDia).forEach(([k,l])=>{l.forEach(({t})=>{const a=t.assessor||"?";usoDia[k+a]=(usoDia[k+a]||0)+1;});});
+  let foraMes=0;
+  semData.sort((a,b)=>(a._g-b._g)||((a._dias??9)-(b._dias??9)));
+  semData.forEach(t=>{const a=t.assessor||"?";const teto=capDiaDe(a);
+    for(const k of diasUteis){if((usoDia[k+a]||0)<teto){(porDia[k]=porDia[k]||[]).push({t,tipo:"estimado"});usoDia[k+a]=(usoDia[k+a]||0)+1;return;}}
+    foraMes++;});
+  E._prevDias=porDia;
+  const prim=new Date(ano,mes,1),ini=(prim.getDay()+6)%7,nd=new Date(ano,mes+1,0).getDate();
+  const nomeMes=hoje.toLocaleDateString("pt-BR",{month:"long",year:"numeric"});
+  let cel=["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"].map(d=>`<div style="text-align:center;font-size:10px;font-weight:700;color:var(--gray);padding:4px">${d}</div>`).join("");
+  for(let b=0;b<ini;b++)cel+=`<div class="cald fora"></div>`;
+  for(let dia=1;dia<=nd;dia++){const k=`${ano}-${String(mes+1).padStart(2,"0")}-${String(dia).padStart(2,"0")}`;
+    const lst=porDia[k]||[],ehHoje=dia===hoje.getDate();
+    cel+=`<div class="cald ${ehHoje?"hoje":""}" onclick="verDia('${k}')">
+      <div style="font-weight:700;font-size:12px;color:${ehHoje?"var(--dani)":"var(--text)"}">${dia}${ehHoje?' <span style="font-size:8px;background:var(--dani);color:white;border-radius:8px;padding:0 4px">HOJE</span>':""}</div>
+      ${lst.slice(0,4).map(({t,tipo})=>`<div class="calpin" style="${tipo==="estimado"?"opacity:.65;border-left-style:dashed":""}">${esc(primeiroNome(t.assessor))} · ${esc(String(t.cliente||"").split(" ")[0])}</div>`).join("")}
+      ${lst.length>4?`<div style="color:var(--dani);font-weight:700;margin-top:2px">+${lst.length-4}</div>`:""}</div>`;}
+  ge("conteudo").innerHTML=`<div class="painel"><div style="font-weight:700;color:var(--navy);text-transform:capitalize">${nomeMes}</div>
+    <div style="font-size:11px;color:var(--gray)">Cheio = data definida · tracejado = estimado pela capacidade · clique num dia para detalhes${foraMes?` · ${foraMes} além do mês`:""}</div></div>
+    <div class="calgrid">${cel}</div>`;
+}
+async function verDia(k){
+  const lst=(E._prevDias||{})[k]||[];const d=k.split("-");
+  ge("m-titulo").textContent=`${d[2]}/${d[1]}/${d[0]}`;
+  ge("m-sub").textContent=`${lst.length} tarefa(s) prevista(s)`;
+  let h=lst.length?lst.map(({t,tipo})=>cardTarefa(t,true)+(tipo==="estimado"?"":"")).join(""):`<div class="vazio">Nada previsto.</div>`;
+  h+=`<div id="dia-feito" style="margin-top:12px"></div>`;
+  ge("m-corpo").innerHTML=h;ge("modal").classList.add("aberto");
+  clearInterval(E.timerInt);E.atual=null;E.timerIni=null;
+  // dia de hoje/passado: mostra o que FOI feito
+  if(k<=hojeISO()){const box=ge("dia-feito");box.innerHTML=`<div class="carregando"><div class="spin"></div></div>`;
+    try{const hist=await DB.historicoDia(k);
+      const por={};(hist||[]).forEach(r=>{const a=loginDe(r.autor);if(!a||a==="Sistema")return;
+        (por[a]=por[a]||[]).push(r);});
+      const ents=Object.entries(por);
+      box.innerHTML=ents.length?`<div class="bloco-t" style="color:var(--dani)">&#10003; O que foi feito neste dia</div>`+
+        ents.map(([n,rs])=>`<div class="painel" style="padding:9px 12px"><b style="color:var(--navy)">${esc(n)}</b> — ${rs.length} registro(s)
+          ${rs.filter(r=>r.tipo!=="TIMER").slice(0,8).map(r=>`<div style="font-size:12px;color:#555;margin-top:3px">• ${esc(String(r.texto||"").slice(0,120))}</div>`).join("")}</div>`).join("")
+        :`<div style="font-size:12px;color:var(--gray)">Nenhum andamento registrado neste dia.</div>`;}
+    catch(e){box.innerHTML="";}}
+}
 // =================================================== TELA: RELATÓRIO (head)
 async function telaRelatorio(){
   setNav("rel","Relatório Semanal"); carregando();
-  let hist; try{hist=await DB.historicoPeriodo(7);}catch(e){return erro(e.message);}
-  const por={}; OPERACIONAIS.forEach(n=>por[n]={tarefas:new Set(),min:0,and:0,follow:0});
+  let hist,ops,props,casos;
+  try{[hist,ops,props,casos]=await Promise.all([DB.historicoPeriodo(7),DB.tarefas(),DB.propostas(),DB.casos()]);}
+  catch(e){return erro(e.message);}
+  const ts=(ops||[]).map(classificar);
+  const ini=new Date();ini.setDate(ini.getDate()-6);ini.setHours(0,0,0,0);
+  const naSemana=d=>{if(!d)return false;const x=new Date(String(d).slice(0,10)+"T00:00:00");return x>=ini;};
+  // indicadores gerais
+  const concl=ts.filter(t=>t._concluida).length,
+    atras=ts.filter(t=>t._atrasada&&!t._delegada&&!t._emCorrecao).length,
+    imed=ts.filter(t=>t._g===1).length,
+    pf7=ts.filter(t=>t._pfDias!==null&&t._pfDias>=0&&t._pfDias<=7).length,
+    corr=ts.filter(t=>t._emCorrecao).length,
+    encSem=(casos||[]).filter(c=>naSemana(c.data_encerramento_dt)).length,
+    propLanc=(props||[]).filter(p=>naSemana(p.data_proposta_dt)).length,
+    propAc=(props||[]).filter(p=>p.status==="Aceita"&&naSemana(p.data_proposta_dt)),
+    propRua=(props||[]).filter(p=>["Enviada","Em análise","Em negociação","Aguardando cliente"].includes(p.status)).length,
+    valAc=propAc.reduce((s,p)=>s+(parseFloat(p.valor_num)||0),0);
+  const cardI=(ic,l,v,cor)=>`<div class="sc"><div class="sl">${ic} ${l}</div><div class="sv pq" style="color:${cor||"var(--navy)"}">${v}</div></div>`;
+  let h=`<div class="painel" style="padding:8px 12px"><b>Período: ${ini.toLocaleDateString("pt-BR")} a ${new Date().toLocaleDateString("pt-BR")}</b></div>`;
+  h+=`<div class="bloco-t">Produtividade da semana</div><div class="sg">
+    ${cardI("&#10003;","Concluídas",concl,"var(--green)")}${cardI("&#128193;","Casos encerrados",encSem,"var(--green)")}
+    ${cardI("&#9999;","Aguardando correção",corr,"#6B4FBF")}</div>`;
+  h+=`<div class="bloco-t">Situação atual</div><div class="sg">
+    ${cardI("&#128203;","Tarefas ativas",ts.filter(t=>t.id_tarefa).length)}
+    ${cardI("&#128308;","Atrasadas",atras,atras?"var(--red)":"var(--green)")}
+    ${cardI("&#128992;","Imediatas",imed,imed?"var(--amber)":"var(--green)")}
+    ${cardI("&#9888;","Prazo fatal (7d)",pf7,pf7?"var(--red)":"var(--green)")}</div>`;
+  h+=`<div class="bloco-t">Propostas comerciais</div><div class="sg">
+    ${cardI("&#128203;","Lançadas",propLanc)}${cardI("&#10003;","Aceitas",propAc.length,"var(--green)")}
+    ${cardI("&#128176;","Valor fechado","R$ "+valAc.toLocaleString("pt-BR",{minimumFractionDigits:2}),"var(--green)")}
+    ${cardI("&#9203;","Na rua",propRua,"var(--amber)")}</div>`;
+  // por assessor
+  const por={};OPERACIONAIS.forEach(n=>por[n]={tarefas:new Set(),min:0,and:0,follow:0});
   (hist||[]).forEach(r=>{const a=loginDe(r.autor);if(!por[a])return;const o=por[a];
     if(r.id_tarefa)o.tarefas.add(r.id_tarefa);
     if(r.tipo==="TIMER")o.min+=parseInt((String(r.texto||"").match(/(\d+)\s*min/)||[0,0])[1]);
-    else{o.and++;if(/follow-?up/i.test(r.texto||""))o.follow++;}});
-  const ini=new Date();ini.setDate(ini.getDate()-6);
-  ge("conteudo").innerHTML=`<div class="painel" style="margin-bottom:10px"><div class="bloco-t">Período: ${ini.toLocaleDateString("pt-BR")} a ${new Date().toLocaleDateString("pt-BR")}</div></div>
+    else{o.and++;if(/follow-?up|cobrei/i.test(r.texto||""))o.follow++;}});
+  h+=`<div class="bloco-t">Produtividade por assessor</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px">`+
     OPERACIONAIS.map(n=>{const d=por[n];return `<div class="painel">
       <div style="font-weight:700;color:var(--navy);margin-bottom:8px">${esc(n)}</div>
@@ -609,402 +1380,746 @@ async function telaRelatorio(){
         <div class="sc" style="text-align:center"><div class="sv pq">${d.tarefas.size}</div><div class="sl">tarefas</div></div>
         <div class="sc" style="text-align:center"><div class="sv pq green">${fmtMin(d.min)}</div><div class="sl">tempo</div></div>
         <div class="sc" style="text-align:center"><div class="sv pq">${d.and}</div><div class="sl">andamentos</div></div>
-        <div class="sc" style="text-align:center"><div class="sv pq amber">${d.follow}</div><div class="sl">follow-ups</div></div>
-      </div></div>`;}).join("")+`</div>`;
+        <div class="sc" style="text-align:center"><div class="sv pq amber">${d.follow}</div><div class="sl">follow-ups</div></div></div></div>`;}).join("")+`</div>`;
+  ge("conteudo").innerHTML=h;
 }
-
 // =================================================== TELA: IMPACTO (head)
 async function telaImpacto(){
   setNav("metrica","Impacto do Sistema"); carregando();
   let ops,hist,casos,snap;
-  try{[ops,hist,casos,snap]=await Promise.all([DB.tarefas(),DB.historicoPeriodo(400),DB.casos(),DB.snapshot()]);}catch(e){return erro(e.message);}
+  try{[ops,hist,casos,snap]=await Promise.all([DB.tarefas(),DB.historicoPeriodo(400),DB.casos(),DB.snapshot()]);}
+  catch(e){return erro(e.message);}
   const ts=(ops||[]).map(classificar).filter(t=>t.id_tarefa);
   const total=ts.length,atr=ts.filter(t=>t._atrasada).length,emDia=total-atr;
   const pct=total?Math.round(emDia/total*100):0;
   const andamentos=(hist||[]).filter(r=>["ASSESSOR","SUPERVISÃO","CORRECAO"].includes(r.tipo)).length;
   const trab=new Set((hist||[]).filter(r=>r.id_tarefa).map(r=>r.id_tarefa)).size;
-  const encFuturo=(casos||[]).length;
   const snap0=(snap||[])[0];
   let h=`<div class="painel" style="background:var(--navy);color:white;border:none">
-    <div style="font-size:13px;opacity:.85">Retrato de hoje</div>
-    <div style="font-size:22px;font-weight:800;margin-top:2px">${new Date().toLocaleDateString("pt-BR")}</div></div>
+    <div style="font-size:13px;opacity:.85">Desde o início do uso</div>
+    <div style="font-size:22px;font-weight:800;margin-top:2px">até ${new Date().toLocaleDateString("pt-BR")}</div></div>
     <div class="sg">
       <div class="sc"><div class="sl">Andamentos registrados</div><div class="sv">${andamentos}</div></div>
       <div class="sc"><div class="sl">Tarefas trabalhadas</div><div class="sv">${trab}</div></div>
-      <div class="sc"><div class="sl">Casos encerrados</div><div class="sv green">${encFuturo}</div></div></div>
+      <div class="sc"><div class="sl">Casos encerrados</div><div class="sv green">${(casos||[]).length}</div></div></div>
     <div class="painel"><div class="bloco-t">Situação atual das tarefas ativas</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
         <div class="sc" style="text-align:center"><div class="sv green" style="font-size:34px">${emDia}</div><div class="sl">em dia</div></div>
         <div class="sc" style="text-align:center"><div class="sv red" style="font-size:34px">${atr}</div><div class="sl">atrasadas</div></div></div>
-      <div class="cap" style="height:24px"><div style="width:${pct}%;background:var(--green);display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:12px">${pct}% em dia</div></div>
-      <div style="font-size:12px;color:var(--gray);margin-top:8px">${total} tarefas ativas no total.</div></div>`;
-  if(snap0)h+=`<div class="painel"><div class="bloco-t">Primeiro retrato guardado (${esc(snap0.data)})</div>
-    <div style="font-size:13px">No início: <b>${esc(snap0.atrasadas)}</b> atrasadas · hoje: <b>${atr}</b> atrasadas.</div></div>`;
+      <div class="cap" style="height:24px"><div style="width:${pct}%;background:var(--green);display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:12px">${pct}% em dia</div></div></div>`;
+  if(snap0)h+=`<div class="painel"><div class="bloco-t">Evolução desde o 1º retrato (${esc(snap0.data)})</div>
+    <div style="font-size:13px">Início: <b>${esc(snap0.atrasadas)}</b> atrasadas · hoje: <b>${atr}</b>.
+    ${parseInt(snap0.atrasadas)>atr?`<b style="color:var(--green)">✓ Redução de ${parseInt(snap0.atrasadas)-atr}!</b>`:""}</div></div>`;
+  h+=`<div class="painel" style="background:var(--dani);color:white;border:none">
+    <div style="font-size:11px;text-transform:uppercase;font-weight:700;opacity:.9">Resumo para apresentação</div>
+    <div style="font-size:15px;margin-top:6px;line-height:1.5">A equipe registrou <b>${andamentos} andamentos</b> em <b>${trab} tarefas</b> e encerrou <b>${(casos||[]).length} casos</b>. Hoje, <b>${pct}% das tarefas estão em dia</b>.</div></div>`;
   ge("conteudo").innerHTML=h;
 }
-
-// =================================================== TELA: PREVISÃO (head)
-async function telaPrevisao(){
-  setNav("prev","Previsão Mensal"); carregando();
-  let ops; try{ops=await DB.tarefas();}catch(e){return erro(e.message);}
-  const ts=(ops||[]).map(classificar).filter(t=>t.id_tarefa);
-  const hoje=new Date();hoje.setHours(0,0,0,0);
-  const ano=hoje.getFullYear(),mes=hoje.getMonth();
-  const porDia={};
-  ts.forEach(t=>{if(!t.data_revisao_dt)return;const d=new Date(t.data_revisao_dt+"T00:00:00");
-    if(d.getFullYear()!==ano||d.getMonth()!==mes)return;const k=t.data_revisao_dt.slice(0,10);(porDia[k]=porDia[k]||[]).push(t);});
-  const prim=new Date(ano,mes,1),ini=(prim.getDay()+6)%7,ndias=new Date(ano,mes+1,0).getDate();
-  const nomeMes=hoje.toLocaleDateString("pt-BR",{month:"long",year:"numeric"});
-  let cel="";
-  const dias=["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"];
-  cel+=dias.map(d=>`<div style="text-align:center;font-size:10px;font-weight:700;color:var(--gray);padding:4px">${d}</div>`).join("");
-  for(let b=0;b<ini;b++)cel+=`<div class="cald fora"></div>`;
-  for(let dia=1;dia<=ndias;dia++){const k=`${ano}-${String(mes+1).padStart(2,"0")}-${String(dia).padStart(2,"0")}`;
-    const lista=porDia[k]||[],ehHoje=(dia===hoje.getDate());
-    cel+=`<div class="cald ${ehHoje?"hoje":""}" onclick="verDia('${k}')">
-      <div style="font-weight:700;font-size:12px;color:${ehHoje?"var(--dani)":"var(--text)"}">${dia}</div>
-      ${lista.slice(0,4).map(t=>`<div class="calpin">${esc(primeiroNome(t.assessor))} · ${esc(String(t.cliente||"").split(" ")[0])}</div>`).join("")}
-      ${lista.length>4?`<div style="color:var(--dani);font-weight:700;margin-top:2px">+${lista.length-4}</div>`:""}</div>`;}
-  E._prevDias=porDia;
-  ge("conteudo").innerHTML=`<div class="painel" style="margin-bottom:10px"><div style="font-weight:700;color:var(--navy);text-transform:capitalize">${nomeMes}</div>
-    <div style="font-size:12px;color:var(--gray)">Tarefas posicionadas pela data de revisão. Clique num dia para ver tudo.</div></div>
-    <div class="calgrid">${cel}</div>`;
-}
-function verDia(k){const lista=(E._prevDias||{})[k]||[];const d=k.split("-");
-  ge("m-titulo").textContent=`${d[2]}/${d[1]}/${d[0]}`;ge("m-sub").textContent=`${lista.length} tarefa(s) prevista(s)`;
-  ge("m-corpo").innerHTML=lista.length?lista.map(t=>cardTarefa(t,true)).join(""):`<div class="vazio">Nada previsto.</div>`;
-  ge("modal").classList.add("aberto");
-}
-
 // =================================================== TELA: CASOS (head)
 async function telaCasos(){
   setNav("enc","Casos Encerrados"); carregando();
-  let casos; try{casos=await DB.casos();}catch(e){return erro(e.message);}
+  let casos;try{casos=await DB.casos();}catch(e){return erro(e.message);}
   E._casos=casos||[];
   const st={};["CONCLUÍDO","RENÚNCIA","PREJUDICADO","CANCELADO","MONITORAMENTO"].forEach(m=>st[m]=E._casos.filter(c=>c.motivo===m).length);
-  let h=`<div class="sg">
+  ge("conteudo").innerHTML=`<div class="sg">
     <div class="sc"><div class="sl">Total</div><div class="sv">${E._casos.length}</div></div>
     <div class="sc"><div class="sl">Concluídos</div><div class="sv green">${st["CONCLUÍDO"]||0}</div></div>
     <div class="sc"><div class="sl">Prejudicados</div><div class="sv amber">${st["PREJUDICADO"]||0}</div></div>
+    <div class="sc"><div class="sl">Renúncias</div><div class="sv">${st["RENÚNCIA"]||0}</div></div>
     <div class="sc"><div class="sl">Cancelados</div><div class="sv red">${st["CANCELADO"]||0}</div></div></div>
     <div class="flr"><input class="si" id="cs-q" placeholder="&#128269; Buscar cliente..." oninput="filtraCasos()">
     <select class="fsel" id="cs-m" onchange="filtraCasos()"><option value="">Todos motivos</option>
-      ${["CONCLUÍDO","RENÚNCIA","PREJUDICADO","CANCELADO","MONITORAMENTO"].map(m=>`<option>${m}</option>`).join("")}</select></div>
+      ${["CONCLUÍDO","RENÚNCIA","PREJUDICADO","CANCELADO","MONITORAMENTO","EM ANDAMENTO"].map(m=>`<option>${m}</option>`).join("")}</select>
+    <select class="fsel" id="cs-h" onchange="filtraCasos()"><option value="">Todas heads</option><option>Danielly</option><option>Bruna</option><option>Eduarda</option></select>
+    <select class="fsel" id="cs-o" onchange="filtraCasos()"><option value="dd">Mais recentes</option><option value="da">Mais antigos</option><option value="na">Empresa A-Z</option></select></div>
     <div id="cs-lista"></div>`;
-  ge("conteudo").innerHTML=h; filtraCasos();
+  filtraCasos();
 }
 function filtraCasos(){
-  const q=(ge("cs-q").value||"").toLowerCase(),m=ge("cs-m").value;
-  let f=E._casos.filter(c=>(!q||String(c.cliente||"").toLowerCase().includes(q))&&(!m||c.motivo===m));
-  ge("cs-lista").innerHTML=f.length?f.slice(0,300).map(c=>`<div class="painel" style="padding:12px 14px">
+  const q=(ge("cs-q").value||"").toLowerCase(),m=ge("cs-m").value,hd=ge("cs-h").value,o=ge("cs-o").value;
+  let f=E._casos.filter(c=>(!q||String(c.cliente||"").toLowerCase().includes(q)||String(c.cnpj_cpf||"").includes(q))
+    &&(!m||c.motivo===m)&&(!hd||c.head===hd));
+  if(o==="da")f=f.slice().reverse();
+  if(o==="na")f=f.slice().sort((a,b)=>String(a.cliente||"").localeCompare(String(b.cliente||"")));
+  ge("cs-lista").innerHTML=(f.length?`<p style="font-size:12px;color:var(--gray);margin-bottom:8px">${f.length} caso(s)</p>`:"")+
+    (f.length?f.slice(0,500).map(c=>`<div class="painel" style="padding:12px 14px">
     <div style="display:flex;justify-content:space-between;gap:8px">
       <div style="flex:1;min-width:0"><div style="font-weight:700;color:var(--navy)">${esc(c.cliente)}</div>
-        <div style="font-size:11px;color:var(--gray)">${esc(c.operacao||"")} · &#128100; ${esc(c.assessor||"—")} · ${esc(c.head||"")}</div></div>
+        <div style="font-size:11px;color:var(--gray)">${esc(c.operacao||"")} · &#128100; ${esc(c.assessor||"—")} · ${esc(c.head||"")}${c.id_tarefa_origem?" · origem "+esc(c.id_tarefa_origem):""}</div></div>
       <div style="text-align:right"><span class="tag tm">${esc(c.motivo||"")}</span>
         ${c.data_encerramento_dt?`<div style="font-size:10px;color:var(--gray);margin-top:3px">enc ${brData(c.data_encerramento_dt)}</div>`:""}</div></div>
-    ${c.nota_final?`<div style="font-size:12px;color:var(--gray);margin-top:6px;font-style:italic">"${esc(c.nota_final)}"</div>`:""}
-    <div class="linha-acao"><button class="btn bts btsm" onclick='verCaso(${JSON.stringify(c.id_encerrado)})'>&#128220; Histórico</button>
-      ${E.perfil.head_sim?`<button class="btn bts btsm" onclick='abrirReabrir(${JSON.stringify(c.id_encerrado)})'>&#128260; Reabrir</button>`:""}</div></div>`).join("")
-    :`<div class="vazio">Nenhum caso.</div>`;
+    ${c.resultado_judicial?`<div style="font-size:11px;font-weight:600;color:var(--navy);margin-top:5px">&#128737; ${esc(c.resultado_judicial)}</div>`:""}
+    ${c.nota_final?`<div style="font-size:12px;color:var(--gray);margin-top:5px;font-style:italic">"${esc(c.nota_final)}"</div>`:""}
+    <div class="linha-acao"><button class="btn bts btsm" onclick='verCaso(${JSON.stringify(c.id_encerrado)},${c.linha})'>&#128220; Histórico</button>
+      ${E.perfil.head_sim?`<button class="btn bts btsm" onclick='abrirReabrir(${JSON.stringify(c.id_encerrado)},${c.linha})'>&#128260; Reabrir</button>`:""}</div></div>`).join("")
+    :`<div class="vazio">Nenhum caso.</div>`);
 }
-function verCaso(id){const c=E._casos.find(x=>x.id_encerrado===id);if(!c)return;
+function verCaso(id,linha){const c=E._casos.find(x=>x.id_encerrado===id&&x.linha===linha);if(!c)return;
   ge("m-titulo").textContent=c.cliente;ge("m-sub").textContent="Caso encerrado · "+(c.motivo||"");
-  const linhas=String(c.historico||"").split("\n").filter(Boolean);
+  const ls=String(c.historico||"").split("\n").filter(Boolean);
   ge("m-corpo").innerHTML=`${c.nota_final?`<div class="bloco"><div class="bloco-t">Nota de encerramento</div><div style="background:var(--ice);border-radius:9px;padding:9px 12px;font-size:13px">${esc(c.nota_final)}</div></div>`:""}
-    <div class="bloco-t">Histórico (${linhas.length})</div>
-    ${linhas.length?linhas.map(l=>`<div class="hentrada"><div class="hbola enc"></div><div class="htexto">${esc(l)}</div></div>`).join(""):`<div class="vazio">Sem histórico.</div>`}`;
-  ge("modal").classList.add("aberto");
-}
-function abrirReabrir(id){const c=E._casos.find(x=>x.id_encerrado===id);if(!c)return;
-  ge("m-titulo").textContent="Reabrir: "+c.cliente;ge("m-sub").textContent="Volta ao operacional ativo";
-  ge("m-corpo").innerHTML=`<div class="bloco"><div class="bloco-t">Frequência</div>
-    <select class="fsel" id="rb-check">${["IMEDIATO","DIÁRIO","SEMANAL","MENSAL"].map(x=>`<option>${x}</option>`).join("")}</select></div>
-    <div class="bloco"><div class="bloco-t">Data de retorno</div><input type="date" class="fsel" id="rb-data" value="${hojeISO()}"></div>
-    <button class="btn btp btw" onclick='fazerReabrir(${JSON.stringify(id)},${c.linha})'>&#128260; Reabrir caso</button>`;
-  ge("modal").classList.add("aberto");
-}
+    <div class="bloco-t">Histórico (${ls.length})</div>
+    ${ls.length?ls.map(l=>`<div class="hentrada"><div class="hbola enc"></div><div class="htexto">${esc(l)}</div></div>`).join(""):`<div class="vazio">Sem histórico.</div>`}`;
+  ge("modal").classList.add("aberto");clearInterval(E.timerInt);E.atual=null;E.timerIni=null;}
+function abrirReabrir(id,linha){
+  modal2("&#128260; Reabrir caso","Volta ao operacional ativo",`
+    <div class="bloco-t">Frequência</div>
+    <select class="fsel" id="rb-check" style="width:100%">${["IMEDIATO","DIÁRIO","SEMANAL","MENSAL"].map(x=>`<option>${x}</option>`).join("")}</select>
+    <div class="bloco-t" style="margin-top:8px">Data de retorno</div><input type="date" class="fsel" id="rb-data" value="${hojeISO()}" style="width:100%">
+    <button class="btn btp btw" style="margin-top:10px" onclick='fazerReabrir(${JSON.stringify(id)},${linha})'>&#128260; Reabrir caso</button>`);}
 async function fazerReabrir(id,linha){
-  const check=ge("rb-check").value,data=ge("rb-data").value||hojeISO();
-  try{await DB.reabrir({id_encerrado:id,linha,check,proximo:data,id_nova_tarefa:idNovo("OP-R")});}
+  try{await DB.reabrir({id_encerrado:id,linha:linha,check:ge("rb-check").value,proximo:ge("rb-data").value||hojeISO()});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
-  toast("Caso reaberto!","ok");fecharModal();telaCasos();
-}
+  toast("Caso reaberto!","ok");fecharModal2();fecharModal();telaCasos();}
 
-// =================================================== TELA: CLIENTES
+// =================================================== TELA: CLIENTES (completa)
 async function telaClientes(){
   setNav("cli",E.perfil.head_sim?"Gestão de Clientes":"Buscar Clientes"); carregando();
-  ge("conteudo").innerHTML=`<div class="flr"><input class="si" id="cl-q" placeholder="&#128269; Nome, CNPJ ou ID — digite para filtrar"></div>
-    <div id="cl-lista"><div class="carregando"><div class="spin"></div></div></div>`;
-  ge("cl-q").addEventListener("input",debounce(()=>buscarClientes(ge("cl-q").value),250));
-  buscarClientes("");
+  E._fSit="TODOS";E._fReg="TODOS";E._fAtivo="TODOS";E._clPag=0;
+  let cs,ops;try{[cs,ops]=await Promise.all([DB.clientes(""),DB.tarefas()]);}catch(e){return erro(e.message);}
+  E._clsTodos=cs||[];E._cli={};E._clsTodos.forEach(c=>E._cli[c.id_cliente]=c);
+  E._temTarefa={};(ops||[]).forEach(t=>{if(t.id_cliente&&t.id_tarefa)E._temTarefa[t.id_cliente]=true;});
+  E.tarefas=(ops||[]).map(classificar);
+  const pill=(grupo,val,rot)=>`<button class="btn ${E["_f"+grupo]===val?"btp":"bts"} btsm" onclick="E._f${grupo}='${val}';E._clPag=0;desenhaClientes()">${rot}</button>`;
+  ge("conteudo").innerHTML=`
+    <div class="painel">
+      <div class="flr" style="margin-bottom:8px"><input class="si" id="cl-q" placeholder="&#128269; Nome, CNPJ ou ID — filtra na hora" oninput="E._clPag=0;desenhaClientes()"></div>
+      <div class="linha-acao" id="cl-pills"></div></div>
+    <div class="linha-acao" style="margin-bottom:10px">
+      <button class="btn btp btsm" id="tabcli" onclick="modoClientes('cli')">&#128101; Por Cliente</button>
+      <button class="btn bts btsm" id="tabop" onclick="modoClientes('op')">&#128203; Por Tipo de Operação</button></div>
+    <div id="cl-oparea" style="display:none" class="painel">
+      <div style="font-size:12px;color:var(--gray);margin-bottom:6px">Todas as tarefas <b>em andamento</b> de um tipo:</div>
+      <div class="linha-acao"><select class="fsel" id="cl-opsel" style="flex:1" onchange="buscaPorOperacao()">
+        <option value="">Escolha o tipo de operação...</option>${OPERACOES.map(o=>`<option>${esc(o)}</option>`).join("")}</select></div></div>
+    <div id="cl-lista"></div>`;
+  desenhaPills();desenhaClientes();
 }
-let _dt; function debounce(fn,ms){return(...a)=>{clearTimeout(_dt);_dt=setTimeout(()=>fn(...a),ms);};}
-async function buscarClientes(q){
-  let cs; try{cs=await DB.clientes(q);}catch(e){ge("cl-lista").innerHTML=`<div class="vazio">${esc(e.message)}</div>`;return;}
-  E._cli={};(cs||[]).forEach(c=>E._cli[c.id_cliente]=c);
-  ge("cl-lista").innerHTML=`<div style="font-size:12px;color:var(--gray);margin-bottom:8px">${cs.length} cliente(s)</div>`+
-    (cs||[]).slice(0,200).map(c=>`<details class="det"><summary>
-      <div style="flex:1"><div style="font-weight:700;color:var(--navy)">${esc(c.nome)}</div>
-      <div style="font-size:11px;color:var(--gray)">${esc(c.cnpj_cpf||"")} · ${esc(c.head||"—")}${c.vertical?" · "+esc(c.vertical):""}${c.situacao?` · ${esc(c.situacao)}`:""}</div></div>
+function desenhaPills(){
+  const p=ge("cl-pills");if(!p)return;
+  p.innerHTML=`
+    <span style="font-size:11px;color:var(--gray)">Situação:</span>
+    ${[["TODOS","Todos"],["OFICIAL","&#10003; Clientes"],["PROSPECCAO","&#128270; Prospecção"]].map(([v,r])=>
+      `<button class="btn ${E._fSit===v?"btp":"bts"} btsm" onclick="E._fSit='${v}';E._clPag=0;desenhaClientes();desenhaPills()">${r}</button>`).join("")}
+    <select class="fsel" onchange="E._fReg=this.value;E._clPag=0;desenhaClientes()">
+      <option value="TODOS">Regime: todos</option><option value="CONFIRMAR">&#9888; Para confirmar</option>
+      <option value="SIMPLES">Simples/MEI</option><option value="PR">Presumido/Real</option><option value="SEM">Sem regime</option></select>
+    <select class="fsel" onchange="E._fAtivo=this.value;E._clPag=0;desenhaClientes()">
+      <option value="TODOS">Tarefas: todas</option><option value="SEM">&#10060; Sem tarefa ativa</option>
+      <option value="COM">&#10003; Com tarefa ativa</option></select>`;
+}
+function modoClientes(m){
+  ge("tabcli").className="btn "+(m==="cli"?"btp":"bts")+" btsm";
+  ge("tabop").className="btn "+(m==="op"?"btp":"bts")+" btsm";
+  ge("cl-oparea").style.display=m==="op"?"block":"none";
+  if(m==="cli")desenhaClientes();
+  else ge("cl-lista").innerHTML=`<div class="vazio">Escolha um tipo de operação acima.</div>`;
+}
+function buscaPorOperacao(){
+  const op=ge("cl-opsel").value;if(!op)return;
+  const alvo=op.toLowerCase();
+  const f=(E.tarefas||[]).filter(t=>t.id_tarefa&&String(t.operacao||"").toLowerCase().includes(alvo))
+    .sort((a,b)=>(a._dias??9999)-(b._dias??9999));
+  ge("cl-lista").innerHTML=`<p style="font-size:12px;color:var(--gray);margin-bottom:8px">${f.length} tarefa(s) de "${esc(op)}" em andamento</p>`
+    +(f.length?f.map(t=>cardTarefa(t,true)).join(""):`<div class="vazio">Nenhuma.</div>`);
+}
+function filtroCliente(c){
+  if(E._fSit==="OFICIAL"&&String(c.situacao||"")==="PROSPECCAO")return false;
+  if(E._fSit==="PROSPECCAO"&&String(c.situacao||"")!=="PROSPECCAO")return false;
+  const rg=String(c.regime||"").toUpperCase();
+  if(E._fReg==="CONFIRMAR"&&!rg.includes("CONFIRMAR")&&!rg.includes("⚠"))return false;
+  if(E._fReg==="SIMPLES"&&rg!=="SIMPLES NACIONAL"&&rg!=="MEI")return false;
+  if(E._fReg==="PR"&&!(rg.includes("PRESUMIDO")||rg.includes("REAL"))||(E._fReg==="PR"&&rg.includes("⚠")))return false;
+  if(E._fReg==="SEM"&&rg!=="")return false;
+  if(E._fAtivo==="SEM"&&E._temTarefa[c.id_cliente])return false;
+  if(E._fAtivo==="COM"&&!E._temTarefa[c.id_cliente])return false;
+  return true;
+}
+function desenhaClientes(){
+  const alvo=ge("cl-lista");if(!alvo)return;
+  const q=(ge("cl-q")?.value||"").trim();
+  let f=(q?filtraLocalClientes(E._clsTodos,q):E._clsTodos).filter(filtroCliente);
+  const PAG=60,fim=Math.min((E._clPag+1)*PAG,f.length);
+  const tag=c=>c.situacao==="PROSPECCAO"?'<span class="tag td2">&#128270; PROSPECÇÃO</span>'
+    :'<span class="tag tek">&#10003; CLIENTE</span>';
+  alvo.innerHTML=`<p style="font-size:12px;color:var(--gray);margin-bottom:8px">${f.length} de ${E._clsTodos.length} cliente(s)</p>`+
+    f.slice(0,fim).map(c=>`<details class="det" id="cd-${esc(c.id_cliente)}"><summary onclick="prepCliente('${esc(c.id_cliente)}')">
+      <div style="flex:1;min-width:0"><div style="font-weight:700;color:var(--navy)">${esc(c.nome)} ${tag(c)}
+        ${E._temTarefa[c.id_cliente]?'<span class="tag tek">com tarefa</span>':'<span class="tag ti">sem tarefa ativa</span>'}</div>
+      <div style="font-size:11px;color:var(--gray)">${esc(c.cnpj_cpf||"")} · ${esc(c.head||"—")}${c.vertical?" · "+esc(c.vertical):""}${c.regime?" · "+esc(c.regime):""}</div></div>
       ${c.head?`<span class="tag tda">${esc(c.head)}</span>`:""}</summary>
-      <div style="padding:4px 12px 12px"><button class="btn bts btsm" onclick='verClienteTarefas(${JSON.stringify(c.id_cliente)})'>&#128203; Ver tarefas</button>
-        ${E.perfil.head_sim?`<button class="btn bts btsm" onclick='editarCliente(${JSON.stringify(c.id_cliente)})'>&#9998; Editar cadastro</button>`:""}
-        <div id="clt-${esc(c.id_cliente)}" style="margin-top:8px"></div>
-        <div id="cle-${esc(c.id_cliente)}" style="margin-top:8px;display:none"></div></div></details>`).join("");
+      <div style="padding:4px 12px 12px" id="cb-${esc(c.id_cliente)}"></div></details>`).join("")+
+    (fim<f.length?`<div style="text-align:center;margin:10px 0"><button class="btn btp" onclick="E._clPag++;desenhaClientes()">Carregar mais ${Math.min(PAG,f.length-fim)} (faltam ${f.length-fim})</button></div>`:"");
 }
-async function verClienteTarefas(id){
-  const box=ge("clt-"+id);if(!box)return;box.innerHTML=`<div class="carregando"><div class="spin"></div></div>`;
+function prepCliente(id){
+  const box=ge("cb-"+id);if(!box||box.dataset.ok)return;box.dataset.ok=1;
+  const c=E._cli[id];const isHead=E.perfil.head_sim;
+  const podeConverter=(isHead||E.perfil.nome_sistema==="Nicholas")&&c.situacao==="PROSPECCAO";
+  const opsAss=OPERACIONAIS.map(a=>`<option ${c.assessor_responsavel===a?"selected":""}>${a}</option>`).join("");
+  box.innerHTML=`
+    <div style="background:#F4F8FB;border:1px solid var(--border);border-radius:9px;padding:9px 12px;margin-bottom:9px">
+      <div style="font-size:12px">Advogada responsável: <b style="color:var(--navy)">${esc(c.head||"—")}</b></div>
+      <div class="linha-acao" style="margin-top:6px">
+        <label style="font-size:11px">Assessor responsável:</label>
+        <select class="fsel" id="ra-${esc(id)}"><option value="">— sem responsável —</option>${opsAss}</select>
+        ${isHead?`<button class="btn btp btsm" onclick="salvarRespCliente('${esc(id)}')">&#128190; Salvar responsável</button>`:""}</div>
+      ${isHead?`<div style="font-size:10px;color:var(--gray);margin-top:4px">Ao salvar, todas as tarefas ativas do cliente passam para o novo responsável.</div>`:""}</div>
+    <div class="linha-acao">
+      <button class="btn bts btsm" onclick="verTarefasCliente('${esc(id)}')">&#128203; Ver tarefas</button>
+      <button class="btn bts btsm" onclick="toggleEd('${esc(id)}')">&#9998; Editar cadastro</button>
+      ${podeConverter?`<button class="btn btp btsm" onclick="converterCli('${esc(id)}')">&#10003; Converter em cliente oficial</button>`:""}</div>
+    <div id="ct-${esc(id)}" style="margin-top:8px"></div>
+    <div id="ce-${esc(id)}" style="display:none;margin-top:8px"></div>`;
+}
+async function verTarefasCliente(id){
+  const box=ge("ct-"+id);box.innerHTML=`<div class="carregando"><div class="spin"></div></div>`;
   let r;try{r=await DB.clienteTarefas(id);}catch(e){box.innerHTML=`<div class="vazio">${esc(e.message)}</div>`;return;}
-  const at=(r.ativas||[]).map(classificar);(r.ativas||[]).forEach(t=>{if(!E.tarefas.find(x=>x.id_tarefa===t.id_tarefa))E.tarefas.push(t);});
-  let h="";
-  h+=at.length?`<div class="bloco-t">${at.length} tarefa(s) ativa(s)</div>`+at.map(t=>cardTarefa(t,true)).join(""):`<div style="font-size:12px;color:var(--gray)">Sem tarefas ativas.</div>`;
-  if((r.encerradas||[]).length)h+=`<div class="bloco-t" style="margin-top:10px">${r.encerradas.length} encerrada(s)</div>`+
-    r.encerradas.map(c=>`<div class="linha-item"><span>${esc(c.operacao||"")} · ${esc(c.assessor||"")}</span><span class="tag tm">${esc(c.motivo||"")}</span></div>`).join("");
+  const at=(r.ativas||[]).map(classificar);
+  at.forEach(t=>{if(!E.tarefas.find(x=>x.id_tarefa===t.id_tarefa))E.tarefas.push(t);});
+  let h=at.length?`<div class="bloco-t" style="color:var(--dani)">&#10003; ${at.length} ativa(s)</div>`+at.map(t=>cardTarefa(t,true)).join("")
+    :`<div style="font-size:12px;color:var(--gray)">Sem tarefas ativas.</div>`;
+  if((r.encerradas||[]).length){h+=`<div class="bloco-t" style="margin-top:10px">&#128193; ${r.encerradas.length} encerrada(s)</div>`+
+    r.encerradas.map(c=>`<div class="linha-item"><span>${esc(c.operacao||"")} · ${esc(c.assessor||"")}${c.data_encerramento_dt?" · "+brData(c.data_encerramento_dt):""}
+      ${c.nota_final?`<br><i style="color:var(--gray);font-size:11px">"${esc(c.nota_final)}"</i>`:""}</span>
+      <span><span class="tag tm">${esc(c.motivo||"")}</span>
+      ${E.perfil.head_sim?` <button class="btn bts btsm" onclick='abrirReabrir(${JSON.stringify(c.id_encerrado)},${c.linha})'>&#128260;</button>`:""}</span></div>`).join("");}
   box.innerHTML=h;
 }
-function editarCliente(id){const c=E._cli[id];if(!c)return;const box=ge("cle-"+id);
-  const sel=(campo,ops,val)=>`<select class="fsel" id="ed-${campo}-${id}" style="width:100%;margin-bottom:6px"><option value="">—</option>${ops.map(o=>`<option ${val===o?"selected":""}>${o}</option>`).join("")}</select>`;
-  const inp=(campo,val)=>`<input class="fi" id="ed-${campo}-${id}" value="${esc(val||"")}" style="margin-bottom:6px">`;
+function toggleEd(id){
+  const box=ge("ce-"+id);const c=E._cli[id];
+  if(box.style.display==="block"){box.style.display="none";return;}
   box.style.display="block";
+  const sel=(campo,ops,val)=>`<select class="fsel" id="ed-${campo}-${id}" style="width:100%;margin-bottom:6px"><option value=""></option>${ops.map(o=>`<option ${val===o?"selected":""}>${o}</option>`).join("")}</select>`;
+  const inp=(campo,val,ph)=>`<input class="fi" id="ed-${campo}-${id}" value="${esc(val||"")}" placeholder="${ph||""}" style="margin-bottom:6px">`;
   box.innerHTML=`<div class="painel"><div class="bloco-t">Editar cadastro</div>
-    <label style="font-size:11px">Vertical</label>${sel("vertical",["REGULARIZE","RECUPERE","RENEGOCIE","GOLDEN","CONTABILIZE","A PREENCHER"],c.vertical)}
-    <label style="font-size:11px">Regime</label>${sel("regime",["Simples Nacional","Lucro Presumido","Lucro Real","MEI","Inativa"],c.regime)}
-    <label style="font-size:11px">e-CAC</label>${inp("e_cac",c.e_cac)}
-    <label style="font-size:11px">Município / UF</label><div style="display:flex;gap:6px">${inp("municipio",c.municipio)}<input class="fi" id="ed-uf-${id}" value="${esc(c.uf||"")}" style="max-width:70px;margin-bottom:6px" placeholder="UF"></div>
-    <label style="font-size:11px">Resumo</label><textarea class="fta" id="ed-resumo_da_venda-${id}" style="margin-bottom:8px">${esc(c.resumo_da_venda||"")}</textarea>
-    <button class="btn btp btsm" onclick='salvarCliente(${JSON.stringify(id)})'>&#128190; Salvar</button></div>`;
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
+    <div><label style="font-size:11px">Vertical</label>${sel("vertical",VERTICAIS_CLIENTE,c.vertical)}</div>
+    <div><label style="font-size:11px">Regime</label>${sel("regime",REGIMES,c.regime)}</div>
+    <div><label style="font-size:11px">CAPAG</label>${sel("capag",["A","B","C","D","SEM ACESSO","sem ecac"],c.capag)}</div>
+    <div><label style="font-size:11px">e-CAC</label>${inp("e_cac",c.e_cac)}</div>
+    <div><label style="font-size:11px">Franqueado</label>${inp("franqueado",c.franqueado)}</div>
+    <div><label style="font-size:11px">Contrato</label>${inp("contrato",c.contrato)}</div>
+    <div><label style="font-size:11px">Município</label>${inp("municipio",c.municipio)}</div>
+    <div><label style="font-size:11px">UF</label>${inp("uf",c.uf,"SP")}</div></div>
+    <label style="font-size:11px">Resumo da situação</label>
+    <textarea class="fta" id="ed-resumo_da_venda-${id}" style="margin-bottom:8px">${esc(c.resumo_da_venda||"")}</textarea>
+    <button class="btn btp btsm" onclick="salvarCliente('${esc(id)}')">&#128190; Salvar alterações</button></div>`;
 }
 async function salvarCliente(id){
-  const g=k=>ge(`ed-${k}-${id}`)?ge(`ed-${k}-${id}`).value:undefined;
-  const campos={vertical:g("vertical"),regime:g("regime"),e_cac:g("e_cac"),municipio:g("municipio"),uf:g("uf"),resumo_da_venda:g("resumo_da_venda")};
+  const g=k=>{const el=ge(`ed-${k}-${id}`);return el?el.value:undefined;};
+  const campos={};["vertical","regime","capag","e_cac","franqueado","contrato","municipio","uf","resumo_da_venda"].forEach(k=>{const v=g(k);if(v!==undefined)campos[k]=v;});
   try{await DB.clienteUpdate(id,campos);}catch(e){toast("Erro: "+e.message,"erro");return;}
-  toast("Cadastro atualizado!","ok");
+  Object.assign(E._cli[id],campos);toast("Cadastro atualizado!","ok");
+}
+async function salvarRespCliente(id){
+  const novo=ge("ra-"+id).value;const c=E._cli[id];
+  if(!novo){toast("Escolha um assessor.","erro");return;}
+  if(!confirm(`Passar o atendimento de "${c.nome}" para ${novo}?\n\nTodas as tarefas ativas serão reatribuídas.`))return;
+  try{const r=await DB.definirAssessor(id,novo);
+    toast(`✓ ${c.nome} agora é com ${novo}. ${r.reatribuidas||0} tarefa(s) reatribuída(s).`,"ok");
+    c.assessor_responsavel=novo;}
+  catch(e){toast("Erro: "+e.message,"erro");}
+}
+async function converterCli(id){
+  const c=E._cli[id];
+  if(!confirm(`Converter "${c.nome}" em CLIENTE OFICIAL?\n\nUse quando o contrato for fechado.`))return;
+  try{await DB.converterCliente(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  c.situacao="OFICIAL";toast("✓ "+c.nome+" agora é cliente oficial!","ok");desenhaClientes();
+}
+// =================================================== TELA: COBRANÇA (head)
+async function telaCobranca(){
+  setNav("bill","Cobrança do Mês"); carregando();
+  let rows;try{rows=await DB.cobranca();}catch(e){return erro(e.message);}
+  E._cob=rows||[];
+  const tb=E._cob.reduce((s,r)=>s+(parseFloat(r.valor_bruto)||0),0);
+  const tp=E._cob.filter(r=>r.status_pgto==="PAGO").reduce((s,r)=>s+(parseFloat(r.valor_bruto)||0),0);
+  const pen=E._cob.filter(r=>r.status_pgto==="PENDENTE").length,atr=E._cob.filter(r=>r.status_pgto==="ATRASADO").length;
+  const fmt=v=>Number(v).toLocaleString("pt-BR",{minimumFractionDigits:2});
+  const aba=E._cob[0]?E._cob[0].aba:"";
+  ge("conteudo").innerHTML=`<div class="painel" style="padding:8px 12px"><b>Aba: ${esc(aba||"—")}</b></div>
+    <div class="sg">
+    <div class="sc"><div class="sl">Total bruto</div><div class="sv pq">R$ ${fmt(tb)}</div></div>
+    <div class="sc"><div class="sl">Recebido</div><div class="sv pq green">R$ ${fmt(tp)}</div></div>
+    <div class="sc"><div class="sl">Pendentes</div><div class="sv amber">${pen}</div></div>
+    <div class="sc"><div class="sl">Atrasados</div><div class="sv ${atr?"red":"green"}">${atr}</div></div></div>
+    <div class="flr"><input class="si" id="cb-q" placeholder="&#128269; Buscar..." oninput="desenhaCobranca()">
+    <select class="fsel" id="cb-st" onchange="desenhaCobranca()"><option value="">Todos</option><option>PAGO</option><option>PENDENTE</option><option>ATRASADO</option></select>
+    <select class="fsel" id="cb-hd" onchange="desenhaCobranca()"><option value="">Todas heads</option><option>Danielly</option><option>Bruna</option><option>Eduarda</option></select></div>
+    <div class="painel" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr>${["Cliente","Produto","Tipo","Venc.","Valor","Status","Head"].map(x=>`<th style="text-align:left;padding:6px 8px;font-size:10px;color:var(--gray);border-bottom:2px solid var(--border)">${x}</th>`).join("")}</tr></thead>
+    <tbody id="cb-corpo"></tbody></table></div>`;
+  desenhaCobranca();
+}
+function desenhaCobranca(){
+  const q=(ge("cb-q").value||"").toLowerCase(),st=ge("cb-st").value,hd=ge("cb-hd").value;
+  const f=E._cob.filter(r=>(!q||String(r.cliente||"").toLowerCase().includes(q))
+    &&(!st||r.status_pgto===st)&&(!hd||String(r.head||"").includes(hd)));
+  const cor={PAGO:"tek",PENDENTE:"td2",ATRASADO:"ti"};
+  ge("cb-corpo").innerHTML=f.slice(0,400).map(r=>`<tr>
+    <td style="padding:6px 8px;font-weight:600;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.cliente||"")}</td>
+    <td style="padding:6px 8px">${esc(r.produto||"")}</td><td style="padding:6px 8px">${esc(r.tipo_cobr||"")}</td>
+    <td style="padding:6px 8px;font-family:'DM Mono';font-size:11px">${esc(r.data_venc||"")}</td>
+    <td style="padding:6px 8px;font-family:'DM Mono';font-size:11px;font-weight:600">${r.valor_bruto?"R$ "+Number(r.valor_bruto).toLocaleString("pt-BR",{minimumFractionDigits:2}):""}</td>
+    <td style="padding:6px 8px"><span class="tag ${cor[r.status_pgto]||"tm"}">${esc(r.status_pgto||"")}</span></td>
+    <td style="padding:6px 8px">${esc(r.head||"")}</td></tr>`).join("");
 }
 
-// =================================================== TELA: PROPOSTAS
+// =================================================== TELA: PROPOSTAS (completa)
 async function telaPropostas(){
   setNav("prop",E.perfil.head_sim?"Propostas Comerciais":"Minhas Propostas"); carregando();
-  let ps; try{ps=await DB.propostas();}catch(e){return erro(e.message);}
-  E._props=ps||[];
+  let ps;try{ps=await DB.propostas();}catch(e){return erro(e.message);}
+  E._props=ps||[];E._propMap={};E._props.forEach(p=>E._propMap[p.id_proposta]=p);
   const emRua=E._props.filter(p=>!["Aceita","Recusada"].includes(p.status)).length;
   const aceitas=E._props.filter(p=>p.status==="Aceita").length;
   const valor=E._props.reduce((s,p)=>s+(parseFloat(p.valor_num)||0),0);
-  let h=`<div class="sg">
+  ge("conteudo").innerHTML=`<div class="sg">
     <div class="sc"><div class="sl">Total</div><div class="sv">${E._props.length}</div></div>
     <div class="sc"><div class="sl">Na rua</div><div class="sv amber">${emRua}</div></div>
     <div class="sc"><div class="sl">Aceitas</div><div class="sv green">${aceitas}</div></div>
     <div class="sc"><div class="sl">Valor total</div><div class="sv pq">R$ ${valor.toLocaleString("pt-BR",{minimumFractionDigits:2})}</div></div></div>
-    <div class="flr"><input class="si" id="pp-q" placeholder="&#128269; Buscar cliente..." oninput="filtraProp()">
-      <select class="fsel" id="pp-st" onchange="filtraProp()"><option value="">Todos status</option>
-        ${["Em análise","Enviada","Em negociação","Aguardando cliente","Aceita","Recusada"].map(s=>`<option>${s}</option>`).join("")}</select></div>
+    <div class="flr"><input class="si" id="pp-q" placeholder="&#128269; Buscar cliente..." oninput="desenhaProps()">
+      <select class="fsel" id="pp-st" onchange="desenhaProps()"><option value="">Todos status</option>
+        ${["Em análise","Enviada","Em negociação","Aguardando cliente","Aceita","Recusada"].map(s=>`<option>${s}</option>`).join("")}</select>
+      <select class="fsel" id="pp-or" onchange="desenhaProps()"><option value="">Todas origens</option>
+        ${["Franqueado","Parceiro","T2","Golden","Backoffice"].map(s=>`<option>${s}</option>`).join("")}</select>
+      <button class="btn btp btsm" onclick="abrirProposta()">+ Lançar proposta</button></div>
     <div id="pp-lista"></div>`;
-  ge("conteudo").innerHTML=h; filtraProp();
+  desenhaProps();
 }
-function filtraProp(){
-  const q=(ge("pp-q").value||"").toLowerCase(),st=ge("pp-st").value;
-  let f=E._props.filter(p=>(!q||String(p.cliente||"").toLowerCase().includes(q))&&(!st||p.status===st));
+function desenhaProps(){
+  const q=(ge("pp-q").value||"").toLowerCase(),st=ge("pp-st").value,or=ge("pp-or").value;
   const podeMexer=E.perfil.head_sim||/vendedor|comercial/i.test(E.perfil.cargo||"");
+  const f=E._props.filter(p=>(!q||String(p.cliente||"").toLowerCase().includes(q))
+    &&(!st||p.status===st)&&(!or||p.origem===or));
   ge("pp-lista").innerHTML=f.length?f.map(p=>{
     const cor={Aceita:"var(--green)",Recusada:"var(--red)"}[p.status]||"var(--amber)";
     const val=(parseFloat(p.valor_num)||0).toLocaleString("pt-BR",{minimumFractionDigits:2});
+    // dias "na rua" sem resposta
+    let naRua="";
+    if(["Enviada","Em análise","Em negociação","Aguardando cliente"].includes(p.status)&&p.data_proposta_dt){
+      const d=-diasAte(String(p.data_proposta_dt).slice(0,10));
+      if(d>=7)naRua=`<span class="tag" style="background:${d>=15?"var(--red)":"var(--amber)"};color:white">&#9203; ${d} dias sem resposta</span>`;}
+    const prosp=p.prospeccao==="SIM"?'<span class="tag ts">PROSPECÇÃO</span>':"";
+    const nLog=p.negociacao_log?String(p.negociacao_log).split("\n").length:0;
     return `<div class="painel" style="padding:12px 14px">
       <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
-        <div style="flex:1;min-width:160px"><div style="font-weight:700;color:var(--navy)">${esc(p.cliente)}</div>
+        <div style="flex:1;min-width:160px"><div style="font-weight:700;color:var(--navy)">${esc(p.cliente)} ${prosp}</div>
           <div style="font-size:11px;color:var(--gray)">${esc(p.produtos||"")}</div>
-          <div style="font-size:11px;color:var(--gray)">&#128100; ${esc(p.executor||"")} · pediu: ${esc(p.quem_pediu||"")}</div></div>
+          <div style="font-size:11px;color:var(--gray)">&#128100; Executou: <b>${esc(p.executor||"")}</b> · pediu: ${esc(p.quem_pediu||"")}</div></div>
         <div style="text-align:right"><div style="font-weight:700;color:var(--navy)">R$ ${val}</div>
-          <span class="tag" style="background:${cor};color:white">${esc(p.status||"")}</span></div></div>
+          <span class="tag" style="background:${cor};color:white">${esc(p.status||"")}</span> ${naRua}</div></div>
       <div style="font-size:11px;color:var(--gray);margin-top:7px;border-top:1px solid var(--gray-lt);padding-top:6px">
-        &#128197; ${esc(p.data_proposta||"")} · ${esc(p.origem||"")} · ${esc(p.cond_pagamento||"")}</div>
-      ${podeMexer?`<div class="linha-acao"><select class="fsel" onchange='mudaStatusProp(${JSON.stringify(p.id_proposta)},this.value)'>
-        ${["Em análise","Enviada","Em negociação","Aguardando cliente","Aceita","Recusada"].map(s=>`<option ${s===p.status?"selected":""}>${s}</option>`).join("")}</select></div>`:""}</div>`;}).join("")
+        &#128197; ${esc(p.data_proposta||"")} · ${esc(p.origem||"")} · ${esc(p.forma_contato||"")} · ${esc(p.cond_pagamento||"")}
+        ${p.link_sharepoint?` · <a href="${esc(p.link_sharepoint)}" target="_blank" style="color:var(--dani)">&#128193; Levantamento</a>`:""}</div>
+      ${p.cond_atual||p.valor_atual?`<div style="font-size:11px;margin-top:5px;background:var(--amber-lt);border-radius:7px;padding:5px 8px;color:#7A5C00"><b>&#129309; Condições atuais:</b> ${p.valor_atual?"R$ "+esc(p.valor_atual)+" · ":""}${esc(p.cond_atual||"")}</div>`:""}
+      ${p.proximo_passo||p.data_retorno?`<div style="font-size:11px;margin-top:4px;color:var(--navy)"><b>&#9193; Próximo passo:</b> ${esc(p.proximo_passo||"—")}${p.data_retorno?" · retorno "+esc(p.data_retorno):""}</div>`:""}
+      ${podeMexer?`<div class="linha-acao">
+        <button class="btn btp btsm" onclick='abrirNegociacao(${JSON.stringify(p.id_proposta)})'>&#128172; Negociação${nLog?` (${nLog})`:""}</button>
+        <select class="fsel" onchange='mudaStatusProp(${JSON.stringify(p.id_proposta)},this.value)'>
+          ${["Em análise","Enviada","Em negociação","Aguardando cliente","Aceita","Recusada"].map(s=>`<option ${s===p.status?"selected":""}>${s}</option>`).join("")}</select>
+        ${p.fechada!=="SIM"?`<button class="btn btg btsm" onclick='fecharProp(${JSON.stringify(p.id_proposta)})'>&#10003; Fechada (vira cliente)</button>`:'<span class="tag tek">&#10003; Fechada</span>'}</div>`:""}</div>`;}).join("")
     :`<div class="vazio">Nenhuma proposta.</div>`;
 }
 async function mudaStatusProp(id,status){
   try{await DB.propostaUpdate({id_proposta:id,status,fechada:status==="Aceita"?"SIM":null});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
+  const p=E._propMap[id];if(p){p.status=status;if(status==="Aceita")p.fechada="SIM";}
   toast("Status atualizado","ok");
 }
-
-// =================================================== TELA: TAREFAS FIXAS
+async function fecharProp(id){
+  try{await DB.propostaUpdate({id_proposta:id,status:"Aceita",fechada:"SIM"});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Proposta fechada! Cliente movido para a base.","ok");telaPropostas();
+}
+function abrirNegociacao(id){
+  const p=E._propMap[id];if(!p)return;
+  const valOrig="R$ "+(parseFloat(p.valor_num)||0).toLocaleString("pt-BR",{minimumFractionDigits:2});
+  modal2("&#128172; Negociação — "+esc(p.cliente),esc(p.id_proposta)+" · etapa atual: "+esc(p.status||""),`
+    <div class="bloco-t">Proposta original (não muda)</div>
+    <div style="font-size:12px;background:#F7F9FB;border:1px solid var(--border);border-radius:8px;padding:8px 11px"><b>${valOrig}</b> · ${esc(p.cond_pagamento||"—")} · lançada em ${esc(p.data_proposta||"")}</div>
+    ${p.valor_atual||p.cond_atual?`<div class="bloco-t" style="margin-top:8px">Condições atuais</div>
+      <div style="font-size:12px;background:var(--amber-lt);border-radius:8px;padding:8px 11px;color:#7A5C00"><b>${p.valor_atual?"R$ "+esc(p.valor_atual):"(valor original)"}</b> · ${esc(p.cond_atual||"—")}</div>`:""}
+    <div class="bloco-t" style="margin-top:8px">Linha do tempo</div>
+    ${p.negociacao_log?`<div style="font-size:11px;line-height:1.5;background:white;border:1px solid var(--border);border-radius:8px;padding:8px 11px;white-space:pre-wrap;max-height:150px;overflow:auto">${esc(p.negociacao_log)}</div>`:'<div style="font-size:12px;color:var(--gray)">Nenhuma rodada ainda.</div>'}
+    <div class="bloco-t" style="margin-top:10px">Registrar rodada</div>
+    <textarea class="fta" id="ng-txt" placeholder="O que foi conversado? Ex: Cliente pediu parcelamento maior..."></textarea>
+    <div class="linha-acao" style="margin-top:6px">
+      <label style="font-size:11px">Etapa:</label><select class="fsel" id="ng-etapa" onchange="ge('ng-perda-w').style.display=this.value==='Recusada'?'block':'none'">
+      <option value="">(manter: ${esc(p.status||"")})</option>${["Em negociação","Aguardando cliente","Aceita","Recusada"].map(s=>`<option>${s}</option>`).join("")}</select></div>
+    <div class="linha-acao"><label style="font-size:11px">Novo valor R$:</label><input class="fsel" id="ng-val" placeholder="0,00" style="width:110px">
+      <label style="font-size:11px">Novas condições:</label><input class="fsel" id="ng-cond" placeholder="Ex: Boleto 10x" style="flex:1"></div>
+    <div class="linha-acao"><label style="font-size:11px">Próximo passo:</label><input class="fsel" id="ng-passo" style="flex:1" placeholder="Ex: ligar para confirmar">
+      <input type="date" class="fsel" id="ng-ret"></div>
+    <div id="ng-perda-w" style="display:none;margin-top:6px"><input class="fi" id="ng-perda" placeholder="Motivo da perda"></div>
+    <button class="btn btp btw" style="margin-top:8px" onclick='salvarNegociacao(${JSON.stringify(id)})'>&#128190; Salvar rodada</button>`);
+}
+async function salvarNegociacao(id){
+  const txt=(ge("ng-txt").value||"").trim();
+  if(!txt){toast("Descreva o que foi conversado.","erro");return;}
+  const etapa=ge("ng-etapa").value,val=(ge("ng-val").value||"").trim(),cond=(ge("ng-cond").value||"").trim();
+  const passo=(ge("ng-passo").value||"").trim();let ret=ge("ng-ret").value||"";if(ret)ret=brData(ret);
+  const perda=(ge("ng-perda")?.value||"").trim();
+  const agora=new Date();
+  let ln=`${brHoje()} ${String(agora.getHours()).padStart(2,"0")}:${String(agora.getMinutes()).padStart(2,"0")} — ${E.perfil.nome_sistema}${etapa?" ["+etapa+"]":""}: ${txt}`;
+  if(val)ln+=" | 💰 Novo valor: R$ "+val;if(cond)ln+=" | 💳 Novas condições: "+cond;
+  if(passo)ln+=" | ⏭ Próximo: "+passo;if(ret)ln+=" (retorno "+ret+")";if(perda)ln+=" | ✗ Motivo: "+perda;
+  try{const r=await DB.negociacao({id_proposta:id,linha_log:ln,etapa,valor:val,cond,passo,retorno:ret,perda});
+    toast(r.convertido?"🎉 Rodada salva — cliente convertido em OFICIAL!":"Rodada registrada!","ok");}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  fecharModal2();telaPropostas();
+}
+// =================================================== TELA: FIXAS
 async function telaFixas(){
   setNav("fix","Tarefas Fixas"); carregando();
-  let fx; try{fx=await DB.tarefasFixas();}catch(e){return erro(e.message);}
+  let fx;try{fx=await DB.tarefasFixas();}catch(e){return erro(e.message);}
   const podeTodas=E.perfil.head_sim||E.perfil.admin_sim;
   const minhas=podeTodas?fx:(fx||[]).filter(f=>f.assessor===E.perfil.nome_sistema);
   const rot={DIARIA:"&#128197; Todo dia útil",MENSAL_1DIA_UTIL:"&#128197; 1º dia útil do mês",
     SEMANAL_SEG:"Toda segunda",SEMANAL_TER:"Toda terça",SEMANAL_QUA:"Toda quarta",SEMANAL_QUI:"Toda quinta",SEMANAL_SEX:"Toda sexta"};
-  ge("conteudo").innerHTML=`<div class="aviso info" style="margin-bottom:14px">As tarefas fixas são criadas
-    automaticamente todo dia às 7h — as diárias todo dia útil, as de fechamento no 1º dia útil do mês.</div>
-    <div class="bloco-t">${minhas.length} tarefa(s) fixa(s)</div>`+
-    minhas.map(f=>{const ativo=String(f.ativo||"").toUpperCase()==="SIM";
-      return `<div class="painel" style="padding:12px 14px;${ativo?"":"opacity:.55"};display:flex;justify-content:space-between;gap:10px;align-items:center">
+  let h=`<div class="aviso info" style="margin-bottom:12px">&#128260; As tarefas fixas são criadas automaticamente às 7h pelo robô
+    (ainda na planilha, durante o período de transição) — diárias todo dia útil, mensais no 1º dia útil.</div>`;
+  h+=`<div class="painel"><div class="bloco-t">+ Nova tarefa fixa</div>
+    <input class="fi" id="fx-tit" placeholder="Descrição (ex: Conferir pagamentos do dia)">
+    <div class="linha-acao">
+      <select class="fsel" id="fx-freq"><option value="DIARIA">Todo dia útil</option>
+        ${["SEG","TER","QUA","QUI","SEX"].map((d,i)=>`<option value="SEMANAL_${d}">Toda ${["segunda","terça","quarta","quinta","sexta"][i]}</option>`).join("")}
+        <option value="MENSAL_1DIA_UTIL">1º dia útil do mês</option></select>
+      ${podeTodas?`<select class="fsel" id="fx-ass">${OPERACIONAIS.map(a=>`<option>${a}</option>`).join("")}</select>
+        <select class="fsel" id="fx-head"><option value="">— head —</option><option>Danielly</option><option>Bruna</option><option>Eduarda</option></select>`
+        :`<input class="fsel" id="fx-ass" value="${esc(E.perfil.nome_sistema)}" disabled>`}
+      <input class="fsel" id="fx-tempo" type="number" value="20" min="5" max="480" style="width:76px"> min
+      <button class="btn btp btsm" onclick="criarFixa()">&#128260; Criar</button></div></div>`;
+  h+=`<div class="bloco-t">${minhas.length} tarefa(s) fixa(s)</div>`+
+    (minhas.map(f=>{const ativo=String(f.ativo||"").toUpperCase()==="SIM";
+      return `<div class="painel" style="padding:12px 14px;${ativo?"":"opacity:.55"};display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">
       <div><div style="font-weight:700;color:var(--navy)">${esc(f.titulo)}</div>
-        <div style="font-size:11px;color:var(--gray);margin-top:3px">${rot[f.frequencia]||esc(f.frequencia)} · &#128100; ${esc(f.assessor)}${f.head_clientes?" · Head: "+esc(f.head_clientes):""} · &#9201; ${esc(f.tempo_min||"?")}min · ${ativo?'<span style="color:var(--green);font-weight:700">✓ Ativa</span>':'○ Desativada'}</div></div>
-      ${(podeTodas||f.assessor===E.perfil.nome_sistema)?`<button class="btn ${ativo?"bts":"btp"} btsm" onclick='toggleFixa(${JSON.stringify(f.id_fixa)},${!ativo})'>${ativo?"Desativar":"Reativar"}</button>`:""}</div>`;}).join("")||`<div class="vazio">Nenhuma tarefa fixa.</div>`;
+        <div style="font-size:11px;color:var(--gray);margin-top:3px">${rot[f.frequencia]||esc(f.frequencia)} · &#128100; ${esc(f.assessor)}${f.head_clientes?" · Head: "+esc(f.head_clientes):""} · &#9201; ${esc(f.tempo_min||"?")}min · ${ativo?'<b style="color:var(--green)">✓ Ativa</b>':"○ Desativada"}${f.ultima_execucao?" · última: "+esc(f.ultima_execucao):""}</div></div>
+      <span style="display:flex;gap:6px">
+      ${(podeTodas||f.assessor===E.perfil.nome_sistema)?`<button class="btn ${ativo?"bts":"btp"} btsm" onclick='alternaFixa(${JSON.stringify(f.id_fixa)},${!ativo})'>${ativo?"Desativar":"Reativar"}</button>`:""}
+      ${podeTodas?`<button class="btn btsm" style="border:1px solid var(--red);color:var(--red);background:white" onclick='apagarFixa(${JSON.stringify(f.id_fixa)},${JSON.stringify(f.titulo)})'>&#128465;</button>`:""}</span></div>`;}).join("")
+    ||`<div class="vazio">Nenhuma tarefa fixa.</div>`);
+  ge("conteudo").innerHTML=h;
 }
-async function toggleFixa(id,ativo){try{await DB.fixaToggle(id,ativo);}catch(e){toast("Erro: "+e.message,"erro");return;}toast(ativo?"Reativada":"Desativada","ok");telaFixas();}
+async function criarFixa(){
+  const tit=(ge("fx-tit").value||"").trim();if(!tit){toast("Descreva a tarefa.","erro");return;}
+  const ass=ge("fx-ass").value||E.perfil.nome_sistema;
+  try{await DB.fixaAdd({titulo:tit,freq:ge("fx-freq").value,assessor:ass,
+    head:ge("fx-head")?ge("fx-head").value:"",tempo:parseInt(ge("fx-tempo").value)||20});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Tarefa fixa criada!","ok");telaFixas();
+}
+async function alternaFixa(id,ativo){
+  try{await DB.fixaToggle(id,ativo);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast(ativo?"Reativada":"Desativada","ok");telaFixas();
+}
+async function apagarFixa(id,tit){
+  if(!confirm(`Apagar a tarefa fixa "${tit}"?\n\nEla deixa de ser criada automaticamente.`))return;
+  try{await DB.fixaDel(id);}catch(e){toast(e.message,"erro");return;}
+  toast("Apagada.","ok");telaFixas();
+}
 
-// =================================================== TELA: AGENDA (assessor)
+// =================================================== TELA: AGENDA (semana)
 async function telaAgenda(){
   setNav("agenda","Minha Agenda"); carregando();
-  let ops,reu; try{[ops,reu]=await Promise.all([DB.tarefas(),DB.reunioes()]);}catch(e){return erro(e.message);}
-  E.tarefas=(ops||[]).map(classificar).filter(t=>ehMeuNome(t.assessor));
+  let ops,reu;try{[ops,reu]=await Promise.all([DB.tarefas(),DB.reunioes()]);}catch(e){return erro(e.message);}
+  const ts=(ops||[]).map(classificar).filter(t=>ehMeuNome(t.assessor));E.tarefas=(ops||[]).map(classificar);
   const minhasReu=(reu||[]).filter(r=>r.assessor===E.perfil.nome_sistema);
-  const hojeReu=minhasReu.filter(r=>brData(r.data_dt)===brData(hojeISO())||r.data===brHoje());
-  let h=`<div class="painel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-    <span class="bloco-t" style="margin:0">Compromissos de hoje</span>
-    <button class="btn btp btsm" onclick="abrirReuniao()">+ Reunião</button></div>`;
-  h+=hojeReu.length?hojeReu.map(r=>`<div class="linha-item"><span><b>${esc(r.horario||"—")}</b> ${esc(r.titulo)}${r.cliente?" · "+esc(r.cliente):""}</span>
-    <span><span style="color:var(--gray)">${esc(r.duracao_min||r.duracao_min_num||"")}min</span> <button class="btn bts btsm" onclick='delReuniao(${JSON.stringify(r.id_reuniao)})'>&#10005;</button></span></div>`).join("")
-    :`<div style="font-size:12px;color:var(--gray)">Nenhum compromisso hoje.</div>`;
-  h+=`</div>`;
-  const vis=E.tarefas.filter(t=>t._g>=1&&t._g<=3);
-  h+=`<div class="bloco-t">Tarefas de hoje (${vis.length})</div>`+(vis.length?vis.map(t=>cardTarefa(t)).join(""):`<div class="vazio">Nada para hoje.</div>`);
+  // semana atual (seg-dom)
+  const hoje=new Date();hoje.setHours(0,0,0,0);
+  const seg=new Date(hoje);seg.setDate(hoje.getDate()-((hoje.getDay()+6)%7));
+  const dias=[];for(let i=0;i<7;i++){const d=new Date(seg);d.setDate(seg.getDate()+i);dias.push(d);}
+  const chave=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  const nomes=["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"];
+  let grade=`<div class="calgrid" style="grid-template-columns:repeat(7,1fr)">`;
+  dias.forEach((d,i)=>{const k=chave(d),ehHoje=d.getTime()===hoje.getTime();
+    const reuDia=minhasReu.filter(r=>String(r.data_dt||"").slice(0,10)===k);
+    const tarDia=ts.filter(t=>String(t.data_revisao_dt||"").slice(0,10)===k&&!t._concluida);
+    grade+=`<div class="cald ${ehHoje?"hoje":""}">
+      <div style="font-size:10px;font-weight:700;color:var(--gray)">${nomes[i]}</div>
+      <div style="font-weight:700;font-size:13px;color:${ehHoje?"var(--dani)":"var(--text)"}">${d.getDate()}</div>
+      ${reuDia.map(r=>`<div class="calpin" style="background:#EFF6FF;border-left-color:var(--dani)">&#128197; ${esc(r.titulo)}</div>`).join("")}
+      ${tarDia.slice(0,3).map(t=>`<div class="calpin">&#128203; ${esc(String(t.cliente||"").split(" ")[0])}</div>`).join("")}
+      ${tarDia.length>3?`<div style="color:var(--dani);font-weight:700">+${tarDia.length-3}</div>`:""}</div>`;});
+  grade+=`</div>`;
+  const hojeK=chave(hoje);
+  const reuHoje=minhasReu.filter(r=>String(r.data_dt||"").slice(0,10)===hojeK)
+    .sort((a,b)=>String(a.horario||"").localeCompare(String(b.horario||"")));
+  const tarHoje=ts.filter(t=>t._g>=1&&t._g<=3&&!t._emCorrecao&&!t._delegada);
+  let h=`<div class="linha-acao" style="margin-bottom:10px"><button class="btn btp btsm" onclick="abrirReuniao()">+ Reunião / compromisso</button></div>`;
+  h+=grade;
+  h+=`<div style="display:grid;grid-template-columns:280px 1fr;gap:12px;margin-top:14px" class="ag-cols">
+    <div><div class="bloco-t">&#128197; Compromissos hoje</div>
+    ${reuHoje.length?reuHoje.map(r=>`<div class="linha-item"><span><b>${esc(r.horario||"—")}</b> ${esc(r.titulo)}${r.cliente?"<br><span style='font-size:11px;color:var(--gray)'>"+esc(r.cliente)+"</span>":""}</span>
+      <span>${esc(r.duracao_min||30)}min <button class="btn bts btsm" onclick='removerReuniao(${JSON.stringify(r.id_reuniao)})'>&#10005;</button></span></div>`).join("")
+      :`<div style="font-size:12px;color:var(--gray)">Sem compromissos hoje.</div>`}</div>
+    <div><div class="bloco-t">&#128203; Tarefas de hoje (${tarHoje.length})</div>
+    ${tarHoje.length?tarHoje.map(t=>cardTarefa(t,false,true)).join(""):`<div style="font-size:12px;color:var(--gray)">Nada urgente hoje.</div>`}</div></div>`;
   ge("conteudo").innerHTML=h;
 }
 function abrirReuniao(){
-  ge("m-titulo").textContent="Nova reunião / compromisso";ge("m-sub").textContent="Entra na sua agenda";
-  ge("m-corpo").innerHTML=`<div class="bloco"><input class="fi" id="re-titulo" placeholder="Título (ex: Reunião com cliente)">
-    <div style="display:flex;gap:6px"><input class="fi" id="re-hora" type="time" style="max-width:130px"><input class="fi" id="re-dur" type="number" value="30" placeholder="min"></div>
-    <input class="fi" id="re-cliente" placeholder="Cliente (opcional)">
-    <textarea class="fta" id="re-obs" placeholder="Observações (opcional)"></textarea>
-    <button class="btn btp btw" style="margin-top:8px" onclick="salvarReuniao()">&#10003; Salvar compromisso</button></div>`;
-  ge("modal").classList.add("aberto");
+  modal2("&#128197; Nova reunião / compromisso","Entra na sua agenda de hoje e desconta da capacidade",`
+    <input class="fi" id="re-tit" placeholder="Título (ex: Reunião com cliente, Ligação...)">
+    <div class="linha-acao"><input class="fsel" id="re-hora" type="time">
+      <select class="fsel" id="re-dur">${[15,30,45,60,90,120].map(n=>`<option ${n===30?"selected":""} value="${n}">${n>=60?(n/60)+"h"+(n%60?String(n%60):""):n+" min"}</option>`).join("")}</select></div>
+    <input class="fi" id="re-cli" placeholder="Cliente (opcional)" style="margin-top:6px">
+    <textarea class="fta" id="re-obs" placeholder="Observações / pauta (opcional)"></textarea>
+    <button class="btn btp btw" style="margin-top:8px" onclick="salvarReuniao()">&#10003; Salvar compromisso</button>`);
 }
 async function salvarReuniao(){
-  const t=ge("re-titulo").value.trim();if(!t){toast("Informe o título.","erro");return;}
-  try{await DB.reuniaoAdd({id_novo:idNovo("REUW"),titulo:t,horario:ge("re-hora").value,
-    duracao:parseInt(ge("re-dur").value)||30,cliente:ge("re-cliente").value,obs:ge("re-obs").value});}
+  const t=(ge("re-tit").value||"").trim();if(!t){toast("Informe o título.","erro");return;}
+  try{await DB.reuniaoAdd({titulo:t,horario:ge("re-hora").value,duracao:parseInt(ge("re-dur").value)||30,
+    cliente:ge("re-cli").value,obs:ge("re-obs").value});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
-  toast("Compromisso salvo!","ok");fecharModal();telaAgenda();
+  toast("Compromisso salvo!","ok");fecharModal2();recarregar();
 }
-async function delReuniao(id){try{await DB.reuniaoDel(id);}catch(e){toast("Erro: "+e.message,"erro");return;}toast("Removido","ok");telaAgenda();}
-
-// ============================================== TELA: PRODUTIVIDADE (assessor)
+// ============================================== TELA: PRODUTIVIDADE
 async function telaProdutividade(){
   setNav("prod","Minha Produtividade"); carregando();
-  let hist,ops; try{[hist,ops]=await Promise.all([DB.historicoHoje(),DB.tarefas()]);}catch(e){return erro(e.message);}
+  let hist,ops;try{[hist,ops]=await Promise.all([DB.historicoHoje(),DB.tarefas()]);}catch(e){return erro(e.message);}
   const meu=(hist||[]).filter(r=>ehMeuNome(r.autor));
   const mapa={};(ops||[]).forEach(t=>{if(t.id_tarefa)mapa[t.id_tarefa]=t;});
   const tarefas={};let updates=0,min=0;
   meu.forEach(r=>{const k=r.id_tarefa||"—";const t=tarefas[k]=tarefas[k]||{cliente:"",op:"",and:[],min:0};
     if(r.tipo==="TIMER"){const m=parseInt((String(r.texto||"").match(/(\d+)/)||[0,0])[1]);min+=m;t.min+=m;}
     else{updates++;if(r.texto)t.and.push(r.texto);}
-    const mt=mapa[k];if(mt){t.cliente=mt.cliente;t.op=mt.operacao||"";}});
-  const lista=Object.values(tarefas);
-  const concl=Object.keys(tarefas).filter(k=>{const t=mapa[k];return t&&String(t.status_tarefa||"").includes("EM DIA");}).length;
+    const mt=mapa[k];if(mt){t.cliente=mt.cliente;t.op=mt.operacao||"";}
+    else if(String(k).includes("FIX"))t.cliente="📌 Tarefa fixa";
+    else if(k==="AVULSA")t.cliente="⏱️ Atividade avulsa";
+    else if(k==="REUNIAO")t.cliente="📅 Reunião";});
+  const lista=Object.entries(tarefas);
+  const concl=lista.filter(([k])=>{const t=mapa[k];return t&&String(t.status_tarefa||"").includes("EM DIA");}).length;
   ge("conteudo").innerHTML=`<div class="sg">
     <div class="sc"><div class="sl">Andamentos hoje</div><div class="sv">${updates}</div></div>
     <div class="sc"><div class="sl">Tarefas tocadas</div><div class="sv">${lista.length}</div></div>
     <div class="sc"><div class="sl">Tempo hoje</div><div class="sv green pq">${fmtMin(min)}</div></div>
     <div class="sc"><div class="sl">Concluídas</div><div class="sv green">${concl}</div></div></div>
     <div class="bloco-t">O que você trabalhou hoje</div>`+
-    (lista.length?lista.map(t=>`<div class="painel" style="padding:11px 14px">
-      <div style="font-weight:700;color:var(--navy)">${esc(t.cliente||"Tarefa")}</div>
+    (lista.length?lista.map(([k,t])=>`<div class="painel" style="padding:11px 14px">
+      <div style="font-weight:700;color:var(--navy)">${esc(t.cliente||"Tarefa "+k)}</div>
       <div style="font-size:11px;color:var(--gray)">${esc(t.op||"")}${t.min?" · "+t.min+"min":""}</div>
       ${t.and.map(a=>`<div style="font-size:12px;color:#555;margin-top:4px">• ${esc(a)}</div>`).join("")}</div>`).join("")
-      :`<div class="vazio">Nenhum registro hoje ainda.</div>`);
+      :`<div class="vazio">Nenhum registro hoje ainda. Abra uma tarefa ou registre um andamento. &#128170;</div>`);
 }
-
-// =================================================== CARD DA TAREFA (abrir)
-async function abrirTarefa(id){
-  const t=E.tarefas.find(x=>x.id_tarefa===id);if(!t)return;E.atual=t;
-  ge("m-titulo").textContent=t.cliente||"";
-  ge("m-sub").textContent=[t.operacao,t.advogada,t.check_,t.assessor].filter(Boolean).join(" · ");
-  ge("m-corpo").innerHTML=`<div class="carregando"><div class="spin"></div></div>`;
-  ge("modal").classList.add("aberto"); iniciarTimer();
-  let hist=[];try{hist=await DB.historico(id);}catch(e){toast("Erro no histórico: "+e.message,"erro");}
-  desenharCard(t,hist||[]);
+// =================================================== FAB: criar novo
+function montarFab(vend){
+  const area=ge("fab-area");if(!area)return;
+  area.style.display="flex";
+  const it=(rot,fn)=>`<button class="btn bts" style="box-shadow:0 4px 14px rgba(0,0,0,.15);border-radius:20px" onclick="fecharFab();${fn}()">${rot}</button>`;
+  ge("fab-menu").innerHTML=vend
+    ?it("&#128203; Lançar proposta","abrirProposta")+it("&#9201; Iniciar atividade (tempo)","abrirAvulsa")
+    :it("&#128100; Novo cliente + tarefa","abrirNovoCliente")
+    +it("&#128203; Nova tarefa (cliente existente)","abrirNovaTarefa")
+    +it("&#128221; Lançar proposta","abrirProposta")
+    +it("&#128197; Reunião / compromisso","abrirReuniao")
+    +it("&#9201; Iniciar atividade (tempo)","abrirAvulsa");
 }
-function desenharCard(t,hist){
-  const vis=hist.filter(h=>h.tipo!=="TIMER");
-  const tot=hist.filter(h=>h.tipo==="TIMER").reduce((s,h)=>s+parseInt((String(h.texto||"").match(/(\d+)\s*min/)||[0,0])[1]),0);
-  let h=`<div class="dados">
-    ${t.cnpj_cpf?`<div>CNPJ/CPF:<br><b style="font-family:'DM Mono'">${esc(t.cnpj_cpf)}</b></div>`:""}
-    ${t.numero_processual?`<div>Nº processo:<br><b style="font-family:'DM Mono';font-size:11px">${esc(t.numero_processual)}</b></div>`:""}
-    ${t.vara?`<div>Vara:<br><b>${esc(t.vara)}</b></div>`:""}${t.tribunal?`<div>Tribunal:<br><b>${esc(t.tribunal)}</b></div>`:""}
-    <div>Frequência:<br><b>${esc(t.check_||"—")}</b></div>
-    <div>Próxima revisão:<br><b>${brData(t.data_revisao_dt)||"—"}</b></div>
-    ${t.prazo_fatal_dt?`<div>Prazo fatal:<br><b style="color:${t._prazoAlerta?"var(--red)":"var(--navy)"}">${brData(t.prazo_fatal_dt)}</b></div>`:""}
-    <div>Responsável:<br><b>${esc(t.assessor||"—")}</b></div></div>`;
-  h+=`<div class="timerbox" style="margin-top:12px"><div><div style="font-size:10px;color:#166534;font-weight:600">&#9201; Tempo nesta sessão</div>
-    <div class="timernum" id="timer-num">0:00</div></div><div style="text-align:right">
-    <div style="font-size:11px;color:var(--gray)">${tot?"Total: "+fmtMin(tot):"Primeira sessão"}</div>
-    <button class="btn bts btsm" style="margin-top:5px" onclick="salvarTempo()">Salvar tempo</button></div></div>`;
-  if(t.supervisao)h+=`<div class="bloco"><div class="bloco-t">Orientação da head</div>
-    <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:9px;padding:9px 12px;font-size:13px;color:#1E40AF;white-space:pre-line">${esc(t.supervisao)}</div></div>`;
-  h+=`<div class="bloco"><div class="bloco-t">Adicionar andamento</div>
-    <textarea class="fta" id="nota-texto" placeholder="Descreva o andamento…"></textarea>
-    <div class="linha-acao"><button class="btn btp btsm" onclick="salvarNota()">Salvar andamento</button></div></div>`;
-  h+=`<div class="bloco"><div class="bloco-t">Concluir tarefa</div><div class="linha-acao">
-    <label style="font-size:11px;color:var(--gray)">Frequência:</label>
-    <select class="fsel" id="conc-check">${["IMEDIATO","DIÁRIO","SEMANAL","MENSAL"].map(c=>`<option ${t.check_===c?"selected":""}>${c}</option>`).join("")}</select>
-    <label style="font-size:11px;color:var(--gray)">ou volta em:</label><input type="date" class="fsel" id="conc-data">
-    <button class="btn btg btsm" onclick="concluirTarefa()">&#10003; Concluir</button></div>
-    <div style="font-size:11px;color:var(--gray);margin-top:5px">Sem data: volta sozinha pela frequência (diária +1, semanal +7, mensal +30).</div></div>`;
-  if(E.perfil.head_sim)h+=`<div class="bloco"><button class="btn btx btw" onclick="abrirEncerrar()">&#128193; Encerrar caso definitivamente</button></div>`;
-  h+=`<div class="bloco"><div class="bloco-t">Histórico (${vis.length})</div>`;
-  h+=vis.length?vis.map(en=>`<div class="hentrada"><div class="hbola ${en.tipo==="SUPERVISÃO"?"sup":en.tipo==="ENCERRAMENTO"?"enc":""}"></div>
-    <div style="flex:1"><div class="hmeta"><span class="hautor">${esc(en.autor)}</span>
-    <span class="hdata">${brData(en.data_dt)||esc(en.data)}</span><span class="htipo">${esc(en.tipo||"")}</span></div>
-    <div class="htexto">${esc(en.texto)}</div></div></div>`).join(""):`<p style="font-size:13px;color:var(--gray)">Sem histórico.</p>`;
-  h+=`</div>`;
-  ge("m-corpo").innerHTML=h;
+function toggleFab(){const m=ge("fab-menu");m.style.display=m.style.display==="flex"?"none":"flex";}
+function fecharFab(){ge("fab-menu").style.display="none";}
+// ---- nova tarefa (cliente existente)
+async function abrirNovaTarefa(){
+  modal2("&#128203; Nova tarefa","Cliente existente",`
+    <input class="fi" id="nt-q" placeholder="&#128269; Digite 2+ letras do cliente..." oninput="buscaNT()">
+    <div id="nt-res" style="max-height:150px;overflow:auto"></div><div id="nt-form"></div>`);
+  if(!E._clsTodos||!E._clsTodos.length){try{E._clsTodos=await DB.clientes("");E._cli={};E._clsTodos.forEach(c=>E._cli[c.id_cliente]=c);}catch(e){}}
 }
-function abrirEncerrar(){
-  const t=E.atual;
-  ge("m-titulo").textContent="Encerrar: "+t.cliente;ge("m-sub").textContent="Vai para Casos Encerrados (reabrível)";
-  ge("m-corpo").innerHTML=`<div class="bloco"><div class="bloco-t">Motivo</div>
-    <select class="fsel" id="en-motivo" style="width:100%">${["CONCLUÍDO","RENÚNCIA","PREJUDICADO","CANCELADO","MONITORAMENTO"].map(m=>`<option>${m}</option>`).join("")}</select></div>
-    <div class="bloco"><div class="bloco-t">Resultado (opcional)</div><input class="fi" id="en-res" placeholder="Ex: Deferido, Regularizado..."></div>
-    <div class="bloco"><div class="bloco-t">Nota de encerramento</div><textarea class="fta" id="en-nota" placeholder="O que foi entregue ao cliente?"></textarea></div>
-    <div class="linha-acao"><button class="btn btr" onclick="fazerEncerrar()">&#128193; Confirmar encerramento</button>
-      <button class="btn bts" onclick="abrirTarefa('${esc(t.id_tarefa)}')">Cancelar</button></div>`;
+function buscaNT(){
+  const q=(ge("nt-q").value||"").trim();const box=ge("nt-res");
+  if(q.length<2){box.innerHTML="";return;}
+  const f=filtraLocalClientes(E._clsTodos||[],q).slice(0,25);
+  box.innerHTML=f.map(c=>`<div class="linha-item" style="cursor:pointer" onclick='formNT(${JSON.stringify(c.id_cliente)})'>
+    <span><b>${esc(c.nome)}</b> <span style="color:var(--gray);font-size:11px">${esc(c.cnpj_cpf||"")}</span></span></div>`).join("")
+    ||`<div style="font-size:12px;color:var(--gray)">Nenhum cliente. Use "Novo cliente + tarefa".</div>`;
 }
-async function fazerEncerrar(){
-  const t=E.atual;
-  try{await DB.encerrar({id_tarefa:t.id_tarefa,linha:t.linha,id_cliente:t.id_cliente,
-    motivo:ge("en-motivo").value,resultado:ge("en-res").value,nota:ge("en-nota").value,
-    id_novo_enc:idNovo("ENCW"),id_novo_hist:idNovo("HISW")});}
+function formNT(id){
+  const c=E._cli[id];E._ntCli=c;ge("nt-res").innerHTML="";ge("nt-q").value=c.nome;
+  const resp=c.assessor_responsavel||"";
+  ge("nt-form").innerHTML=`
+    ${resp?`<div class="aviso info" style="margin:6px 0">&#128100; Responsável deste cliente: <b>${esc(resp)}</b> (já selecionado)</div>`:""}
+    <div class="linha-acao" style="margin-top:6px">
+      <select class="fsel" id="nt-op"><option value="">Tipo de operação *</option>${OPERACOES.map(o=>`<option>${esc(o)}</option>`).join("")}</select>
+      <select class="fsel" id="nt-chk">${["IMEDIATO","DIÁRIO","SEMANAL","MENSAL"].map(x=>`<option>${x}</option>`).join("")}</select></div>
+    <div class="linha-acao"><select class="fsel" id="nt-ass">${OPERACIONAIS.map(a=>`<option ${a===resp?"selected":""}>${a}</option>`).join("")}</select>
+      <label style="font-size:11px">Prazo fatal:</label><input type="date" class="fsel" id="nt-pf"></div>
+    <div class="linha-acao"><input class="fsel" id="nt-proc" placeholder="Nº processual (opcional)" style="flex:1">
+      <input class="fsel" id="nt-uf" placeholder="UF" style="width:64px"></div>
+    <textarea class="fta" id="nt-sup" style="margin-top:6px" placeholder="Orientação inicial para o assessor (opcional)"></textarea>
+    <button class="btn btp btw" style="margin-top:8px" onclick="criarTarefaNova()">&#10003; Criar tarefa</button>`;
+}
+async function criarTarefaNova(){
+  const c=E._ntCli;if(!c){toast("Selecione um cliente.","erro");return;}
+  const op=ge("nt-op").value;if(!op){toast("Selecione a operação.","erro");return;}
+  const chk=ge("nt-chk").value;
+  const rev=new Date();if(!["IMEDIATO","DIÁRIO"].includes(chk))rev.setDate(rev.getDate()+7);
+  try{const r=await DB.criarTarefa({id_cliente:c.id_cliente,cliente:c.nome,cnpj:c.cnpj_cpf,head:c.head||"",
+    operacao:op,check:chk,assessor:ge("nt-ass").value,prazo_fatal:ge("nt-pf").value||"",
+    numero_proc:ge("nt-proc").value||"",estado:ge("nt-uf").value||"",supervisao:ge("nt-sup").value||"",
+    revisao:rev.toISOString().slice(0,10)});
+    toast("✓ Tarefa criada: "+r.id,"ok");}
   catch(e){toast("Erro: "+e.message,"erro");return;}
-  toast("Caso encerrado!","ok");fecharModal();recarregar();
+  fecharModal2();recarregar();
 }
-
-// ================================================================= TIMER
-function iniciarTimer(){E.timerIni=Date.now();clearInterval(E.timerInt);
-  E.timerInt=setInterval(()=>{const s=Math.floor((Date.now()-E.timerIni)/1000);const el=ge("timer-num");
-    if(el)el.textContent=Math.floor(s/60)+":"+String(s%60).padStart(2,"0");},1000);}
-async function salvarTempo(){
-  const min=Math.round((Date.now()-E.timerIni)/60000);
-  if(min<1){toast("Menos de 1 minuto — nada a salvar.");return;}
-  try{await DB.tempo({id_historico:idNovo("HISW"),id_tarefa:E.atual.id_tarefa,id_cliente:E.atual.id_cliente,minutos:min});}
+// ---- novo cliente + tarefa
+function abrirNovoCliente(){
+  modal2("&#128100; Novo cliente + tarefa","Cadastro mínimo obrigatório · extras opcionais",`
+    <div class="linha-acao"><input class="fi" id="nc-nome" placeholder="Nome / Razão Social *" style="flex:2;margin:0">
+      <input class="fi" id="nc-cnpj" placeholder="CNPJ / CPF *" style="flex:1;margin:0"></div>
+    <div class="linha-acao" style="margin-top:6px">
+      <select class="fsel" id="nc-head"><option>Danielly</option><option>Bruna</option><option>Eduarda</option></select>
+      <select class="fsel" id="nc-vert">${VERTICAIS_CLIENTE.map(v=>`<option ${v==="A PREENCHER"?"selected":""}>${v}</option>`).join("")}</select>
+      <select class="fsel" id="nc-sit"><option value="OFICIAL">&#10003; Cliente oficial</option><option value="PROSPECCAO">&#128270; Prospecção</option></select></div>
+    <div class="linha-acao" style="margin-top:6px">
+      <select class="fsel" id="nc-reg"><option value="">Regime</option>${REGIMES.map(r=>`<option>${r}</option>`).join("")}</select>
+      <input class="fsel" id="nc-mun" placeholder="Município"><input class="fsel" id="nc-uf" placeholder="UF" style="width:60px"></div>
+    <textarea class="fta" id="nc-res" style="margin-top:6px" placeholder="Resumo inicial (opcional)"></textarea>
+    <div class="bloco-t" style="margin-top:10px">Primeira tarefa</div>
+    <div class="linha-acao"><select class="fsel" id="nc-op"><option value="">Tipo de operação *</option>${OPERACOES.map(o=>`<option>${esc(o)}</option>`).join("")}</select>
+      <select class="fsel" id="nc-chk">${["IMEDIATO","DIÁRIO","SEMANAL","MENSAL"].map(x=>`<option>${x}</option>`).join("")}</select>
+      <select class="fsel" id="nc-ass">${OPERACIONAIS.map(a=>`<option>${a}</option>`).join("")}</select></div>
+    <textarea class="fta" id="nc-sup" style="margin-top:6px" placeholder="Orientação inicial (opcional)"></textarea>
+    <button class="btn btp btw" style="margin-top:8px" onclick="criarClienteTarefa()">&#10003; Cadastrar cliente + criar tarefa</button>`);
+}
+async function criarClienteTarefa(){
+  const nome=(ge("nc-nome").value||"").trim(),cnpj=(ge("nc-cnpj").value||"").trim();
+  if(!nome){toast("Informe o nome.","erro");return;}
+  if(!cnpj){toast("Informe o CNPJ/CPF.","erro");return;}
+  const op=ge("nc-op").value;if(!op){toast("Selecione a operação da primeira tarefa.","erro");return;}
+  const chk=ge("nc-chk").value;const rev=new Date();if(!["IMEDIATO","DIÁRIO"].includes(chk))rev.setDate(rev.getDate()+7);
+  try{
+    const rc=await DB.criarCliente({nome,cnpj,head:ge("nc-head").value,vertical:ge("nc-vert").value,
+      situacao:ge("nc-sit").value,regime:ge("nc-reg").value,municipio:ge("nc-mun").value,uf:ge("nc-uf").value,
+      resumo:ge("nc-res").value});
+    const rt=await DB.criarTarefa({id_cliente:rc.id,cliente:nome,cnpj,head:ge("nc-head").value,
+      operacao:op,check:chk,assessor:ge("nc-ass").value,supervisao:ge("nc-sup").value||"",
+      revisao:rev.toISOString().slice(0,10)});
+    toast(`✓ Cliente ${rc.id} + tarefa ${rt.id} criados!`,"ok");}
   catch(e){toast("Erro: "+e.message,"erro");return;}
-  toast(`Tempo salvo: ${min} min`,"ok");E.timerIni=Date.now();
+  fecharModal2();recarregar();
 }
-
-// ================================================================ ESCRITAS
-async function salvarNota(){
-  const txt=(ge("nota-texto").value||"").trim();if(!txt){toast("Escreva algo antes.","erro");return;}
-  const t=E.atual;
-  try{await DB.nota({id_historico:idNovo("HISW"),id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,
-    tipo:E.perfil.head_sim?"SUPERVISÃO":"ASSESSOR",texto:txt});}
-  catch(e){toast("Erro ao salvar: "+e.message,"erro");return;}
-  toast("Andamento salvo!","ok");abrirTarefa(t.id_tarefa);
+// ---- lançar proposta (formulário completo)
+async function abrirProposta(){
+  if(!E._clsTodos||!E._clsTodos.length){try{E._clsTodos=await DB.clientes("");E._cli={};E._clsTodos.forEach(c=>E._cli[c.id_cliente]=c);}catch(e){}}
+  E._prCli=null;
+  const chk=(cls,lista)=>lista.map(x=>`<label style="font-size:12px;display:inline-flex;gap:4px;margin-right:10px"><input type="checkbox" class="${cls}" value="${esc(x)}"> ${esc(x)}</label>`).join("");
+  const equipeOps=[...["Bruna","Danielly","Eduarda"],...OPERACIONAIS.filter(x=>!["Mateus"].includes(x)),"Mateus","Nicholas"];
+  modal2("&#128221; Lançar proposta comercial","Conta como compromisso do dia",`
+    <div class="bloco-t">Cliente *</div>
+    <input class="fi" id="pr-q" placeholder="&#128269; Buscar cliente existente..." oninput="buscaPrCli()">
+    <div id="pr-res" style="max-height:120px;overflow:auto"></div><div id="pr-sel" style="font-size:12px;color:var(--green)"></div>
+    <label style="font-size:12px"><input type="checkbox" id="pr-novo" onchange="ge('pr-novo-w').style.display=this.checked?'block':'none';if(this.checked){E._prCli=null;ge('pr-sel').textContent='';}"> É cliente novo (prospecção)</label>
+    <div id="pr-novo-w" style="display:none;margin-top:4px">
+      <input class="fi" id="pr-nnome" placeholder="Nome / Razão social do prospect">
+      <input class="fi" id="pr-ncnpj" placeholder="CNPJ / CPF (opcional)"></div>
+    <div class="bloco-t" style="margin-top:8px">Responsáveis</div>
+    <div class="linha-acao"><select class="fsel" id="pr-exec"><option value="">Quem executa *</option>${[...new Set(equipeOps)].map(n=>`<option>${n}</option>`).join("")}</select>
+      <select class="fsel" id="pr-pediu"><option value="">Quem pediu *</option>${[...new Set(equipeOps)].map(n=>`<option>${n}</option>`).join("")}</select></div>
+    <div class="bloco-t" style="margin-top:8px">Produtos * <span style="font-weight:400;font-size:10px">(um ou mais)</span></div>
+    <div>${chk("pr-prod",PROP_PRODUTOS)}</div>
+    <div class="bloco-t" style="margin-top:8px">Verticais *</div>
+    <div>${chk("pr-vert",PROP_VERTICAIS)}</div>
+    <div class="bloco-t" style="margin-top:8px">Valor e pagamento * <span style="font-weight:400;font-size:10px">(marque as formas; total soma tudo)</span></div>
+    <div id="pr-pgs">${[["entrada","💵 Entrada",0],["boleto","Boleto",1],["cartao","Cartão",1],["vista","À vista",0]].map(([id,rot,temX])=>`
+      <div class="linha-acao"><label style="min-width:96px;font-size:12px"><input type="checkbox" id="pg-${id}" onchange="ge('pgw-${id}').style.display=this.checked?'inline-flex':'none';somaProposta()"> ${rot}</label>
+      <span id="pgw-${id}" style="display:none;align-items:center;gap:5px">R$ <input class="fsel" id="pgv-${id}" style="width:100px" placeholder="0,00" oninput="somaProposta()">
+      ${temX?`em <input class="fsel" id="pgx-${id}" type="number" min="1" value="1" style="width:56px" oninput="somaProposta()">x <span id="pgh-${id}" style="font-size:10px;color:var(--dani)"></span>`:""}</span></div>`).join("")}</div>
+    <div style="background:var(--green-lt);border-radius:9px;padding:8px 12px;display:flex;justify-content:space-between;margin-top:6px">
+      <b style="font-size:12px;color:var(--green)">&#128176; Total da proposta</b><b id="pr-total" style="color:var(--green)">R$ 0,00</b></div>
+    <div class="bloco-t" style="margin-top:8px">Origem e formato</div>
+    <div class="linha-acao"><select class="fsel" id="pr-orig"><option value="">Veio de *</option>${["Franqueado","Parceiro","T2","Golden","Backoffice"].map(x=>`<option>${x}</option>`).join("")}</select>
+      <select class="fsel" id="pr-cont"><option value="">Como foi feita *</option><option>Reunião</option><option>WhatsApp</option></select>
+      <select class="fsel" id="pr-par" onchange="ge('pr-sp-w').style.display=this.value==='Word'?'block':'none'"><option value="">Parecer *</option><option value="Word">Word / levantamento</option><option value="Mensagem">Mensagem / ligação</option></select></div>
+    <div id="pr-sp-w" style="display:none;margin-top:5px"><input class="fi" id="pr-sp" placeholder="Link do levantamento no SharePoint *"></div>
+    <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px">Tempo (min)*:</label><input class="fsel" id="pr-tempo" type="number" min="1" style="width:80px" placeholder="60">
+      <label style="font-size:11px">Data:</label><input type="date" class="fsel" id="pr-data" value="${hojeISO()}"></div>
+    <textarea class="fta" id="pr-obs" style="margin-top:6px" placeholder="Observações (opcional)"></textarea>
+    <button class="btn btp btw" style="margin-top:8px" onclick="lancarProposta()">&#128221; Lançar proposta</button>`);
 }
-async function concluirTarefa(){
-  const t=E.atual,check=ge("conc-check").value,dm=ge("conc-data").value;
-  let prox;if(dm)prox=dm;else{const d=new Date();d.setDate(d.getDate()+(/SEMANAL/.test(check)?7:/MENSAL/.test(check)?30:1));prox=d.toISOString().slice(0,10);}
-  if(!confirm(dm?`Concluir? A tarefa volta em ${brData(dm)}.`:`Concluir? A tarefa sai do dia e volta sozinha pela frequência (${check}).`))return;
-  try{await DB.concluir(t,{check,proximo:prox});}catch(e){toast("Erro: "+e.message,"erro");return;}
-  toast("Concluída!","ok");fecharModal();recarregar();
+function buscaPrCli(){
+  const q=(ge("pr-q").value||"").trim();const box=ge("pr-res");
+  if(q.length<2){box.innerHTML="";return;}
+  const f=filtraLocalClientes(E._clsTodos||[],q).slice(0,20);
+  box.innerHTML=f.map(c=>`<div class="linha-item" style="cursor:pointer" onclick='selPrCli(${JSON.stringify(c.id_cliente)})'>
+    <span><b>${esc(c.nome)}</b> ${c.situacao==="PROSPECCAO"?'<span class="tag td2">PROSP</span>':""} <span style="color:var(--gray);font-size:11px">${esc(c.cnpj_cpf||"")}</span></span></div>`).join("")
+    ||`<div style="font-size:12px;color:var(--gray)">Nenhum. Marque "cliente novo" se for prospecção.</div>`;
 }
-function fecharModal(){
-  clearInterval(E.timerInt);
-  const n=ge("nota-texto");if(n&&n.value.trim()&&!confirm("Há texto não salvo. Fechar mesmo assim?"))return;
-  ge("modal").classList.remove("aberto");E.atual=null;
+function selPrCli(id){E._prCli=E._cli[id];ge("pr-res").innerHTML="";ge("pr-q").value=E._prCli.nome;
+  ge("pr-sel").textContent="✓ "+E._prCli.nome+" selecionado";ge("pr-novo").checked=false;ge("pr-novo-w").style.display="none";}
+function numBR(s){s=String(s||"").trim();if(!s)return 0;if(s.includes(","))s=s.replace(/\./g,"").replace(",",".");return parseFloat(s)||0;}
+function somaProposta(){
+  let tot=0;["entrada","boleto","cartao","vista"].forEach(id=>{
+    if(ge("pg-"+id)?.checked){const v=numBR(ge("pgv-"+id).value);tot+=v;
+      const x=ge("pgx-"+id);if(x&&ge("pgh-"+id)){const n=parseInt(x.value)||1;
+        ge("pgh-"+id).textContent=(v&&n>1)?`= ${n}x de R$ ${(v/n).toLocaleString("pt-BR",{minimumFractionDigits:2})}`:"";}}});
+  ge("pr-total").textContent="R$ "+tot.toLocaleString("pt-BR",{minimumFractionDigits:2});return tot;
 }
-ge("modal").addEventListener("click",ev=>{if(ev.target===ge("modal"))fecharModal();});
+async function lancarProposta(){
+  const novo=ge("pr-novo").checked;
+  let cliente="",idc="",cnpj="";
+  if(novo){cliente=(ge("pr-nnome").value||"").trim();cnpj=(ge("pr-ncnpj").value||"").trim();
+    if(!cliente){toast("Informe o nome do cliente novo.","erro");return;}}
+  else{if(!E._prCli){toast("Selecione o cliente ou marque 'cliente novo'.","erro");return;}
+    cliente=E._prCli.nome;idc=E._prCli.id_cliente;cnpj=E._prCli.cnpj_cpf||"";}
+  const exec=ge("pr-exec").value;if(!exec){toast("Quem executa?","erro");return;}
+  const pediu=ge("pr-pediu").value;if(!pediu){toast("Quem pediu?","erro");return;}
+  const prods=[...document.querySelectorAll(".pr-prod:checked")].map(x=>x.value);
+  if(!prods.length){toast("Marque ao menos um produto.","erro");return;}
+  const verts=[...document.querySelectorAll(".pr-vert:checked")].map(x=>x.value);
+  if(!verts.length){toast("Marque ao menos uma vertical.","erro");return;}
+  const partes=[];let tot=0;
+  const forma=(id,rot,temX)=>{if(!ge("pg-"+id).checked)return true;
+    const v=numBR(ge("pgv-"+id).value);if(!v){toast("Informe o valor de "+rot+".","erro");return false;}
+    tot+=v;const x=temX?parseInt(ge("pgx-"+id).value)||1:0;
+    partes.push(`${rot}${x>1?" "+x+"x":""}: R$ ${v.toLocaleString("pt-BR",{minimumFractionDigits:2})}`);return true;};
+  if(!forma("entrada","Entrada",0)||!forma("boleto","Boleto",1)||!forma("cartao","Cartão",1)||!forma("vista","À vista",0))return;
+  if(!partes.length){toast("Marque ao menos uma forma de pagamento.","erro");return;}
+  const cond=(partes.length>1?`Total R$ ${tot.toLocaleString("pt-BR",{minimumFractionDigits:2})} = `:"")+partes.join(" + ");
+  const orig=ge("pr-orig").value;if(!orig){toast("Informe a origem.","erro");return;}
+  const cont=ge("pr-cont").value;if(!cont){toast("Como foi feita?","erro");return;}
+  const par=ge("pr-par").value;if(!par){toast("Tipo de parecer?","erro");return;}
+  const sp=(ge("pr-sp").value||"").trim();
+  if(par==="Word"&&!sp){toast("Link do SharePoint é obrigatório para parecer em Word.","erro");return;}
+  const tempo=parseInt(ge("pr-tempo").value)||0;if(!tempo){toast("Informe o tempo gasto.","erro");return;}
+  try{const r=await DB.criarProposta({cliente,id_cliente:idc,cnpj,novo_cliente:novo,
+    executor:exec,quem_pediu:pediu,responsavel:exec,produtos:prods.join(", "),verticais:verts.join(", "),
+    valor:tot,cond,origem:orig,contato:cont,parecer:par,sharepoint:sp,tempo,
+    data:ge("pr-data").value||hojeISO(),obs:ge("pr-obs").value||"",status:"Enviada"});
+    toast("✓ Proposta lançada: "+r.id,"ok");}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  fecharModal2();if(E.view==="prop")telaPropostas();
+}
+// ---- atividade avulsa (tempo geral: WhatsApp, e-mails...)
+async function abrirAvulsa(){
+  const desc=prompt("O que você vai fazer agora?\n\nEx: Retorno aos grupos de WhatsApp, organização de e-mails...");
+  if(desc===null)return;const d=String(desc).trim();
+  if(!d){toast("Escreva o que vai fazer.","erro");return;}
+  try{await DB.sessaoIniciar({id_tarefa:"AVULSA",cliente:"⏱️ "+d,operacao:d});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  ligaChipAvulsa(d,Date.now());
+  toast("Atividade iniciada! O tempo está contando no topo.","ok");
+}
+function ligaChipAvulsa(desc,iniMs){
+  E._avulsa={desc,ini:iniMs};
+  ge("chip-timer").style.display="inline-flex";
+  ge("chip-timer-desc").textContent=desc.slice(0,26);
+  clearInterval(E._avulsaInt);
+  E._avulsaInt=setInterval(()=>{const s=Math.floor((Date.now()-E._avulsa.ini)/1000);
+    ge("chip-timer-num").textContent=Math.floor(s/60)+":"+String(s%60).padStart(2,"0");},1000);
+}
+async function pararAvulsa(){
+  if(!E._avulsa)return;
+  const min=Math.round((Date.now()-E._avulsa.ini)/60000);
+  clearInterval(E._avulsaInt);ge("chip-timer").style.display="none";
+  try{await DB.sessaoConcluir(min);
+    if(min>=1)await DB.nota({id_tarefa:"AVULSA",id_cliente:null,tipo:"TIMER",texto:`Tempo registrado: ${min} min — ⏱️ ${E._avulsa.desc}`});}
+  catch(e){toast("Erro: "+e.message,"erro");}
+  toast(`Atividade registrada: ${min} min.`,"ok");E._avulsa=null;
+}
+async function retomarSessaoAtiva(){
+  try{const s=await DB.sessaoAtiva();
+    if(s&&s.id_tarefa==="AVULSA"){const m=String(s.hora_inicio||"").match(/(\d{1,2}):(\d{2})/);
+      let ini=Date.now();if(m){const d0=new Date();d0.setHours(+m[1],+m[2],0,0);if(d0.getTime()<=Date.now())ini=d0.getTime();}
+      ligaChipAvulsa(String(s.operacao||s.cliente||"Atividade").replace(/^⏱️\s*/,""),ini);}}
+  catch(e){}
+}
 
 iniciar();
 </script>
