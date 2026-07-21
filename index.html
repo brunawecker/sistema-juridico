@@ -367,6 +367,8 @@ const L = {  // modo local (servidor de teste na máquina)
   liberarAtrasadas(a,q){return this.f("/api/liberar_atrasadas",P({assessor:a,qtd:q}));},
   verComo(a){return this.f("/api/vercomo",P({alvo:a}));},
   verComoSair(){return this.f("/api/vercomo_sair",P({}));},
+  config(){return this.f("/api/config");},
+  configSet(tabela,pkCol,pkVal,campos){return this.f("/api/config_set",P({tabela,pk_col:pkCol,pk_val:pkVal,campos}));},
 };
 function P(body){return{method:"POST",body:JSON.stringify(body)};}
 function filtraLocalClientes(cs,q){if(!q)return cs;const t=q.toLowerCase(),dig=q.replace(/\D/g,"");
@@ -375,17 +377,31 @@ function filtraLocalClientes(cs,q){if(!q)return cs;const t=q.toLowerCase(),dig=q
 function brHoje(){const d=new Date();return String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+String(d.getFullYear()).slice(-2);}
 function horaAgora(){const d=new Date();return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");}
 
+// Traduz as mensagens técnicas do banco para algo que dá para entender.
+// Mensagens já em português (das nossas funções/travas) passam intactas.
+function traduzErro(m){const s=String(m||"");
+  if(/jwt|token.*expired|invalid claim/i.test(s))return "Sua sessão expirou. Recarregue a página e entre de novo.";
+  if(/failed to fetch|networkerror|load failed|network request/i.test(s))return "Sem conexão com o banco. Confira a internet e tente de novo.";
+  if(/row-level security|violates row|permission denied/i.test(s))return "Você não tem permissão para essa ação.";
+  if(/duplicate key/i.test(s))return "Já existe um registro com esse código.";
+  if(/violates check constraint/i.test(s))return "Valor fora do padrão aceito — confira o preenchimento.";
+  return s;}
 // modo Supabase (site publicado): mesmas operações, direto no banco
-async function rpcS(nome,args){const{data,error}=await supa.rpc(nome,args);if(error)throw new Error(error.message);return data;}
+async function rpcS(nome,args){const{data,error}=await supa.rpc(nome,args);if(error)throw new Error(traduzErro(error.message));return data;}
 async function novoIdS(p){return rpcS("novo_id",{p_prefixo:p});}
 async function histS(id_tarefa,id_cliente,tipo,texto){const hid=await novoIdS("HIS");
   const{error}=await supa.from("historico").insert({id_historico:hid,id_tarefa:id_tarefa,id_cliente:id_cliente,
     data:brHoje(),data_dt:hojeISO(),autor:E.perfil.nome_sistema,tipo:tipo,texto:texto,origem:"SITE"});
-  if(error)throw new Error(error.message);return hid;}
-function okS(r){if(r.error)throw new Error(r.error.message);return r.data;}
+  if(error)throw new Error(traduzErro(error.message));return hid;}
+function okS(r){if(r.error)throw new Error(traduzErro(r.error.message));return r.data;}
 const S = {
   async perfil(){const{data}=await supa.from("meu_perfil").select("*");return data&&data[0];},
-  async tarefas(){return okS(await supa.from("operacional").select("*").order("data_revisao_dt",{ascending:true,nullsFirst:false}).limit(5000))||[];},
+  async tarefas(){
+    // cache de 1 minuto: trocar de tela não baixa o portfólio de novo;
+    // qualquer ação (recarregar) limpa o cache e busca fresco
+    if(E._cacheT&&Date.now()-E._cacheT.ts<60000)return E._cacheT.v;
+    const v=okS(await supa.from("operacional").select("*").order("data_revisao_dt",{ascending:true,nullsFirst:false}).limit(5000))||[];
+    E._cacheT={v:v,ts:Date.now()};return v;},
   async historico(id){return okS(await supa.from("historico").select("*").eq("id_tarefa",id).order("data_dt",{ascending:false,nullsFirst:false}).order("linha",{ascending:false}).limit(500))||[];},
   async historicoHoje(){return okS(await supa.from("historico").select("*").eq("data_dt",hojeISO()))||[];},
   async historicoPeriodo(d){const lim=new Date();lim.setDate(lim.getDate()-d);
@@ -407,6 +423,13 @@ const S = {
   async reunioes(){return okS(await supa.from("reunioes").select("*").order("data_dt",{ascending:false,nullsFirst:false}).limit(500))||[];},
   async snapshot(){return okS(await supa.from("snapshot_diario").select("*").order("data_dt"))||[];},
   async cobranca(){return okS(await supa.from("cobranca").select("*").order("linha"))||[];},
+  async config(){return{cap:okS(await supa.from("config_capacidade").select("*"))||[],
+    tmp:okS(await supa.from("config_tempos").select("*"))||[],
+    per:okS(await supa.from("config_permissoes").select("*"))||[]};},
+  async configSet(tabela,pkCol,pkVal,campos){
+    const r=await supa.from(tabela).update(campos).eq(pkCol,pkVal).select();okS(r);
+    if(!(r.data||[]).length)okS(await supa.from(tabela).insert({[pkCol]:pkVal,...campos}).select());
+    return{ok:true};},
   async equipe(){return okS(await supa.from("equipe").select("nome_sistema,nome_completo,cargo,head,status,email").order("nome_sistema"))||[];},
   async nota(o){await histS(o.id_tarefa,o.id_cliente,o.tipo,o.texto);return{ok:true};},
   async tempo(o){await histS(o.id_tarefa,o.id_cliente,"TIMER","Tempo registrado: "+o.minutos+" min");return{ok:true};},
@@ -564,8 +587,19 @@ async function entrou(){
   ge("tela-login").style.display="none"; ge("app").style.display="block";
   ge("sb-av").textContent=(p.nome_sistema||"?").charAt(0);
   ge("sb-nm").textContent=p.nome_sistema; ge("sb-rl").textContent=p.cargo+(p.admin_sim?" · ADMIN":"");
-  montarVerComo(); faixaVerComo(); montarMenu();
+  await carregarConfig(); montarVerComo(); faixaVerComo(); montarMenu();
   if(OPERACIONAIS.includes(p.nome_sistema))iniciarVigiaInatividade();
+}
+// Configurações vindas do banco (capacidade, tempos por operação, quem
+// corrige/delega). Head edita na tela "Configurações" — sem republicar o
+// site. Se o banco não responder, seguem os padrões embutidos no código.
+async function carregarConfig(){
+  try{const cf=await DB.config();
+    (cf.cap||[]).forEach(r=>{CAP[r.nome]=r.minutos;});
+    (cf.tmp||[]).forEach(r=>{TEMPOS_PADRAO[r.operacao==="_PADRAO"?"_default":r.operacao]=r.minutos;});
+    if((cf.per||[]).length){CORR_HEADS.length=0;AUTORIZADOS_DELEGAR.length=0;
+      cf.per.forEach(r=>{if(r.pode_corrigir)CORR_HEADS.push(r.nome);if(r.pode_delegar)AUTORIZADOS_DELEGAR.push(r.nome);});}
+  }catch(e){/* segue com os padrões do código */}
 }
 function nomeCompletoDe(sis){const m=E.equipe.find(x=>x.nome_sistema===sis);return m?m.nome_completo:"";}
 function loginDe(n){if(!n)return "";const s=String(n).trim().toLowerCase();
@@ -611,6 +645,7 @@ function montarMenu(){
     ["cli","&#127970;","Gestão de Clientes",telaClientes],
     ["prop","&#128203;","Propostas",telaPropostas],
     ["fix","&#128260;","Tarefas Fixas",telaFixas],
+    ["cfg","&#9881;&#65039;","Configurações",telaConfig],
   ];
   else itens=[
     ["minhas","&#128203;","Minhas Tarefas",telaMinhas],
@@ -630,11 +665,66 @@ function montarMenu(){
 }
 function setNav(v,titulo){E.view=v;ge("tbt").textContent=titulo;
   document.querySelectorAll(".ni").forEach(b=>b.classList.toggle("on",b.dataset.v===v));}
-function recarregar(){const it=E._itens.find(i=>i[0]===E.view);if(it)it[3]();}
+function recarregar(){E._cacheT=null;const it=E._itens.find(i=>i[0]===E.view);if(it)it[3]();}
 function abrirMenu(){ge("sb").classList.add("on");ge("ovl").classList.add("on");}
 function fecharMenu(){ge("sb").classList.remove("on");ge("ovl").classList.remove("on");}
 function carregando(){ge("conteudo").innerHTML=`<div class="carregando"><div class="spin"></div></div>`;}
 function erro(m){ge("conteudo").innerHTML=`<div class="vazio">&#9888; ${esc(m)}</div>`;}
+
+// ========================================================= CONFIGURAÇÕES
+// Tela de head: capacidades, permissões e tempos morarão no banco — mudar
+// aqui vale para todo mundo na próxima vez que abrirem o sistema.
+async function telaConfig(){setNav("cfg","Configurações");carregando();
+  if(!E.perfil.head_sim){erro("Esta tela é só para heads.");return;}
+  let cf;try{cf=await DB.config();}catch(e){erro(e.message);return;}
+  E._cfgAtual=cf;
+  const nomes=(E.equipe||[]).filter(m=>String(m.status).toUpperCase()==="ATIVO").map(m=>m.nome_sistema);
+  const capDeCfg=n=>{const r=(cf.cap||[]).find(x=>x.nome===n);return r?r.minutos:"";};
+  const perDe=n=>(cf.per||[]).find(x=>x.nome===n)||{};
+  ge("conteudo").innerHTML=`
+  <div class="painel"><div class="bloco-t">Capacidade diária (minutos de trabalho por pessoa)</div>
+    ${nomes.map(n=>`<div class="linha-item"><span>${esc(n)}</span>
+      <input class="fsel" style="width:90px" type="number" min="60" max="720" id="cfg-cap-${esc(n)}" value="${capDeCfg(n)}" placeholder="420"></div>`).join("")}
+    <div class="linha-acao"><button class="btn btp btsm" onclick="salvarConfigCap()">&#128190; Salvar capacidades</button></div></div>
+  <div class="painel"><div class="bloco-t">Quem pode corrigir e delegar impulso</div>
+    ${nomes.map(n=>{const p=perDe(n);return `<div class="linha-item"><span>${esc(n)}</span><span>
+      <label style="font-size:12px"><input type="checkbox" id="cfg-cor-${esc(n)}" ${p.pode_corrigir?"checked":""}> corrige</label>
+      <label style="font-size:12px;margin-left:10px"><input type="checkbox" id="cfg-del-${esc(n)}" ${p.pode_delegar?"checked":""}> delega</label></span></div>`;}).join("")}
+    <div class="linha-acao"><button class="btn btp btsm" onclick="salvarConfigPer()">&#128190; Salvar permissões</button></div></div>
+  <div class="painel"><div class="bloco-t">Tempo padrão por operação (minutos)</div>
+    <div style="font-size:11px;color:var(--gray);margin-bottom:6px">Usado para planejar o dia quando ainda não há tempo real medido. A linha "_PADRAO" vale para operações sem tempo próprio.</div>
+    ${(cf.tmp||[]).slice().sort((a,b)=>a.operacao.localeCompare(b.operacao)).map(t=>`<div class="linha-item"><span>${esc(t.operacao)}</span>
+      <input class="fsel" style="width:80px" type="number" min="1" max="480" id="cfg-tmp-${esc(t.operacao)}" value="${t.minutos}"></div>`).join("")}
+    <div class="linha-acao"><button class="btn btp btsm" onclick="salvarConfigTmp()">&#128190; Salvar tempos</button></div></div>
+  <div style="font-size:11px;color:var(--gray)">As mudanças valem para cada pessoa a partir da próxima vez que ela abrir o sistema.</div>`;
+}
+async function salvarConfigCap(){const cf=E._cfgAtual;let n=0;
+  for(const nome of (E.equipe||[]).map(m=>m.nome_sistema)){
+    const el=ge("cfg-cap-"+nome);if(!el||el.value==="")continue;
+    const v=parseInt(el.value);
+    if(!v||v<60||v>720){toast("Capacidade de "+nome+" precisa estar entre 60 e 720 minutos.","erro");return;}
+    const atual=(cf.cap||[]).find(x=>x.nome===nome);
+    if(atual&&atual.minutos===v)continue;
+    try{await DB.configSet("config_capacidade","nome",nome,{minutos:v});n++;}
+    catch(e){toast("Erro em "+nome+": "+e.message,"erro");return;}}
+  await carregarConfig();toast(n?n+" capacidade(s) salva(s)!":"Nada mudou.","ok");telaConfig();}
+async function salvarConfigPer(){const cf=E._cfgAtual;let n=0;
+  for(const nome of (E.equipe||[]).map(m=>m.nome_sistema)){
+    const c=ge("cfg-cor-"+nome),d=ge("cfg-del-"+nome);if(!c||!d)continue;
+    const atual=(cf.per||[]).find(x=>x.nome===nome)||{pode_corrigir:false,pode_delegar:false};
+    if(atual.pode_corrigir===c.checked&&atual.pode_delegar===d.checked)continue;
+    try{await DB.configSet("config_permissoes","nome",nome,{pode_corrigir:c.checked,pode_delegar:d.checked});n++;}
+    catch(e){toast("Erro em "+nome+": "+e.message,"erro");return;}}
+  await carregarConfig();toast(n?n+" permissão(ões) salva(s)!":"Nada mudou.","ok");telaConfig();}
+async function salvarConfigTmp(){const cf=E._cfgAtual;let n=0;
+  for(const t of (cf.tmp||[])){
+    const el=ge("cfg-tmp-"+t.operacao);if(!el)continue;
+    const v=parseInt(el.value);
+    if(!v||v<1||v>480){toast("Tempo de \""+t.operacao+"\" precisa estar entre 1 e 480 minutos.","erro");return;}
+    if(v===t.minutos)continue;
+    try{await DB.configSet("config_tempos","operacao",t.operacao,{minutos:v});n++;}
+    catch(e){toast("Erro em \""+t.operacao+"\": "+e.message,"erro");return;}}
+  await carregarConfig();toast(n?n+" tempo(s) salvo(s)!":"Nada mudou.","ok");telaConfig();}
 
 // ============================================== classificação de tarefas
 function classificar(t){
