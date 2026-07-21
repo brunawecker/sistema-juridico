@@ -588,7 +588,9 @@ async function entrou(){
   ge("sb-av").textContent=(p.nome_sistema||"?").charAt(0);
   ge("sb-nm").textContent=p.nome_sistema; ge("sb-rl").textContent=p.cargo+(p.admin_sim?" · ADMIN":"");
   await carregarConfig(); montarVerComo(); faixaVerComo(); montarMenu();
-  if(OPERACIONAIS.includes(p.nome_sistema))iniciarVigiaInatividade();
+  // vigia de inatividade: só assessores de verdade — nunca heads/admin nem no "Ver como"
+  if(OPERACIONAIS.includes(p.nome_sistema)&&!p.head_sim&&!p.admin_sim&&!p.vendo_como_outro)
+    iniciarVigiaInatividade();
 }
 // Configurações vindas do banco (capacidade, tempos por operação, quem
 // corrige/delega). Head edita na tela "Configurações" — sem republicar o
