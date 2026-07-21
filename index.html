@@ -1065,7 +1065,9 @@ async function salvarFreqData(){
 // ===== Vigia de inatividade (assessores): aviso após 30 min sem sessão =====
 // Silêncio: fins de semana, fora de 9h–19h e almoço 12h–14h (descontado da conta).
 function marcarAtividade(){E._ultAtiv=Date.now();
-  const b=document.getElementById("aviso-inativo");if(b)b.remove();}
+  const b=document.getElementById("aviso-inativo");if(b)b.remove();
+  if(E._tituloInt){clearInterval(E._tituloInt);E._tituloInt=null;}
+  if(E._tituloOrig)document.title=E._tituloOrig;}
 function iniciarVigiaInatividade(){
   if(E._vigia)return;E._vigia=true;marcarAtividade();
   setInterval(checarInatividade,60000);}
@@ -1083,10 +1085,18 @@ function checarInatividade(){
 function mostrarAlertaInativo(min){
   let b=document.getElementById("aviso-inativo");
   if(!b){b=ce("div");b.id="aviso-inativo";
-    b.style.cssText="position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:400;background:#FEF9E7;border:2px solid var(--amber);border-radius:12px;padding:10px 16px;box-shadow:var(--sh2);font-size:13px;max-width:460px;display:flex;gap:10px;align-items:center";
+    b.style.cssText="position:fixed;inset:0;z-index:500;background:rgba(26,46,56,.88);display:flex;align-items:center;justify-content:center;padding:20px";
     document.body.appendChild(b);}
-  b.innerHTML=`<span>&#9888; Você está há <b>${min} min</b> sem atividade registrada. Abra o cartão da tarefa em que está trabalhando (e deixe aberto) — o tempo conta para calibrar o seu dia.</span>
-    <button class="btn bts btsm" onclick="marcarAtividade()">OK</button>`;}
+  b.innerHTML=`<div style="background:white;border-radius:18px;padding:36px 34px;max-width:480px;text-align:center;box-shadow:0 24px 80px rgba(0,0,0,.4)">
+    <div style="font-size:52px;margin-bottom:10px">&#9888;</div>
+    <div style="font-size:20px;font-weight:700;color:var(--navy);margin-bottom:8px">Você está há ${min} min sem atividade registrada</div>
+    <div style="font-size:14px;color:var(--gray);margin-bottom:20px">Abra o cartão da tarefa em que está trabalhando — <b>e deixe aberto enquanto executa</b>. É assim que o sistema mede o seu tempo e monta um dia justo para você.</div>
+    <button class="btn btp btw" style="font-size:15px;padding:12px" onclick="marcarAtividade()">OK, vou registrar</button></div>`;
+  // aba piscando (estilo WhatsApp) até clicar em OK — funciona com a aba em segundo plano
+  if(!E._tituloInt){E._tituloOrig=E._tituloOrig||document.title;
+    let liga=false;
+    E._tituloInt=setInterval(()=>{liga=!liga;
+      document.title=liga?"🔴 (1) Volte ao sistema!":E._tituloOrig;},1200);}}
 function editarQueda(){ge("qi-ver").style.display="none";ge("qi-ed").style.display="inline";}
 async function salvarQueda(){
   const t=E.atual,v=ge("qi-in").value;
