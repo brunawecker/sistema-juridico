@@ -565,6 +565,7 @@ async function entrou(){
   ge("sb-av").textContent=(p.nome_sistema||"?").charAt(0);
   ge("sb-nm").textContent=p.nome_sistema; ge("sb-rl").textContent=p.cargo+(p.admin_sim?" · ADMIN":"");
   montarVerComo(); faixaVerComo(); montarMenu();
+  if(OPERACIONAIS.includes(p.nome_sistema))iniciarVigiaInatividade();
 }
 function nomeCompletoDe(sis){const m=E.equipe.find(x=>x.nome_sistema===sis);return m?m.nome_completo:"";}
 function loginDe(n){if(!n)return "";const s=String(n).trim().toLowerCase();
@@ -883,6 +884,7 @@ async function removerReuniao(id){
 
 // =================================================== CARD DA TAREFA
 async function abrirTarefa(id){
+  if(typeof marcarAtividade==="function")marcarAtividade();
   const t=E.tarefas.find(x=>x.id_tarefa===id);if(!t)return;E.atual=t;
   ge("m-titulo").textContent=t.cliente||"";
   ge("m-sub").innerHTML=`<span style="cursor:pointer" title="Clique para corrigir o tipo" onclick="editarOperacao()">${esc(t.operacao||"")} &#9998;</span> · ${esc(t.advogada||"")} · ${esc(t.check_||"")} · ${esc(t.assessor||"")}`;
@@ -1060,6 +1062,31 @@ async function salvarFreqData(){
   try{await DB.tarefaUpdate(t,{campos:{check_:check},...(dm?{data_revisao:dm}:{})});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   t.check_=check;if(dm)t.data_revisao_dt=dm;toast("Salvo!","ok");}
+// ===== Vigia de inatividade (assessores): aviso após 30 min sem sessão =====
+// Silêncio: fins de semana, fora de 9h–19h e almoço 12h–14h (descontado da conta).
+function marcarAtividade(){E._ultAtiv=Date.now();
+  const b=document.getElementById("aviso-inativo");if(b)b.remove();}
+function iniciarVigiaInatividade(){
+  if(E._vigia)return;E._vigia=true;marcarAtividade();
+  setInterval(checarInatividade,60000);}
+function checarInatividade(){
+  const d=new Date(),h=d.getHours(),dow=d.getDay();
+  if(dow===0||dow===6||h<9||h>=19||(h>=12&&h<14))return;
+  const chip=document.getElementById("chip-timer");
+  if(E.timerIni||(chip&&chip.style.display!=="none"))return; // cartão aberto ou avulsa rodando
+  const agoraMin=h*60+d.getMinutes();
+  const ult=new Date(E._ultAtiv||Date.now());
+  const ultMin=(ult.toDateString()===d.toDateString())?ult.getHours()*60+ult.getMinutes():9*60;
+  const almoco=Math.max(0,Math.min(agoraMin,14*60)-Math.max(ultMin,12*60));
+  const gap=agoraMin-ultMin-almoco;
+  if(gap>=30)mostrarAlertaInativo(gap);}
+function mostrarAlertaInativo(min){
+  let b=document.getElementById("aviso-inativo");
+  if(!b){b=ce("div");b.id="aviso-inativo";
+    b.style.cssText="position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:400;background:#FEF9E7;border:2px solid var(--amber);border-radius:12px;padding:10px 16px;box-shadow:var(--sh2);font-size:13px;max-width:460px;display:flex;gap:10px;align-items:center";
+    document.body.appendChild(b);}
+  b.innerHTML=`<span>&#9888; Você está há <b>${min} min</b> sem atividade registrada. Abra o cartão da tarefa em que está trabalhando (e deixe aberto) — o tempo conta para calibrar o seu dia.</span>
+    <button class="btn bts btsm" onclick="marcarAtividade()">OK</button>`;}
 function editarQueda(){ge("qi-ver").style.display="none";ge("qi-ed").style.display="inline";}
 async function salvarQueda(){
   const t=E.atual,v=ge("qi-in").value;
@@ -1177,6 +1204,7 @@ function iniciarTimer(){E.timerIni=Date.now();clearInterval(E.timerInt);
   E.timerInt=setInterval(()=>{const s=Math.floor((Date.now()-E.timerIni)/1000);const el=ge("timer-num");
     if(el)el.textContent=Math.floor(s/60)+":"+String(s%60).padStart(2,"0");},1000);}
 function fecharModal(){
+  marcarAtividade();
   clearInterval(E.timerInt);
   const n=ge("nota-texto");if(n&&n.value.trim()&&!confirm("Há texto não salvo. Fechar mesmo assim?"))return;
   const min=E.timerIni?Math.round((Date.now()-E.timerIni)/60000):0;
@@ -1215,16 +1243,19 @@ async function telaPainel(){
     if(dele.length>0&&pendHoje===0&&naFila>0)
       alerta+=`<div class="linha-item"><span>&#127881; <b>${esc(n)}</b> zerou o dia · ${naFila} atrasada(s) na fila</span>
         <button class="btn btp btsm" onclick="liberarMais('${esc(n)}')">+ Liberar 5 atrasadas</button></div>`;});
-  // inatividade (dias úteis, depois das 9h): sem sessão há 2h+
+  // inatividade (dias úteis, depois das 9h): sem sessão há 2h+ — almoço 12h–14h
+  // fica em silêncio e é descontado da conta
   const agora=new Date();let inativos="";
-  if(agora.getDay()>0&&agora.getDay()<6&&agora.getHours()>=9){
+  const hAg=agora.getHours();
+  if(agora.getDay()>0&&agora.getDay()<6&&hAg>=9&&!(hAg>=12&&hAg<14)){
     OPERACIONAIS.forEach(n=>{
       const dele=(ses||[]).filter(s=>loginDe(s.assessor)===n);
       if(!dele.length){inativos+=`<div class="linha-item"><b>${esc(n)}</b><span>sem atividade registrada hoje</span></div>`;return;}
       let ult=0;dele.forEach(s=>{const m=String(s.status==="ATIVO"?s.hora_inicio:s.hora_fim||s.hora_inicio||"").match(/(\d{1,2}):(\d{2})/);
         if(m){const v=(+m[1])*60+(+m[2]);if(v>ult)ult=v;}});
-      const agoraMin=agora.getHours()*60+agora.getMinutes();
-      if(ult&&agoraMin-ult>=120)inativos+=`<div class="linha-item"><b>${esc(n)}</b><span>inativo há ${fmtMin(agoraMin-ult)}</span></div>`;});
+      const agoraMin=hAg*60+agora.getMinutes();
+      const almoco=Math.max(0,Math.min(agoraMin,14*60)-Math.max(ult,12*60));
+      if(ult&&agoraMin-ult-almoco>=120)inativos+=`<div class="linha-item"><b>${esc(n)}</b><span>inativo há ${fmtMin(agoraMin-ult-almoco)}</span></div>`;});
   }
   let h="";
   if(alerta)h+=`<div class="painel" style="background:var(--green-lt);border-color:var(--green)">
@@ -2339,7 +2370,7 @@ async function pararAvulsa(){
   try{await DB.sessaoConcluir(min);
     if(min>=1)await DB.nota({id_tarefa:"AVULSA",id_cliente:null,tipo:"TIMER",texto:`Tempo registrado: ${min} min — ⏱️ ${E._avulsa.desc}`});}
   catch(e){toast("Erro: "+e.message,"erro");}
-  toast(`Atividade registrada: ${min} min.`,"ok");E._avulsa=null;
+  toast(`Atividade registrada: ${min} min.`,"ok");E._avulsa=null;marcarAtividade();
 }
 async function retomarSessaoAtiva(){
   try{const s=await DB.sessaoAtiva();
