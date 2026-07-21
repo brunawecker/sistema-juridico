@@ -342,6 +342,10 @@ const L = {  // modo local (servidor de teste na máquina)
   tempo(o){return this.f("/api/tempo",P(o));},
   histEditar(id,linha,texto){return this.f("/api/hist_editar",P({id_historico:id,linha,texto}));},
   tarefaUpdate(t,x){return this.f("/api/tarefa_update",P({id_tarefa:t.id_tarefa,linha:t.linha,id_cliente:t.id_cliente,...x}));},
+  async docsDe(){return[];},
+  async docEnviar(){throw new Error("Anexos funcionam no site publicado (não no modo de teste local).");},
+  async docAbrir(){throw new Error("Anexos funcionam no site publicado.");},
+  async docApagar(){throw new Error("Anexos funcionam no site publicado.");},
   concluir(t,x){return this.f("/api/concluir",P({id_tarefa:t.id_tarefa,linha:t.linha,id_cliente:t.id_cliente,check:x.check,proximo:x.proximo,proximo_br:brData(x.proximo)}));},
   encerrar(t,x){return this.f("/api/encerrar",P({id_tarefa:t.id_tarefa,linha:t.linha,id_cliente:t.id_cliente,...x}));},
   reabrir(x){return this.f("/api/reabrir",P(x));},
@@ -543,6 +547,20 @@ const S = {
     return{ok:true,liberadas:alvo.length};},
   async verComo(a){okS(await supa.from("ver_como").insert({admin_email:E.perfil.email,alvo:a}));return{ok:true};},
   async verComoSair(){await supa.from("ver_como").update({encerrado_em:new Date().toISOString()}).is("encerrado_em",null);return{ok:true};},
+  async docsDe(idCli){return okS(await supa.from("documentos").select("*").eq("id_cliente",idCli).order("linha",{ascending:false}))||[];},
+  async docEnviar(file,idCli,idTar){
+    const caminho=idCli+"/"+Date.now()+"_"+String(file.name).replace(/[^\w.\-]+/g,"_").slice(0,120);
+    const up=await supa.storage.from("documentos").upload(caminho,file);
+    if(up.error)throw new Error(up.error.message);
+    okS(await supa.from("documentos").insert({id_cliente:idCli,id_tarefa:idTar||null,
+      nome_arquivo:file.name,caminho,tamanho:file.size,autor:E.perfil.nome_sistema}));
+    return{ok:true};},
+  async docAbrir(caminho){
+    const r=await supa.storage.from("documentos").createSignedUrl(caminho,3600);
+    if(r.error)throw new Error(r.error.message);
+    window.open(r.data.signedUrl,"_blank");return{ok:true};},
+  async docApagar(d){await supa.storage.from("documentos").remove([d.caminho]);
+    okS(await supa.from("documentos").delete().eq("linha",d.linha));return{ok:true};},
 };
 const DB = MODO_SUPABASE ? S : L;
 
@@ -1016,7 +1034,11 @@ function desenharCard(t,hist){
     <div>Próxima revisão:<br><b>${brData(t.data_revisao_dt)||"—"}</b></div>
     ${t.prazo_fatal_dt?`<div>Prazo fatal:<br><b style="color:${t._prazoAlerta?"var(--red)":"var(--navy)"}">${brData(t.prazo_fatal_dt)}</b></div>`:""}
     <div>Responsável:<br><b>${esc(t.assessor||"—")}</b></div></div>
-    <div id="cli-extra" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"></div>`;
+    <div id="cli-extra" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"></div>
+    <div class="bloco" style="margin-top:10px"><div class="bloco-t">&#128206; Documentos</div>
+      <div id="docs-box" style="font-size:12px;color:var(--gray)">carregando…</div>
+      <div class="linha-acao" style="margin-top:6px"><input type="file" id="doc-file" class="fsel" style="max-width:260px">
+        <button class="btn bts btsm" onclick="enviarDoc()">&#8613; Anexar a esta tarefa</button></div></div>`;
   h+=`<div class="timerbox" style="margin-top:10px"><div><div style="font-size:10px;color:#166534;font-weight:600">&#9201; Tempo nesta sessão</div>
     <div class="timernum" id="timer-num">0:00</div></div><div style="text-align:right">
     <div style="font-size:11px;color:var(--gray)">${tot?"Total: "+fmtMin(tot):"Primeira sessão"}</div>
@@ -1082,7 +1104,7 @@ function desenharCard(t,hist){
     :`<p style="font-size:13px;color:var(--gray)">Sem histórico.</p>`;
   h+=`</div>`;
   ge("m-corpo").innerHTML=h;
-  carregarCliExtra(t);
+  carregarCliExtra(t);carregarDocs(t);
 }
 async function carregarCliExtra(t){
   if(!t.id_cliente)return;const box=ge("cli-extra");if(!box)return;
@@ -1910,11 +1932,57 @@ function prepCliente(id){
       ${isHead?`<div style="font-size:10px;color:var(--gray);margin-top:4px">Ao salvar, todas as tarefas ativas do cliente passam para o novo responsável.</div>`:""}</div>
     <div class="linha-acao">
       <button class="btn bts btsm" onclick="verTarefasCliente('${esc(id)}')">&#128203; Ver tarefas</button>
+      <button class="btn bts btsm" onclick="verDocsCliente('${esc(id)}')">&#128206; Documentos</button>
       <button class="btn bts btsm" onclick="toggleEd('${esc(id)}')">&#9998; Editar cadastro</button>
       ${podeConverter?`<button class="btn btp btsm" onclick="converterCli('${esc(id)}')">&#10003; Converter em cliente oficial</button>`:""}</div>
     <div id="ct-${esc(id)}" style="margin-top:8px"></div>
+    <div id="cdoc-${esc(id)}" style="margin-top:8px"></div>
     <div id="ce-${esc(id)}" style="display:none;margin-top:8px"></div>`;
 }
+async function verDocsCliente(id){
+  const box=ge("cdoc-"+id);box.innerHTML=`<div class="carregando"><div class="spin"></div></div>`;
+  let docs=[];try{docs=await DB.docsDe(id);}catch(e){box.innerHTML=`<div class="aviso info">${esc(e.message)}</div>`;return;}
+  box.innerHTML=`<div class="painel"><div class="bloco-t">&#128206; Documentos do cliente (${docs.length})</div>
+    ${docs.length?docs.map(d=>linhaDoc(d)).join(""):`<div style="font-size:12px;color:var(--gray)">Nenhum documento ainda.</div>`}
+    <div class="linha-acao" style="margin-top:6px"><input type="file" id="cdoc-file-${esc(id)}" class="fsel" style="max-width:260px">
+      <button class="btn bts btsm" onclick="enviarDocCliente('${esc(id)}')">&#8613; Anexar ao cliente</button></div></div>`;
+}
+function linhaDoc(d){
+  const podeApagar=E.perfil.head_sim||d.autor===E.perfil.nome_sistema;
+  return `<div class="linha-item"><span style="cursor:pointer" onclick='abrirDoc(${JSON.stringify(d.caminho)})'>&#128196; <b>${esc(d.nome_arquivo)}</b>
+      <span style="color:var(--gray);font-size:11px"> ${d.id_tarefa?"· "+esc(d.id_tarefa):""} · ${esc(d.autor||"")} · ${brData(d.data_dt)||""}</span></span>
+    <span>${podeApagar?`<button class="btn bts btsm" onclick='apagarDoc(${JSON.stringify(d.linha)},${JSON.stringify(d.caminho)})'>&#10005;</button>`:""}</span></div>`;
+}
+async function abrirDoc(caminho){try{await DB.docAbrir(caminho);}catch(e){toast("Erro: "+e.message,"erro");}}
+async function apagarDoc(linha,caminho){
+  if(!confirm("Apagar este documento? Não dá para desfazer."))return;
+  try{await DB.docApagar({linha,caminho});}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Documento apagado.","ok");
+  const t=E.atual;if(t)carregarDocs(t);}
+async function enviarDocCliente(id){
+  const inp=ge("cdoc-file-"+id);const f=inp&&inp.files&&inp.files[0];
+  if(!f){toast("Escolha um arquivo primeiro.","erro");return;}
+  if(f.size>25*1024*1024){toast("Arquivo muito grande (limite 25 MB).","erro");return;}
+  try{await DB.docEnviar(f,id,null);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Documento anexado!","ok");verDocsCliente(id);}
+async function carregarDocs(t){
+  const box=ge("docs-box");if(!box||!t.id_cliente)return;
+  let docs=[];try{docs=await DB.docsDe(t.id_cliente);}catch(e){box.innerHTML=esc(e.message);return;}
+  const daTarefa=docs.filter(d=>d.id_tarefa===t.id_tarefa);
+  box.innerHTML=(daTarefa.length?daTarefa.map(d=>linhaDoc(d)).join(""):`<div style="font-size:12px;color:var(--gray)">Nenhum documento nesta tarefa.</div>`)
+    +(docs.length?`<div style="font-size:11px;color:var(--dani);margin-top:4px;cursor:pointer" onclick="verDocsDoClienteModal()">&#128194; O cliente tem ${docs.length} documento(s) no total — ver todos</div>`:"");
+  E._docsCli=docs;}
+function verDocsDoClienteModal(){
+  const t=E.atual,docs=E._docsCli||[];if(!t)return;
+  modal2("&#128206; Documentos do cliente",esc(t.cliente||""),
+    docs.length?docs.map(d=>linhaDoc(d)).join(""):`<div class="vazio">Nenhum documento.</div>`);}
+async function enviarDoc(){
+  const t=E.atual;const inp=ge("doc-file");const f=inp&&inp.files&&inp.files[0];
+  if(!f){toast("Escolha um arquivo primeiro.","erro");return;}
+  if(f.size>25*1024*1024){toast("Arquivo muito grande (limite 25 MB).","erro");return;}
+  if(!t.id_cliente){toast("Esta tarefa não tem cliente vinculado.","erro");return;}
+  try{await DB.docEnviar(f,t.id_cliente,t.id_tarefa);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Documento anexado! (fica na tarefa e no cliente)","ok");carregarDocs(t);}
 async function verTarefasCliente(id){
   const box=ge("ct-"+id);box.innerHTML=`<div class="carregando"><div class="spin"></div></div>`;
   let r;try{r=await DB.clienteTarefas(id);}catch(e){box.innerHTML=`<div class="vazio">${esc(e.message)}</div>`;return;}
@@ -2304,6 +2372,8 @@ function formNT(id){
     <div class="linha-acao"><input class="fsel" id="nt-proc" placeholder="Nº processual (opcional)" style="flex:1">
       <input class="fsel" id="nt-uf" placeholder="UF" style="width:64px"></div>
     <textarea class="fta" id="nt-sup" style="margin-top:6px" placeholder="Orientação inicial para o assessor (opcional)"></textarea>
+    <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px">&#128206; Documento inicial (opcional):</label>
+      <input type="file" id="nt-doc" class="fsel" style="max-width:240px"></div>
     <button class="btn btp btw" style="margin-top:8px" onclick="criarTarefaNova()">&#10003; Criar tarefa</button>`;
 }
 async function criarTarefaNova(){
@@ -2311,12 +2381,17 @@ async function criarTarefaNova(){
   const op=ge("nt-op").value;if(!op){toast("Selecione a operação.","erro");return;}
   const chk=ge("nt-chk").value;
   const rev=new Date();if(!["IMEDIATO","DIÁRIO"].includes(chk))rev.setDate(rev.getDate()+7);
-  try{const r=await DB.criarTarefa({id_cliente:c.id_cliente,cliente:c.nome,cnpj:c.cnpj_cpf,head:c.head||"",
+  let r;
+  try{r=await DB.criarTarefa({id_cliente:c.id_cliente,cliente:c.nome,cnpj:c.cnpj_cpf,head:c.head||"",
     operacao:op,check:chk,assessor:ge("nt-ass").value,prazo_fatal:ge("nt-pf").value||"",
     numero_proc:ge("nt-proc").value||"",estado:ge("nt-uf").value||"",supervisao:ge("nt-sup").value||"",
     revisao:rev.toISOString().slice(0,10)});
     toast("✓ Tarefa criada: "+r.id,"ok");}
   catch(e){toast("Erro: "+e.message,"erro");return;}
+  const fdoc=ge("nt-doc");const f=fdoc&&fdoc.files&&fdoc.files[0];
+  if(f){if(f.size>25*1024*1024)toast("Documento não anexado: muito grande (limite 25 MB).","erro");
+    else try{await DB.docEnviar(f,c.id_cliente,r.id);toast("Documento anexado à tarefa.","ok");}
+    catch(e){toast("Tarefa criada, mas o anexo falhou: "+e.message,"erro");}}
   fecharModal2();recarregar();
 }
 // ---- novo cliente + tarefa
