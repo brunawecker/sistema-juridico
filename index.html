@@ -326,6 +326,7 @@ const L = {  // modo local (servidor de teste na máquina)
   historicoHoje(){return this.f("/api/historico_hoje");},
   historicoPeriodo(d){return this.f("/api/historico_periodo?dias="+d);},
   historicoTimers(d){return this.f("/api/historico_periodo?dias="+d);},
+  roboStatus(){return this.f("/api/robo_status");},
   historicoDia(d){return this.f("/api/historico_dia?d="+d);},
   sessoesHoje(){return this.f("/api/sessoes_hoje");},
   sessaoAtiva(){return this.f("/api/sessao_ativa");},
@@ -413,6 +414,7 @@ const S = {
   async historicoTimers(d){const lim=new Date();lim.setDate(lim.getDate()-d);
     return okS(await supa.from("historico").select("*").eq("tipo","TIMER")
       .gte("data_dt",lim.toISOString().slice(0,10)).limit(5000))||[];},
+  async roboStatus(){return okS(await supa.from("robo_status").select("*"))||[];},
   async historicoDia(d){return okS(await supa.from("historico").select("*").eq("data_dt",d))||[];},
   async sessoesHoje(){return okS(await supa.from("sessoes").select("*").eq("data_dt",hojeISO()).order("linha"))||[];},
   async sessaoAtiva(){const r=okS(await supa.from("sessoes").select("*").eq("data_dt",hojeISO()).eq("status","ATIVO").eq("assessor",E.perfil.nome_sistema).order("linha",{ascending:false}).limit(1))||[];return r[0]||null;},
@@ -1381,7 +1383,16 @@ async function telaPainel(){
       const almoco=Math.max(0,Math.min(agoraMin,14*60)-Math.max(ult,12*60));
       if(ult&&agoraMin-ult-almoco>=120)inativos+=`<div class="linha-item"><b>${esc(n)}</b><span>inativo há ${fmtMin(agoraMin-ult-almoco)}</span></div>`;});
   }
+  // vigia dos robôs: cobrança (~5 min) e backup (diário)
+  let robos=[];try{robos=await DB.roboStatus();}catch(e){}
+  const avisoRobo=(robos||[]).map(r=>{
+    const m=Math.round((Date.now()-new Date(r.ultima).getTime())/60000);
+    if(r.nome==="cobranca"&&m>60)return `<div class="linha-item"><span>&#129302; <b>Robô de cobrança</b> sem rodar há ${fmtMin(m)} (esperado: a cada ~5 min) — os pagamentos podem estar desatualizados</span></div>`;
+    if(r.nome==="backup"&&m>48*60)return `<div class="linha-item"><span>&#128190; <b>Backup diário</b> não roda há ${Math.round(m/1440)} dia(s)</span></div>`;
+    return "";}).join("");
   let h="";
+  if(avisoRobo)h+=`<div class="painel" style="background:var(--red-lt);border-color:var(--red)">
+    <div class="bloco-t" style="color:var(--red)">&#128680; Robô parado — me avise para eu investigar</div>${avisoRobo}</div>`;
   if(alerta)h+=`<div class="painel" style="background:var(--green-lt);border-color:var(--green)">
     <div class="bloco-t" style="color:var(--green)">Dia zerado</div>${alerta}</div>`;
   if(inativos)h+=`<div class="painel" style="background:var(--amber-lt);border-color:var(--amber)">
@@ -1571,6 +1582,28 @@ async function telaCapacidade(){
     h+=`<div class="painel"><div class="bloco-t">&#129302; Tempo real por tipo de tarefa (robô de produtividade)</div>
       <div style="font-size:11px;color:var(--gray);margin-bottom:8px">Mediana do tempo medido pelo cronômetro do site (soma das sessões da tarefa no dia). Entre parênteses, o nº de medições — só entram na conta pares com 5+. <b style="color:var(--green)">Verde = mais rápido</b> · <b style="color:var(--red)">vermelho = mais lento</b>. O cronômetro só vê o trabalho feito com o cartão aberto; os números afinam com o uso.</div>
       <div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:12px;text-align:center;min-width:640px">${tbl}</table></div></div>`;}
+  // ===== 🎲 conferência por amostragem (contra o "marcar por marcar") =====
+  // A amostra é sorteada 1x por semana e fica FIXA a semana toda — não adianta
+  // recarregar a página esperando cair um caso mais fácil.
+  let histSem=[];try{histSem=await DB.historicoPeriodo(7);}catch(e){histSem=[];}
+  const semanaN=Math.floor(Date.now()/(7*86400000));
+  const embaralha=s=>{let x=0;const t=String(s);for(let i=0;i<t.length;i++)x=(x*31+t.charCodeAt(i))>>>0;return (x^(semanaN*2654435761))>>>0;};
+  const sorteia=(lst,n)=>[...lst].sort((a,b)=>embaralha(a.id_historico||a.linha)-embaralha(b.id_historico||b.linha)).slice(0,n);
+  const conclSem=(histSem||[]).filter(r=>/Tarefa concluída pelo site/.test(r.texto||""));
+  const gruposSem=(histSem||[]).filter(r=>/grupo de atendimento/.test(r.texto||""));
+  const minTarefa={};(histSem||[]).forEach(r=>{if(r.tipo!=="TIMER")return;
+    const m=parseInt((String(r.texto||"").match(/(\d+)\s*min/)||[0,0])[1]);
+    minTarefa[r.id_tarefa]=(minTarefa[r.id_tarefa]||0)+m;});
+  const relampago=conclSem.filter(r=>(minTarefa[r.id_tarefa]||0)<5).slice(0,5);
+  const itemAmostra=r=>`<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(r.id_tarefa)}')">
+    <span><b>${esc(loginDe(r.autor))}</b> · ${esc(r.id_tarefa)} · ${esc(String(r.texto||"").slice(0,90))}</span>
+    <span style="color:var(--gray);font-size:11px">${brData(r.data_dt)||""}</span></div>`;
+  if(conclSem.length||gruposSem.length)h+=`<div class="painel"><div class="bloco-t">&#127922; Conferência da semana (amostragem)</div>
+    <div style="font-size:11px;color:var(--gray);margin-bottom:8px">Amostra sorteada automaticamente — a mesma a semana inteira. Abra cada caso e confira se o registro bate com a realidade (mensagem realmente enviada? trabalho realmente feito?). 5 minutos por semana mantêm os dados honestos.</div>
+    ${conclSem.length?`<div style="font-size:12px;font-weight:700;margin:6px 0 3px">Conclusões para conferir (${Math.min(3,conclSem.length)} de ${conclSem.length} da semana)</div>${sorteia(conclSem,3).map(itemAmostra).join("")}`:""}
+    ${gruposSem.length?`<div style="font-size:12px;font-weight:700;margin:8px 0 3px">Declarações de aviso no grupo (${Math.min(3,gruposSem.length)} de ${gruposSem.length})</div>${sorteia(gruposSem,3).map(itemAmostra).join("")}`:""}
+    ${relampago.length?`<div style="font-size:12px;font-weight:700;margin:8px 0 3px;color:var(--amber)">&#9889; Conclusões relâmpago — menos de 5 min cronometrados (${relampago.length})</div>${relampago.map(itemAmostra).join("")}`:""}
+  </div>`;
   ge("conteudo").innerHTML=h;
 }
 // =================================================== TELA: EM ANDAMENTO
