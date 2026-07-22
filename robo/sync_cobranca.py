@@ -51,6 +51,15 @@ def ler_aba(sess, aba):
     raise RuntimeError(f"falha ao ler aba {aba}: {ultimo}")
 
 
+def bater_coracao():
+    """Registra que o robô rodou — o Painel do site vigia este registro."""
+    with psycopg.connect() as conn, conn.cursor() as cur:
+        cur.execute("""insert into juridico.robo_status (nome, ultima)
+                       values ('cobranca', now())
+                       on conflict (nome) do update set ultima = excluded.ultima""")
+        conn.commit()
+
+
 def main():
     sess = sessao_google()
     hoje = date.today()
@@ -68,6 +77,7 @@ def main():
             continue
     if not valores:
         print(f"nenhuma aba do mês encontrada ({candidatas}) — nada a fazer")
+        bater_coracao()
         return 0
 
     hdr_i = None
@@ -78,6 +88,7 @@ def main():
             break
     if hdr_i is None:
         print(f"cabeçalho não achado na aba {aba_usada} — nada a fazer")
+        bater_coracao()
         return 0
     hdr = [str(h).strip() for h in valores[hdr_i]]
 
@@ -143,6 +154,7 @@ def main():
 
     if not linhas_cob:
         print(f"aba {aba_usada} sem lançamentos válidos — mantendo dados atuais")
+        bater_coracao()
         return 0
 
     with psycopg.connect() as conn, conn.cursor() as cur:
@@ -153,6 +165,7 @@ def main():
             for linha in linhas_cob:
                 cp.write_row(linha)
         conn.commit()
+    bater_coracao()
     print(f"ok: {len(linhas_cob)} lançamento(s) da aba '{aba_usada}'")
     return 0
 
