@@ -12,6 +12,8 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 8
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -29,3 +31,14 @@ jobs:
           PGDATABASE: postgres
           PGSSLMODE: require
         run: python robo/sync_cobranca.py
+      - name: Batimento semanal (impede o GitHub de desligar o agendamento após 60 dias parado)
+        run: |
+          ULTIMO=$(cat robo/heartbeat.txt 2>/dev/null || echo 2000-01-01)
+          DIAS=$(( ( $(date -u +%s) - $(date -u -d "$ULTIMO" +%s 2>/dev/null || echo 0) ) / 86400 ))
+          if [ "$DIAS" -ge 7 ]; then
+            date -u +%F > robo/heartbeat.txt
+            git config user.name "robo-cobranca"
+            git config user.email "robo@users.noreply.github.com"
+            git add robo/heartbeat.txt
+            git commit -m "batimento do robô" && git push || true
+          fi
