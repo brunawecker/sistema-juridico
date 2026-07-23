@@ -52,11 +52,31 @@ def ler_aba(sess, aba):
 
 
 def bater_coracao():
-    """Registra que o robô rodou — o Painel do site vigia este registro."""
+    """Registra que o robô rodou (o Painel vigia isso) e tira a fotografia
+    diária da equipe: quantas tarefas atrasadas/em dia/ativas/imediatas há
+    agora. Como roda a cada 5 min, a última foto do dia é o fechamento do
+    dia — é o que o Acompanhamento Diário mostra ao voltar em datas passadas.
+    """
+    hoje_sp = "(now() at time zone 'America/Sao_Paulo')::date"
     with psycopg.connect() as conn, conn.cursor() as cur:
         cur.execute("""insert into juridico.robo_status (nome, ultima)
                        values ('cobranca', now())
                        on conflict (nome) do update set ultima = excluded.ultima""")
+        cur.execute(f"""select count(*)::int,
+            count(*) filter (where coalesce(status_tarefa,'') not like '%%EM DIA%%'
+                               and data_revisao_dt < {hoje_sp})::int,
+            count(*) filter (where check_ = 'IMEDIATO')::int
+            from juridico.operacional""")
+        total, atrasadas, imediatas = cur.fetchone()
+        em_dia = total - atrasadas
+        pct = round(100 * em_dia / total) if total else 100
+        cur.execute(f"delete from juridico.snapshot_diario where data_dt = {hoje_sp}")
+        cur.execute(f"""insert into juridico.snapshot_diario
+            (data, data_dt, atrasadas, em_dia, total_ativas, imediatas, pct_em_dia,
+             atrasadas_num, em_dia_num, total_ativas_num, imediatas_num, pct_em_dia_num)
+            values (to_char({hoje_sp},'DD/MM/YYYY'), {hoje_sp}, %s,%s,%s,%s,%s, %s,%s,%s,%s,%s)""",
+            (str(atrasadas), str(em_dia), str(total), str(imediatas), str(pct),
+             atrasadas, em_dia, total, imediatas, pct))
         conn.commit()
 
 
