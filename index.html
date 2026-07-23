@@ -1315,7 +1315,7 @@ function abrirEncerrar(){const t=E.atual;
     <div class="bloco-t">Motivo *</div>
     <select class="fsel" id="en-mot" style="width:100%">${["CONCLUÍDO","RENÚNCIA","PREJUDICADO","CANCELADO","MONITORAMENTO"].map(m=>`<option>${m}</option>`).join("")}</select>
     <div class="bloco-t" style="margin-top:8px">Resultado judicial / desfecho</div>
-    <select class="fsel" id="en-res" style="width:100%"><option value=""></option>${["JF - Deferido","JF - Deferido parcial","JF - Indeferido","Regularizado","Negociação concluída","Prescrição reconhecida","Desistência","Outro"].map(m=>`<option>${m}</option>`).join("")}</select>
+    <select class="fsel" id="en-res" style="width:100%"><option value=""></option>${["JF - Deferido","JF - Deferido parcial","JF - Indeferido","Regularizado","Negociação concluída","Prescrição reconhecida","Desistência","ENVIADO","Outro"].map(m=>`<option>${m}</option>`).join("")}</select>
     <div class="bloco-t" style="margin-top:8px">Nota de encerramento</div>
     <textarea class="fta" id="en-nota" placeholder="O que foi entregue ao cliente? Resultado final..."></textarea>
     <div class="linha-acao" style="margin-top:10px"><button class="btn btr" onclick="fazerEncerrar()">&#128193; Confirmar encerramento</button>
