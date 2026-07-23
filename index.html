@@ -337,6 +337,7 @@ const L = {  // modo local (servidor de teste na máquina)
   tarefasFixas(){return this.f("/api/tarefas_fixas");},
   reunioes(){return this.f("/api/reunioes");},
   snapshot(){return this.f("/api/snapshot");},
+  snapshotDia(d){return this.f("/api/snapshot").then(s=>(s||[]).filter(x=>String(x.data_dt||"").slice(0,10)===d).slice(-1));},
   cobranca(){return this.f("/api/cobranca");},
   equipe(){return this.f("/api/equipe");},
   nota(o){return this.f("/api/nota",P(o));},
@@ -428,6 +429,7 @@ const S = {
   async tarefasFixas(){return okS(await supa.from("tarefas_fixas").select("*").order("id_fixa"))||[];},
   async reunioes(){return okS(await supa.from("reunioes").select("*").order("data_dt",{ascending:false,nullsFirst:false}).limit(500))||[];},
   async snapshot(){return okS(await supa.from("snapshot_diario").select("*").order("data_dt"))||[];},
+  async snapshotDia(d){return okS(await supa.from("snapshot_diario").select("*").eq("data_dt",d).order("linha",{ascending:false}).limit(1))||[];},
   async cobranca(){return okS(await supa.from("cobranca").select("*").order("linha"))||[];},
   async config(){return{cap:okS(await supa.from("config_capacidade").select("*"))||[],
     tmp:okS(await supa.from("config_tempos").select("*"))||[],
@@ -1271,13 +1273,20 @@ function abrirDelegar(){const t=E.atual;
       <option value="MENSAL">Todo mês</option></select></div>
     <div style="font-size:11px;color:var(--gray);margin:6px 0">Se repetir: a pessoa conclui a rodada do dia e a tarefa volta na frequência, até "Finalizar impulso".</div>
     <textarea class="fta" id="dg-txt" placeholder="O que precisa ser feito? Ex: Ligar para o cartório e confirmar o protocolo..."></textarea>
+    <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px">&#128206; Anexo (opcional — print, certificado, documento):</label>
+    <input type="file" id="dg-file" class="fsel" style="max-width:240px"></div>
     <button class="btn btp btw" style="margin-top:8px" onclick="confirmarDelegar()">&#129309; Enviar impulso</button>`);}
 async function confirmarDelegar(){
   const t=E.atual,para=ge("dg-para").value,txt=(ge("dg-txt").value||"").trim();
   if(!para){toast("Escolha para quem delegar.","erro");return;}
   if(!txt){toast("Descreva o que precisa ser feito.","erro");return;}
-  try{await DB.delegar(t,{para,descricao:txt,freq:ge("dg-freq").value});}
+  const f=ge("dg-file")&&ge("dg-file").files?ge("dg-file").files[0]:null;
+  let r;
+  try{r=await DB.delegar(t,{para,descricao:txt,freq:ge("dg-freq").value});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
+  if(f){if(f.size>25*1024*1024)toast("Impulso enviado, mas o anexo não foi: arquivo acima de 25 MB.","erro");
+    else try{await DB.docEnviar(f,t.id_cliente,(r&&r.sub)||t.id_tarefa);}
+    catch(e){toast("Impulso enviado, mas o anexo falhou: "+e.message,"erro");}}
   toast("Impulso enviado para "+para+"!","ok");fecharModal2();fecharModal();recarregar();}
 async function finalizarImpulso(id){
   if(!confirm("Finalizar este impulso e devolver a tarefa ao responsável com o seu retorno?\n\nDica: escreva antes o último andamento com o resultado."))return;
@@ -1482,16 +1491,53 @@ async function telaPorAssessor(){
     ||`<div class="vazio">Sem tarefas.</div>`;
 }
 // =================================================== TELA: DIÁRIO (head)
-async function telaDiario(){
+// Aceita uma data (AAAA-MM-DD) para ver o histórico de outro dia; sem data = hoje.
+function diarioNavegar(n){const hoje=hojeISO();
+  const d=new Date((E.diaSel||hoje)+"T12:00:00");d.setDate(d.getDate()+n);
+  const nd=d.toISOString().slice(0,10);
+  telaDiario(nd>=hoje?undefined:nd);}
+async function telaDiario(dia){
+  const hoje=hojeISO(),d=(typeof dia==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(dia))?dia:hoje,ehHoje=d===hoje;
+  E.diaSel=d;
   setNav("diario","Acompanhamento Diário"); carregando();
-  let hist,ops;try{[hist,ops]=await Promise.all([DB.historicoHoje(),DB.tarefas()]);}catch(e){return erro(e.message);}
+  let hist,ops,casos,snap;
+  try{[hist,ops,casos,snap]=await Promise.all([
+    ehHoje?DB.historicoHoje():DB.historicoDia(d),DB.tarefas(),
+    ehHoje?Promise.resolve([]):DB.casos().catch(()=>[]),
+    DB.snapshotDia(d).catch(()=>[])]);}catch(e){return erro(e.message);}
   const ts=(ops||[]).map(classificar);E.tarefas=ts;
   const mapa={};ts.forEach(t=>{if(t.id_tarefa)mapa[t.id_tarefa]=t;});
-  // painel de delegações ativas + movimentações de hoje
-  const delegAtivas=ts.filter(t=>t._impulso);
-  const movHoje=(hist||[]).filter(r=>/Impulso delegado|Retorno do impulso/.test(r.texto||""));
-  let h="";
-  if(delegAtivas.length||movHoje.length){
+  const mapaEnc={};(casos||[]).forEach(c=>{const k=c.id_tarefa_origem||c.id_tarefa;if(k)mapaEnc[k]=c;});
+  // barra de navegação por data
+  let h=`<div class="painel" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <button class="btn bts btsm" onclick="diarioNavegar(-1)" title="Dia anterior">&#9664;</button>
+    <input type="date" class="fsel" id="dia-data" value="${d}" max="${hoje}" onchange="telaDiario(this.value)">
+    <button class="btn bts btsm" onclick="diarioNavegar(1)" ${ehHoje?"disabled":""} title="Dia seguinte">&#9654;</button>
+    ${ehHoje?`<b style="font-size:12px;color:var(--green)">&#9679; Hoje</b>`
+      :`<button class="btn btp btsm" onclick="telaDiario()">Voltar para hoje</button>
+        <span style="font-size:12px;color:var(--gray)">Mostrando <b>${brData(d)}</b></span>`}</div>`;
+  // resumo do dia: fotografia do robô + conclusões por pessoa
+  const sn=(snap||[])[0];
+  const concl=(hist||[]).filter(r=>/Tarefa concluída pelo site/.test(r.texto||""));
+  const conclPor={};concl.forEach(r=>{const a=loginDe(r.autor);if(a)conclPor[a]=(conclPor[a]||0)+1;});
+  if(sn||concl.length||!ehHoje){
+    h+=`<div class="painel" style="background:#F6F9F6;border-color:#CFE3CF">
+      <div class="bloco-t">&#128248; Resumo do dia ${brData(d)}</div>`;
+    if(sn){const pct=sn.pct_em_dia_num!=null?Math.round(sn.pct_em_dia_num):esc(sn.pct_em_dia||"—");
+      h+=`<div style="font-size:12px;margin-bottom:6px">${ehHoje?"Situação da equipe agora":"Como a equipe fechou o dia"}:
+        <b style="color:var(--red)">${esc(sn.atrasadas||"0")} atrasadas</b> ·
+        <b style="color:var(--green)">${esc(sn.em_dia||"0")} em dia</b> ·
+        ${esc(sn.total_ativas||"0")} ativas · ${esc(sn.imediatas||"0")} imediatas ·
+        <b>${pct}% em dia</b></div>`;}
+    else h+=`<div style="font-size:12px;color:var(--gray);margin-bottom:6px">Sem fotografia da equipe para este dia (o robô só passou a registrar a partir de 15/07/2026).</div>`;
+    const nomesC=Object.entries(conclPor).sort((a,b)=>b[1]-a[1]);
+    h+=nomesC.length?`<div style="font-size:12px">&#9989; Tarefas concluídas no dia (${concl.length}): ${nomesC.map(([n,q])=>`<b>${esc(n)}</b> ${q}`).join(" · ")}</div>`
+      :`<div style="font-size:12px;color:var(--gray)">&#9989; Nenhuma conclusão de tarefa registrada neste dia.</div>`;
+    h+=`</div>`;}
+  // painel de delegações ativas (só no hoje — é uma foto do presente) + movimentações do dia
+  const delegAtivas=ehHoje?ts.filter(t=>t._impulso):[];
+  const movDia=(hist||[]).filter(r=>/Impulso delegado|Retorno do impulso/.test(r.texto||""));
+  if(delegAtivas.length||movDia.length){
     h+=`<div class="painel" style="background:#EEF3F9;border-color:#C9D8EA">
       <div class="bloco-t" style="color:#1F4E79">&#129309; Delegações de impulso</div>`;
     if(delegAtivas.length){h+=`<div style="font-size:12px;font-weight:700;margin-bottom:4px">Ativas agora (${delegAtivas.length})</div>`;
@@ -1500,22 +1546,25 @@ async function telaDiario(){
         h+=`<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(a.id_tarefa)}')">
           <span><b>${esc(de.trim())}</b> → <b>${esc(a.assessor)}</b> · ${esc(a.cliente)} · ${esc(a.check_||"")}<br>
           <span style="color:var(--gray);font-size:11px">${esc(ped.slice(0,110))}</span></span></div>`;});}
-    if(movHoje.length){h+=`<div style="font-size:12px;font-weight:700;margin:8px 0 4px">Movimentações de hoje (${movHoje.length})</div>`;
-      movHoje.forEach(m=>{h+=`<div style="font-size:12px;padding:2px 0">${esc(m.autor)}: ${esc(String(m.texto||"").slice(0,130))}</div>`;});}
+    if(movDia.length){h+=`<div style="font-size:12px;font-weight:700;margin:8px 0 4px">Movimentações ${ehHoje?"de hoje":"de "+brData(d)} (${movDia.length})</div>`;
+      movDia.forEach(m=>{h+=`<div style="font-size:12px;padding:2px 0">${esc(m.autor)}: ${esc(String(m.texto||"").slice(0,130))}</div>`;});}
     h+=`</div>`;}
   const por={};
   (hist||[]).forEach(r=>{const a=loginDe(r.autor);if(!a||a==="Sistema"||a==="Migração")return;
     const o=por[a]=por[a]||{upd:0,min:0,tarefas:{}};
     const k=r.id_tarefa||"—";
-    const trf=o.tarefas[k]=o.tarefas[k]||{cliente:"",op:"",min:0,and:[]};
+    const trf=o.tarefas[k]=o.tarefas[k]||{cliente:"",op:"",min:0,and:[],impulso:false};
     if(r.tipo==="TIMER"){const m=parseInt((String(r.texto||"").match(/(\d+)\s*min/)||[0,0])[1]);o.min+=m;trf.min+=m;}
     else if(r.tipo!=="HISTORICO"){o.upd++;if(r.texto)trf.and.push({tipo:r.tipo,texto:r.texto});}
-    const mt=mapa[k];if(mt){trf.cliente=mt.cliente;trf.op=mt.operacao||"";}
+    const mt=mapa[k],enc=mapaEnc[k];
+    if(mt){trf.cliente=mt.cliente;trf.op=mt.operacao||"";trf.impulso=!!mt._impulso;}
+    else if(enc){trf.cliente=enc.cliente||"";trf.op=(enc.operacao?enc.operacao+" · ":"")+"caso encerrado";}
     else if(String(k).includes("FIX"))trf.cliente="📌 Tarefa fixa";
     else if(k==="REUNIAO")trf.cliente="📅 Reunião";
     else if(k==="AVULSA")trf.cliente="⏱️ Atividade";});
   const lista=Object.entries(por).sort((a,b)=>b[1].upd-a[1].upd);
-  if(!lista.length&&!h){ge("conteudo").innerHTML=`<div class="vazio"><div style="font-size:28px">&#9200;</div><p>Sem atividade registrada hoje ainda.</p></div>`;return;}
+  if(!lista.length){h+=`<div class="vazio"><div style="font-size:28px">&#9200;</div><p>Sem atividade registrada ${ehHoje?"hoje ainda":"em "+brData(d)}.</p></div>`;
+    ge("conteudo").innerHTML=h;return;}
   const mx=Math.max(1,...lista.map(([,d])=>d.upd));
   h+=lista.map(([nome,d],di)=>{const nc=nomeCompletoDe(nome);
     const tar=Object.entries(d.tarefas).map(([tid,t],ti)=>{
@@ -1523,7 +1572,7 @@ async function telaDiario(){
       const and=temAnd?`<div id="and-${di}-${ti}" style="display:none;margin:4px 0 6px 14px;padding:8px 12px;background:var(--ice);border-radius:8px;border-left:3px solid var(--dani)">
         ${t.and.map(a=>`<div style="font-size:12px;margin-bottom:4px"><span class="htipo">${esc(a.tipo)}</span> ${esc(a.texto)}</div>`).join("")}</div>`:"";
       return `<div class="linha-item" ${temAnd?`style="cursor:pointer" onclick="ge('and-${di}-${ti}').style.display=ge('and-${di}-${ti}').style.display==='none'?'block':'none'"`:""}>
-        <span>${temAnd?"&#9656; ":""}${esc(t.cliente||"Tarefa "+tid)}${t.op?" · "+esc(t.op):""}${temAnd?` <span style="color:var(--dani);font-size:11px">ver ${t.and.length}</span>`:""}</span>
+        <span>${temAnd?"&#9656; ":""}${t.impulso?"&#129309; ":""}${esc(t.cliente||"Tarefa "+tid)}${t.op?" · "+esc(t.op):""}${temAnd?` <span style="color:var(--dani);font-size:11px">ver ${t.and.length}</span>`:""}</span>
         ${t.min?`<b>${t.min}min</b>`:""}</div>${and}`;}).join("");
     return `<div class="painel"><div style="display:flex;justify-content:space-between;margin-bottom:6px">
       <span style="font-weight:700;color:var(--navy)">${esc(nome)}${nc?` <span style="font-weight:400;color:var(--gray);font-size:12px">(${esc(nc)})</span>`:""}</span>
