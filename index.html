@@ -2163,15 +2163,17 @@ async function telaPropostas(){
   setNav("prop",E.perfil.head_sim?"Propostas Comerciais":"Minhas Propostas"); carregando();
   let ps;try{ps=await DB.propostas();}catch(e){return erro(e.message);}
   E._props=ps||[];E._propMap={};E._props.forEach(p=>E._propMap[p.id_proposta]=p);
-  const emRua=E._props.filter(p=>!["Aceita","Recusada"].includes(p.status)).length;
-  const aceitas=E._props.filter(p=>p.status==="Aceita").length;
-  const valor=E._props.reduce((s,p)=>s+(parseFloat(p.valor_num)||0),0);
+  // head e vendedor abrem em "Todas"; assessor abre em "Minhas" (pode alternar p/ conferir duplicidade)
+  const soMinhas=!(E.perfil.head_sim||/vendedor|comercial/i.test(E.perfil.cargo||""));
   ge("conteudo").innerHTML=`<div class="sg">
-    <div class="sc"><div class="sl">Total</div><div class="sv">${E._props.length}</div></div>
-    <div class="sc"><div class="sl">Na rua</div><div class="sv amber">${emRua}</div></div>
-    <div class="sc"><div class="sl">Aceitas</div><div class="sv green">${aceitas}</div></div>
-    <div class="sc"><div class="sl">Valor total</div><div class="sv pq">R$ ${valor.toLocaleString("pt-BR",{minimumFractionDigits:2})}</div></div></div>
+    <div class="sc"><div class="sl">Total</div><div class="sv" id="pp-s-tot">—</div></div>
+    <div class="sc"><div class="sl">Na rua</div><div class="sv amber" id="pp-s-rua">—</div></div>
+    <div class="sc"><div class="sl">Aceitas</div><div class="sv green" id="pp-s-ace">—</div></div>
+    <div class="sc"><div class="sl">Valor total</div><div class="sv pq" id="pp-s-val">—</div></div></div>
     <div class="flr"><input class="si" id="pp-q" placeholder="&#128269; Buscar cliente..." oninput="desenhaProps()">
+      <select class="fsel" id="pp-mi" onchange="desenhaProps()">
+        <option value=""${soMinhas?"":" selected"}>Todas as propostas</option>
+        <option value="m"${soMinhas?" selected":""}>Minhas propostas</option></select>
       <select class="fsel" id="pp-st" onchange="desenhaProps()"><option value="">Todos status</option>
         ${["Em análise","Enviada","Em negociação","Aguardando cliente","Aceita","Recusada"].map(s=>`<option>${s}</option>`).join("")}</select>
       <select class="fsel" id="pp-or" onchange="desenhaProps()"><option value="">Todas origens</option>
@@ -2181,9 +2183,16 @@ async function telaPropostas(){
   desenhaProps();
 }
 function desenhaProps(){
-  const q=(ge("pp-q").value||"").toLowerCase(),st=ge("pp-st").value,or=ge("pp-or").value;
+  const q=(ge("pp-q").value||"").toLowerCase(),st=ge("pp-st").value,or=ge("pp-or").value,mi=ge("pp-mi")?ge("pp-mi").value:"";
   const podeMexer=E.perfil.head_sim||/vendedor|comercial/i.test(E.perfil.cargo||"");
-  const f=E._props.filter(p=>(!q||String(p.cliente||"").toLowerCase().includes(q))
+  const meu=String(E.perfil.nome_sistema||"").trim().toLowerCase();
+  const base=E._props.filter(p=>!mi||String(p.executor||"").trim().toLowerCase()===meu
+    ||String(p.quem_pediu||"").trim().toLowerCase()===meu);
+  if(ge("pp-s-tot")){ge("pp-s-tot").textContent=base.length;
+    ge("pp-s-rua").textContent=base.filter(p=>!["Aceita","Recusada"].includes(p.status)).length;
+    ge("pp-s-ace").textContent=base.filter(p=>p.status==="Aceita").length;
+    ge("pp-s-val").textContent="R$ "+base.reduce((s,p)=>s+(parseFloat(p.valor_num)||0),0).toLocaleString("pt-BR",{minimumFractionDigits:2});}
+  const f=base.filter(p=>(!q||String(p.cliente||"").toLowerCase().includes(q))
     &&(!st||p.status===st)&&(!or||p.origem===or));
   ge("pp-lista").innerHTML=f.length?f.map(p=>{
     const cor={Aceita:"var(--green)",Recusada:"var(--red)"}[p.status]||"var(--amber)";
@@ -2516,6 +2525,7 @@ async function criarClienteTarefa(){
 // ---- lançar proposta (formulário completo)
 async function abrirProposta(){
   if(!E._clsTodos||!E._clsTodos.length){try{E._clsTodos=await DB.clientes("");E._cli={};E._clsTodos.forEach(c=>E._cli[c.id_cliente]=c);}catch(e){}}
+  if(!E._props||!E._props.length){try{E._props=await DB.propostas()||[];}catch(e){E._props=E._props||[];}}
   E._prCli=null;
   const chk=(cls,lista)=>lista.map(x=>`<label style="font-size:12px;display:inline-flex;gap:4px;margin-right:10px"><input type="checkbox" class="${cls}" value="${esc(x)}"> ${esc(x)}</label>`).join("");
   const equipeOps=[...["Bruna","Danielly","Eduarda"],...OPERACIONAIS.filter(x=>!["Mateus"].includes(x)),"Mateus","Nicholas"];
@@ -2523,10 +2533,11 @@ async function abrirProposta(){
     <div class="bloco-t">Cliente *</div>
     <input class="fi" id="pr-q" placeholder="&#128269; Buscar cliente existente..." oninput="buscaPrCli()">
     <div id="pr-res" style="max-height:120px;overflow:auto"></div><div id="pr-sel" style="font-size:12px;color:var(--green)"></div>
-    <label style="font-size:12px"><input type="checkbox" id="pr-novo" onchange="ge('pr-novo-w').style.display=this.checked?'block':'none';if(this.checked){E._prCli=null;ge('pr-sel').textContent='';}"> É cliente novo (prospecção)</label>
+    <label style="font-size:12px"><input type="checkbox" id="pr-novo" onchange="ge('pr-novo-w').style.display=this.checked?'block':'none';if(this.checked){E._prCli=null;ge('pr-sel').textContent='';}avisaPropDup()"> É cliente novo (prospecção)</label>
     <div id="pr-novo-w" style="display:none;margin-top:4px">
-      <input class="fi" id="pr-nnome" placeholder="Nome / Razão social do prospect">
+      <input class="fi" id="pr-nnome" placeholder="Nome / Razão social do prospect" oninput="avisaPropDup()">
       <input class="fi" id="pr-ncnpj" placeholder="CNPJ / CPF (opcional)"></div>
+    <div id="pr-dup"></div>
     <div class="bloco-t" style="margin-top:8px">Responsáveis</div>
     <div class="linha-acao"><select class="fsel" id="pr-exec"><option value="">Quem executa *</option>${[...new Set(equipeOps)].map(n=>`<option>${n}</option>`).join("")}</select>
       <select class="fsel" id="pr-pediu"><option value="">Quem pediu *</option>${[...new Set(equipeOps)].map(n=>`<option>${n}</option>`).join("")}</select></div>
@@ -2560,7 +2571,24 @@ function buscaPrCli(){
     ||`<div style="font-size:12px;color:var(--gray)">Nenhum. Marque "cliente novo" se for prospecção.</div>`;
 }
 function selPrCli(id){E._prCli=E._cli[id];ge("pr-res").innerHTML="";ge("pr-q").value=E._prCli.nome;
-  ge("pr-sel").textContent="✓ "+E._prCli.nome+" selecionado";ge("pr-novo").checked=false;ge("pr-novo-w").style.display="none";}
+  ge("pr-sel").textContent="✓ "+E._prCli.nome+" selecionado";ge("pr-novo").checked=false;ge("pr-novo-w").style.display="none";
+  avisaPropDup();}
+// conferência de duplicidade: propostas em aberto para o mesmo cliente
+function propostasAbertasDe(nome,idc){
+  const alvo=String(nome||"").trim().toUpperCase();
+  return (E._props||[]).filter(p=>!["Aceita","Recusada"].includes(p.status)
+    &&((idc&&p.id_cliente&&p.id_cliente===idc)
+       ||(alvo&&String(p.cliente||"").trim().toUpperCase()===alvo)));}
+function avisaPropDup(){
+  const box=ge("pr-dup");if(!box)return;
+  const novo=ge("pr-novo")&&ge("pr-novo").checked;
+  const nome=novo?(ge("pr-nnome").value||""):(E._prCli?E._prCli.nome:"");
+  const idc=(!novo&&E._prCli)?E._prCli.id_cliente:"";
+  const dups=String(nome).trim().length>=3?propostasAbertasDe(nome,idc):[];
+  box.innerHTML=dups.length?`<div style="background:#FDEBEC;border:1px solid #F5C2C7;border-radius:9px;padding:8px 12px;margin-top:6px;font-size:12px;color:#842029">
+    <b>&#9888;&#65039; Já existe proposta em aberto para este cliente:</b>
+    ${dups.map(p=>`<div style="margin-top:3px">• ${esc(p.status||"?")} em ${esc(p.data_proposta||"?")} — executou <b>${esc(p.executor||"?")}</b>, pediu ${esc(p.quem_pediu||"?")}</div>`).join("")}
+    <div style="margin-top:4px">Confira com o colega antes de lançar de novo.</div></div>`:"";}
 function numBR(s){s=String(s||"").trim();if(!s)return 0;if(s.includes(","))s=s.replace(/\./g,"").replace(",",".");return parseFloat(s)||0;}
 function somaProposta(){
   let tot=0;["entrada","boleto","cartao","vista"].forEach(id=>{
@@ -2596,6 +2624,9 @@ async function lancarProposta(){
   const sp=(ge("pr-sp").value||"").trim();
   if(par==="Word"&&!sp){toast("Link do SharePoint é obrigatório para parecer em Word.","erro");return;}
   const tempo=parseInt(ge("pr-tempo").value)||0;if(!tempo){toast("Informe o tempo gasto.","erro");return;}
+  const dups=propostasAbertasDe(cliente,idc);
+  if(dups.length&&!confirm("⚠️ Já existe proposta em aberto para "+cliente+
+    " (executou "+(dups[0].executor||"?")+", status "+(dups[0].status||"?")+").\n\nLançar mesmo assim?"))return;
   try{const r=await DB.criarProposta({cliente,id_cliente:idc,cnpj,novo_cliente:novo,
     executor:exec,quem_pediu:pediu,responsavel:exec,produtos:prods.join(", "),verticais:verts.join(", "),
     valor:tot,cond,origem:orig,contato:cont,parecer:par,sharepoint:sp,tempo,
