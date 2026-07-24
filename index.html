@@ -248,7 +248,8 @@ const E = { perfil:null, emailTeste:null, view:null, tarefas:[], atual:null,
 const ge=id=>document.getElementById(id), ce=t=>document.createElement(t);
 const esc=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 function toast(m,t){const e=ge("toast");e.textContent=m;e.className="mostra "+(t||"");setTimeout(()=>e.className="",3200);}
-function hojeISO(){return new Date().toISOString().slice(0,10);}
+// data de HOJE no fuso local (nunca toISOString aqui: é UTC e vira "amanhã" depois das 21h)
+function hojeISO(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
 function brData(iso){if(!iso)return"";const p=String(iso).slice(0,10).split("-");return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:String(iso);}
 function diasAte(iso){if(!iso)return null;const d=new Date(iso+"T00:00:00"),h=new Date();h.setHours(0,0,0,0);return Math.round((d-h)/86400000);}
 function fmtMin(m){m=parseInt(m)||0;const h=Math.floor(m/60);return h?h+"h"+String(m%60).padStart(2,"0"):m+"min";}
@@ -400,31 +401,43 @@ async function histS(id_tarefa,id_cliente,tipo,texto){const hid=await novoIdS("H
     data:brHoje(),data_dt:hojeISO(),autor:E.perfil.nome_sistema,tipo:tipo,texto:texto,origem:"SITE"});
   if(error)throw new Error(traduzErro(error.message));return hid;}
 function okS(r){if(r.error)throw new Error(traduzErro(r.error.message));return r.data;}
+// Busca paginada: o banco entrega no máximo 1000 linhas por pedido; esta função
+// pede de 1000 em 1000 até esgotar (teto de segurança: 20 páginas = 20 mil linhas).
+// A consulta passada precisa ter ordenação estável (terminar em .order("linha")).
+async function paginadoS(monta){const out=[];let ult=null;
+  for(let i=0;i<20;i++){const r=okS(await monta().range(i*1000,i*1000+999))||[];
+    if(!r.length)break;
+    const chave=JSON.stringify(r[0]);
+    if(chave===ult)break; // servidor ignorou o range: não duplicar
+    ult=chave;out.push(...r);if(r.length<1000)break;}
+  return out;}
 const S = {
   async perfil(){const{data}=await supa.from("meu_perfil").select("*");return data&&data[0];},
   async tarefas(){
     // cache de 1 minuto: trocar de tela não baixa o portfólio de novo;
     // qualquer ação (recarregar) limpa o cache e busca fresco
     if(E._cacheT&&Date.now()-E._cacheT.ts<60000)return E._cacheT.v;
-    const v=okS(await supa.from("operacional").select("*").order("data_revisao_dt",{ascending:true,nullsFirst:false}).limit(5000))||[];
+    const v=await paginadoS(()=>supa.from("operacional").select("*").order("data_revisao_dt",{ascending:true,nullsFirst:false}).order("linha"));
     E._cacheT={v:v,ts:Date.now()};return v;},
   async historico(id){return okS(await supa.from("historico").select("*").eq("id_tarefa",id).order("data_dt",{ascending:false,nullsFirst:false}).order("linha",{ascending:false}).limit(500))||[];},
   async historicoHoje(){return okS(await supa.from("historico").select("*").eq("data_dt",hojeISO()))||[];},
-  async historicoPeriodo(d){const lim=new Date();lim.setDate(lim.getDate()-d);
-    return okS(await supa.from("historico").select("*").gte("data_dt",lim.toISOString().slice(0,10)))||[];},
-  async historicoTimers(d){const lim=new Date();lim.setDate(lim.getDate()-d);
-    return okS(await supa.from("historico").select("*").eq("tipo","TIMER")
-      .gte("data_dt",lim.toISOString().slice(0,10)).limit(5000))||[];},
+  async historicoPeriodo(d){const lim=new Date();lim.setDate(lim.getDate()-d);const corte=lim.toISOString().slice(0,10);
+    return paginadoS(()=>supa.from("historico").select("*").gte("data_dt",corte).order("linha"));},
+  async historicoTimers(d){const lim=new Date();lim.setDate(lim.getDate()-d);const corte=lim.toISOString().slice(0,10);
+    return paginadoS(()=>supa.from("historico").select("*").eq("tipo","TIMER")
+      .gte("data_dt",corte).order("linha"));},
   async roboStatus(){return okS(await supa.from("robo_status").select("*"))||[];},
   async historicoDia(d){return okS(await supa.from("historico").select("*").eq("data_dt",d))||[];},
   async sessoesHoje(){return okS(await supa.from("sessoes").select("*").eq("data_dt",hojeISO()).order("linha"))||[];},
   async sessaoAtiva(){const r=okS(await supa.from("sessoes").select("*").eq("data_dt",hojeISO()).eq("status","ATIVO").eq("assessor",E.perfil.nome_sistema).order("linha",{ascending:false}).limit(1))||[];return r[0]||null;},
-  async clientes(q){let b=supa.from("clientes").select("*").order("nome").limit(5000);if(q)b=b.ilike("nome","%"+q+"%");
-    const dados=okS(await b)||[];return q?filtraLocalClientes(dados.length?dados:okS(await supa.from("clientes").select("*").order("nome").limit(5000))||[],q):dados;},
+  async clientes(q){const todos=()=>paginadoS(()=>supa.from("clientes").select("*").order("nome").order("linha"));
+    if(!q)return todos();
+    const dados=okS(await supa.from("clientes").select("*").order("nome").ilike("nome","%"+q+"%").limit(1000))||[];
+    return filtraLocalClientes(dados.length?dados:await todos(),q);},
   async clienteTarefas(id){const a=await supa.from("operacional").select("*").eq("id_cliente",id);
     const e=await supa.from("casos_encerrados").select("*").eq("id_cliente",id);
     return{ativas:a.data||[],encerradas:e.data||[]};},
-  async casos(){return okS(await supa.from("casos_encerrados").select("*").order("data_encerramento_dt",{ascending:false,nullsFirst:false}).limit(1000))||[];},
+  async casos(){return paginadoS(()=>supa.from("casos_encerrados").select("*").order("data_encerramento_dt",{ascending:false,nullsFirst:false}).order("linha"));},
   async propostas(){return okS(await supa.from("propostas").select("*").order("linha",{ascending:false}))||[];},
   async tarefasFixas(){return okS(await supa.from("tarefas_fixas").select("*").order("id_fixa"))||[];},
   async reunioes(){return okS(await supa.from("reunioes").select("*").order("data_dt",{ascending:false,nullsFirst:false}).limit(500))||[];},
@@ -2525,7 +2538,8 @@ async function criarClienteTarefa(){
 // ---- lançar proposta (formulário completo)
 async function abrirProposta(){
   if(!E._clsTodos||!E._clsTodos.length){try{E._clsTodos=await DB.clientes("");E._cli={};E._clsTodos.forEach(c=>E._cli[c.id_cliente]=c);}catch(e){}}
-  if(!E._props||!E._props.length){try{E._props=await DB.propostas()||[];}catch(e){E._props=E._props||[];}}
+  // lista sempre fresca: o aviso de duplicidade confere contra o que está no banco AGORA
+  try{E._props=await DB.propostas()||[];}catch(e){E._props=E._props||[];}
   E._prCli=null;
   const chk=(cls,lista)=>lista.map(x=>`<label style="font-size:12px;display:inline-flex;gap:4px;margin-right:10px"><input type="checkbox" class="${cls}" value="${esc(x)}"> ${esc(x)}</label>`).join("");
   const equipeOps=[...["Bruna","Danielly","Eduarda"],...OPERACIONAIS.filter(x=>!["Mateus"].includes(x)),"Mateus","Nicholas"];
