@@ -1863,11 +1863,12 @@ async function verDia(k){
   let h="";
   nomesDia.forEach(a=>{const grupo=porAss[a];
     grupo.sort((x,y)=>((x.t._g??4)-(y.t._g??4))||((x.t._dias??9)-(y.t._dias??9))||(tipoPeso[x.tipo]-tipoPeso[y.tipo]));
-    const c=corDe(a);
+    const semDono=(a==="?");
+    const c=semDono?{bg:"var(--red-lt)",border:"var(--red)",text:"var(--red)"}:corDe(a);
     const min=grupo.reduce((s,x)=>s+tempoPlanoDe(a,x.t.operacao),0);
     h+=`<div style="background:${c.bg};border:1.5px solid ${c.border};border-radius:12px;padding:10px 12px;margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <b style="color:${c.text}">${esc(a)}</b>
+        <b style="color:${c.text}">${semDono?"&#9888; Sem assessor definido — abra e redistribua":esc(a)}</b>
         <span style="font-size:11px;color:${c.text};font-weight:600">${grupo.length} tarefa(s) · &asymp;${fmtMin(min)}</span></div>
       ${grupo.map((x,i)=>{const rot=x.tipo==="agendado"?"data marcada":x.tipo==="estimado"?"estimado":"&#8635; recorrente";
         return `<div class="linha-item" style="cursor:pointer;background:white;border-radius:8px;margin-bottom:4px;padding:6px 10px" onclick="abrirTarefa('${esc(x.t.id_tarefa)}')">
