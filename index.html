@@ -1424,6 +1424,18 @@ function fecharModal2(){ge("modal2").classList.remove("aberto");}
 ge("modal").addEventListener("click",ev=>{if(ev.target===ge("modal"))fecharModal();});
 ge("modal2").addEventListener("click",ev=>{if(ev.target===ge("modal2"))fecharModal2();});
 
+// aprova um impulso sugerido pelo robô (só heads veem o Painel)
+async function aprovarImpulso(i){
+  const s=(E._sugestoes||[])[i];if(!s)return;
+  const para=ge("sug-para-"+i).value;
+  if(!para){toast("Escolha quem recebe o impulso.","erro");return;}
+  if(!confirm(`Delegar "${s.t.cliente} · ${s.t.operacao||""}" de ${s.de} para ${para}?\n\nVira um impulso: ${para} executa e devolve; a tarefa de ${s.de} fica aguardando o retorno.`))return;
+  try{await DB.delegar(s.t,{para:para,freq:"IMEDIATO",
+    descricao:`Impulso sugerido pelo robô (dia de ${s.de} acima da capacidade) e aprovado pela head ${E.perfil.nome_sistema}. Executar e devolver o retorno.`});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast(`✓ Impulso criado: ${para} recebeu a tarefa.`,"ok");
+  const el=ge("sug-"+i);if(el)el.style.opacity=".4";if(el)el.innerHTML=`<span>&#10003; delegada para <b>${esc(para)}</b></span>`;
+}
 // ======================================================= TELA: PAINEL (head)
 async function telaPainel(){
   setNav("painel","Painel Geral"); carregando();
@@ -1512,13 +1524,32 @@ async function telaPainel(){
     if(d.min>c*1.1&&AUTORIZADOS_DELEGAR.includes(n))sobrec.push({n,...d,c});
     if(c-d.min>=30)comFolga.push({n,folga:c-d.min});});
   if(sobrec.length){comFolga.sort((a,b)=>b.folga-a.folga);
+    // candidatas concretas: as MENOS urgentes do dia de quem estourou, até a
+    // agenda caber; fixas (📌) ficam de fora (rotina pessoal não se delega)
+    E._sugestoes=[];
+    sobrec.forEach(o=>{
+      const doDia=ts.filter(t=>loginDe(t.assessor)===o.n&&t.id_tarefa&&!t._delegada&&!t._emCorrecao&&!t._concluida
+          &&t._g>=1&&t._g<=3&&!String(t.cliente||"").startsWith("📌"))
+        .sort((a,b)=>(b._g-a._g)||((b._dias??9)-(a._dias??9)));   // menos urgente primeiro
+      let excesso=o.min-o.c;
+      for(const t of doDia){if(excesso<=0)break;if(t._g===1)continue; // imediata fica com o dono
+        E._sugestoes.push({t,de:o.n});excesso-=tempoPlanoDe(o.n,t.operacao);}});
+    const sugTotal=E._sugestoes.length;
+    E._sugestoes=E._sugestoes.slice(0,8);   // vitrine enxuta: 8 por vez
+    const opcoesFolga=comFolga.map(x=>`<option value="${esc(x.n)}">${esc(x.n)} (&asymp;${fmtMin(x.folga)} livres)</option>`).join("");
     h+=`<div class="painel" style="background:#FFF7E6;border-color:var(--amber)">
       <div class="bloco-t" style="color:#7F5200">&#9878; Sugestão de delegação (robô de produtividade)</div>
-      ${sobrec.map(o=>{const tm=Math.max(10,Math.round(o.min/Math.max(1,o.qt)));const nS=Math.ceil((o.min-o.c)/tm);
-        return `<div class="linha-item"><span><b>${esc(o.n)}</b>: dia com &asymp;${fmtMin(o.min)} para ${fmtMin(o.c)} de capacidade</span>
-          <b style="color:#7F5200">sugerir delegar ${nS} tarefa(s)</b></div>`;}).join("")}
-      ${comFolga.length?`<div style="font-size:12px;margin-top:5px">Com folga hoje: ${comFolga.slice(0,5).map(o=>`<b>${esc(o.n)}</b> (&asymp;${fmtMin(o.folga)})`).join(" · ")}</div>`:""}
-      <div style="font-size:11px;color:var(--gray);margin-top:3px">Tempos calculados pelas medições reais de cada pessoa. A delegação continua manual — quem pode delegar vê a mesma sugestão na tela dela.</div></div>`;}
+      ${sobrec.map(o=>`<div style="font-size:12px;margin-bottom:2px"><b>${esc(o.n)}</b>: dia com &asymp;${fmtMin(o.min)} para ${fmtMin(o.c)} de capacidade</div>`).join("")}
+      ${E._sugestoes.length?`<div style="font-size:12px;font-weight:700;margin:8px 0 3px">Impulsos sugeridos — aprove os que fizerem sentido:</div>`
+        +E._sugestoes.map((s,i)=>`<div class="linha-item" id="sug-${i}">
+          <span style="cursor:pointer" onclick="abrirTarefa('${esc(s.t.id_tarefa)}')"><b>${esc(s.de)}</b> → ${esc(String(s.t.cliente||"").slice(0,38))} · ${esc(s.t.operacao||"")} <span style="color:var(--gray);font-size:11px">(${esc(s.t.check_||"")})</span></span>
+          <span style="display:flex;gap:5px;align-items:center">
+            <select class="fsel" id="sug-para-${i}" style="font-size:11px">${opcoesFolga||`<option value="">— ninguém com folga —</option>`}</select>
+            <button class="btn btg btsm" onclick="aprovarImpulso(${i})">&#129309; Aprovar</button></span></div>`).join("")
+        :`<div style="font-size:12px;color:var(--gray)">Sem candidatas delegáveis (só restaram imediatas ou fixas).</div>`}
+      ${sugTotal>8?`<div style="font-size:11px;color:var(--gray);margin-top:4px">Mostrando 8 de ${sugTotal} — aprove algumas e recarregue (&#8635;) para ver as próximas.</div>`:""}
+      ${comFolga.length?"":`<div style="font-size:12px;color:var(--red);margin-top:4px">Atenção: ninguém com folga hoje — considere reagendar em vez de delegar.</div>`}
+      <div style="font-size:11px;color:var(--gray);margin-top:5px">O robô sugere as menos urgentes de quem estourou e o receptor com mais folga — mas <b>nada acontece sem a sua aprovação</b>. Ao aprovar, vira um impulso normal: o dono fica como DELEGADA aguardando o retorno.</div></div>`;}
   h+=`<div class="sg">
     <div class="sc"><div class="sl">Total</div><div class="sv">${total}</div></div>
     <div class="sc"><div class="sl">Em dia</div><div class="sv green">${total-atr}</div></div>
