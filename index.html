@@ -1260,7 +1260,15 @@ async function editarAndamento(idHist,linha){
 async function salvarNota(tipo){
   const txt=(ge("nota-texto").value||"").trim();if(!txt){toast("Escreva algo antes.","erro");return;}
   const t=E.atual;
-  try{await DB.nota({id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,tipo:tipo,texto:txt});}
+  try{await DB.nota({id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,tipo:tipo,texto:txt});
+    // andamento em tarefa com prazo fatal já vencido → provável cumprimento:
+    // pergunta e limpa (regra: andamento depois do prazo = prazo cumprido)
+    const pfd=diasAte(t.prazo_fatal_dt);
+    if(t.prazo_fatal_dt&&pfd!==null&&pfd<=0
+       &&confirm(`Esta tarefa tem prazo fatal de ${brData(t.prazo_fatal_dt)} (já passou) e você acabou de registrar um andamento.\n\nO prazo foi CUMPRIDO? OK = sim, limpar o alerta.`)){
+      await DB.tarefaUpdate(t,{limpar_prazo:true,
+        hist_texto:`✅ Prazo fatal de ${brData(t.prazo_fatal_dt)} marcado como cumprido (confirmado ao registrar andamento).`,hist_tipo:"HISTORICO"});
+      t.prazo_fatal_dt=null;t.prazo_fatal=null;t._prazoAlerta=false;t._pfDias=null;}}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Salvo!","ok");abrirTarefa(t.id_tarefa);}
 async function salvarTempo(){
