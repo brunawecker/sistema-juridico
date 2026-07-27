@@ -366,6 +366,7 @@ const L = {  // modo local (servidor de teste na máquina)
   reabrir(x){return this.f("/api/reabrir",P(x));},
   correcaoEnviar(t,x){return this.f("/api/correcao_enviar",P({id_tarefa:t.id_tarefa,linha:t.linha,id_cliente:t.id_cliente,...x,retorno_br:brData(x.retorno)}));},
   correcaoDevolver(t){return this.f("/api/correcao_devolver",P({id_tarefa:t.id_tarefa,linha:t.linha,id_cliente:t.id_cliente}));},
+  correcaoPuxar(t){return this.f("/api/correcao_puxar",P({id_tarefa:t.id_tarefa,linha:t.linha,id_cliente:t.id_cliente}));},
   delegar(t,x){return this.f("/api/delegar",P({id_tarefa:t.id_tarefa,...x}));},
   impulsoFinalizar(id){return this.f("/api/impulso_finalizar",P({id_tarefa:id}));},
   criarTarefa(d){return this.f("/api/criar_tarefa",P(d));},
@@ -499,6 +500,14 @@ const S = {
       correcao_justif:x.justificativa||"",correcao_data:brHoje(),correcao_data_dt:hojeISO(),
       correcao_retorno:brData(x.retorno),correcao_retorno_dt:x.retorno}).eq("id_tarefa",t.id_tarefa).eq("linha",t.linha));
     await histS(t.id_tarefa,t.id_cliente,"CORRECAO","Enviada para correção → "+x.head+" (retorno "+brData(x.retorno)+")");return{ok:true};},
+  async correcaoPuxar(t){const ret=somaDiasUteis(new Date(),3).toISOString().slice(0,10);
+    const antes=t.correcao_head||"";
+    okS(await supa.from("operacional").update({correcao_head:E.perfil.nome_sistema,
+      correcao_data:brHoje(),correcao_data_dt:hojeISO(),
+      correcao_retorno:brData(ret),correcao_retorno_dt:ret}).eq("id_tarefa",t.id_tarefa).eq("linha",t.linha));
+    await histS(t.id_tarefa,t.id_cliente,"CORRECAO",
+      `✋ Correção vencida puxada por ${E.perfil.nome_sistema}${antes&&antes!==E.perfil.nome_sistema?" (estava com "+antes+")":" (prazo renovado)"} — novo retorno ${brData(ret)}.`);
+    return{ok:true};},
   async correcaoDevolver(t){okS(await supa.from("operacional").update({correcao_head:"",correcao_data:"",correcao_data_dt:null,
       correcao_retorno:"",correcao_retorno_dt:null,check_:"IMEDIATO",status_tarefa:"AGUARDANDO",
       data_revisao:brData(hojeISO()),data_revisao_dt:hojeISO()}).eq("id_tarefa",t.id_tarefa).eq("linha",t.linha));
@@ -1077,8 +1086,16 @@ async function painelParaCorrigir(alvoId){
           <span style="font-size:11px;color:${cor};font-weight:600;margin-left:6px">${txt}</span></div>
         <span style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
           ${t.correcao_link?`<a href="${esc(t.correcao_link)}" target="_blank" style="font-size:11px;color:var(--dani)">&#128193; Pasta</a>`:""}
-          <button class="btn btp btsm" onclick="devolverCorrecao('${esc(t.id_tarefa)}',${t.linha})">&#8617; Devolver ao assessor</button></span></div>
+          <button class="btn btp btsm" onclick="devolverCorrecao('${esc(t.id_tarefa)}',${t.linha})">&#8617; Devolver ao assessor</button>
+          ${(E.perfil.head_sim&&d<0)?`<button class="btn bts btsm" onclick="puxarCorrecao('${esc(t.id_tarefa)}',${t.linha})">&#9995; ${String(t.correcao_head||"").toLowerCase()===meu?"Renovar prazo (3d úteis)":"Puxar para mim"}</button>`:""}</span></div>
         ${t.correcao_justif?`<div style="font-size:11px;color:var(--gray);font-style:italic;margin-top:3px">Justificativa: ${esc(t.correcao_justif)}</div>`:""}</div>`;}).join("")+`</div>`;
+}
+async function puxarCorrecao(id,linha){
+  const t=(E._todasBanco||E.tarefas||[]).find(x=>x.id_tarefa===id)||{id_tarefa:id,linha:linha};
+  if(!confirm(`Puxar esta correção para você, com novo prazo de 3 dias úteis?`))return;
+  try{await DB.correcaoPuxar({id_tarefa:id,linha:linha,id_cliente:t.id_cliente,correcao_head:t.correcao_head});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Correção agora é sua — novo prazo registrado.","ok");recarregar();
 }
 async function devolverCorrecao(id,linha){
   try{await DB.correcaoDevolver({id_tarefa:id,linha:linha,id_cliente:(E.tarefas.find(x=>x.id_tarefa===id)||{}).id_cliente});}
@@ -2400,8 +2417,9 @@ function desenhaCobranca(){
 // =================================================== TELA: PROPOSTAS (completa)
 async function telaPropostas(){
   setNav("prop",E.perfil.head_sim?"Propostas Comerciais":"Minhas Propostas"); carregando();
-  let ps;try{ps=await DB.propostas();}catch(e){return erro(e.message);}
+  let ps,cls;try{[ps,cls]=await Promise.all([DB.propostas(),DB.clientes("").catch(()=>[])]);}catch(e){return erro(e.message);}
   E._props=ps||[];E._propMap={};E._props.forEach(p=>E._propMap[p.id_proposta]=p);
+  E._cnpjMap={};(cls||[]).forEach(c=>{if(c.id_cliente)E._cnpjMap[c.id_cliente]=c.cnpj_cpf||"";});
   // head e vendedor abrem em "Todas"; assessor abre em "Minhas" (pode alternar p/ conferir duplicidade)
   const soMinhas=!(E.perfil.head_sim||/vendedor|comercial/i.test(E.perfil.cargo||""));
   ge("conteudo").innerHTML=`<div class="sg">
@@ -2423,8 +2441,10 @@ async function telaPropostas(){
 }
 function desenhaProps(){
   const q=(ge("pp-q").value||"").toLowerCase(),st=ge("pp-st").value,or=ge("pp-or").value,mi=ge("pp-mi")?ge("pp-mi").value:"";
-  const podeMexer=E.perfil.head_sim||/vendedor|comercial/i.test(E.perfil.cargo||"");
   const meu=String(E.perfil.nome_sistema||"").trim().toLowerCase();
+  // head/vendedor mexem em todas; executor e solicitante, nas próprias
+  const podeMexerEm=p=>E.perfil.head_sim||/vendedor|comercial/i.test(E.perfil.cargo||"")
+    ||String(p.executor||"").trim().toLowerCase()===meu||String(p.quem_pediu||"").trim().toLowerCase()===meu;
   const base=E._props.filter(p=>!mi||String(p.executor||"").trim().toLowerCase()===meu
     ||String(p.quem_pediu||"").trim().toLowerCase()===meu);
   if(ge("pp-s-tot")){ge("pp-s-tot").textContent=base.length;
@@ -2443,9 +2463,12 @@ function desenhaProps(){
       if(d>=7)naRua=`<span class="tag" style="background:${d>=15?"var(--red)":"var(--amber)"};color:white">&#9203; ${d} dias sem resposta</span>`;}
     const prosp=p.prospeccao==="SIM"?'<span class="tag ts">PROSPECÇÃO</span>':"";
     const nLog=p.negociacao_log?String(p.negociacao_log).split("\n").length:0;
+    const cnpj=(E._cnpjMap||{})[p.id_cliente]||"";
+    const podeMexer=podeMexerEm(p);
     return `<div class="painel" style="padding:12px 14px">
       <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
-        <div style="flex:1;min-width:160px"><div style="font-weight:700;color:var(--navy)">${esc(p.cliente)} ${prosp}</div>
+        <div style="flex:1;min-width:160px;cursor:pointer" title="Abrir negociação" onclick='abrirNegociacao(${JSON.stringify(p.id_proposta)})'><div style="font-weight:700;color:var(--navy)">${esc(p.cliente)} ${prosp}</div>
+          ${cnpj?`<div style="font-size:11px;color:var(--gray);font-family:'DM Mono'">${esc(cnpj)}</div>`:""}
           <div style="font-size:11px;color:var(--gray)">${esc(p.produtos||"")}</div>
           <div style="font-size:11px;color:var(--gray)">&#128100; Executou: <b>${esc(p.executor||"")}</b> · pediu: ${esc(p.quem_pediu||"")}</div></div>
         <div style="text-align:right"><div style="font-weight:700;color:var(--navy)">R$ ${val}</div>
@@ -2476,7 +2499,8 @@ async function fecharProp(id){
 function abrirNegociacao(id){
   const p=E._propMap[id];if(!p)return;
   const valOrig="R$ "+(parseFloat(p.valor_num)||0).toLocaleString("pt-BR",{minimumFractionDigits:2});
-  modal2("&#128172; Negociação — "+esc(p.cliente),esc(p.id_proposta)+" · etapa atual: "+esc(p.status||""),`
+  const cnpjN=(E._cnpjMap||{})[p.id_cliente]||"";
+  modal2("&#128172; Negociação — "+esc(p.cliente),esc(p.id_proposta)+(cnpjN?" · CNPJ "+esc(cnpjN):"")+" · etapa atual: "+esc(p.status||""),`
     <div class="bloco-t">Proposta original (não muda)</div>
     <div style="font-size:12px;background:#F7F9FB;border:1px solid var(--border);border-radius:8px;padding:8px 11px"><b>${valOrig}</b> · ${esc(p.cond_pagamento||"—")} · lançada em ${esc(p.data_proposta||"")}</div>
     ${p.valor_atual||p.cond_atual?`<div class="bloco-t" style="margin-top:8px">Condições atuais</div>
