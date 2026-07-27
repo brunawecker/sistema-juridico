@@ -65,7 +65,8 @@ def bater_coracao():
         cur.execute(f"""select count(*)::int,
             count(*) filter (where coalesce(status_tarefa,'') not like '%%EM DIA%%'
                                and data_revisao_dt < {hoje_sp})::int,
-            count(*) filter (where check_ = 'IMEDIATO')::int
+            count(*) filter (where check_ = 'IMEDIATO'
+                               and coalesce(status_tarefa,'') not like '%%EM DIA%%')::int
             from juridico.operacional""")
         total, atrasadas, imediatas = cur.fetchone()
         em_dia = total - atrasadas
