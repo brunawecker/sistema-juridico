@@ -1117,6 +1117,14 @@ async function abrirTarefa(id){
   ge("modal").classList.add("aberto"); iniciarTimer();
   try{await DB.sessaoIniciar({id_tarefa:t.id_tarefa,cliente:t.cliente,operacao:t.operacao});}catch(e){}
   let hist=[];try{hist=await DB.historico(id);}catch(e){toast("Erro no histórico: "+e.message,"erro");}
+  // impulso: traz junto o histórico da TAREFA DE ORIGEM — quem recebe precisa
+  // do contexto para saber que andamento dar (relato dos assessores)
+  if(t._impulso){
+    const orig=(String(t.supervisao||"").match(/Origem:\s*(OP-\d+)/)||[])[1];
+    if(orig){try{const ho=await DB.historico(orig);
+      (ho||[]).forEach(h=>{h._daOrigem=orig;});
+      hist=(hist||[]).concat(ho||[]);
+    }catch(e){}}}
   E._hist=hist;desenharCard(t,hist||[]);
 }
 function desenharCard(t,hist){
@@ -1211,10 +1219,11 @@ function desenharCard(t,hist){
   h+=vis.length?vis.map(en=>{
     const ehHoje=String(en.data_dt||"").slice(0,10)===hojeISO();
     const meu2=ehMeuNome(en.autor);
-    const podeEd=ehHoje&&en.tipo!=="TIMER"&&(isHead||meu2);
-    return `<div class="hentrada"><div class="hbola ${en.tipo==="SUPERVISÃO"?"sup":en.tipo==="ENCERRAMENTO"?"enc":""}"></div>
+    const podeEd=ehHoje&&en.tipo!=="TIMER"&&(isHead||meu2)&&!en._daOrigem;
+    return `<div class="hentrada" ${en._daOrigem?'style="opacity:.85;background:#F4F8FB;border-radius:8px"':""}><div class="hbola ${en.tipo==="SUPERVISÃO"?"sup":en.tipo==="ENCERRAMENTO"?"enc":""}"></div>
     <div style="flex:1"><div class="hmeta"><span class="hautor">${esc(en.autor)}</span>
     <span class="hdata">${brData(en.data_dt)||esc(en.data)}</span><span class="htipo">${esc(en.tipo||"")}</span>
+    ${en._daOrigem?`<span class="htipo" style="background:var(--ice);color:var(--dani)">&#129309; tarefa de origem ${esc(en._daOrigem)}</span>`:""}
     ${podeEd?`<button class="btn bts btsm" style="padding:0 6px;font-size:10px" onclick="editarAndamento('${esc(en.id_historico)}',${en.linha})">&#9998; editar</button>`:""}</div>
     <div class="htexto" id="hx-${en.linha}">${esc(en.texto)}</div></div></div>`;}).join("")
     :`<p style="font-size:13px;color:var(--gray)">Sem histórico.</p>`;
