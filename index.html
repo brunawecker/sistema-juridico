@@ -1108,14 +1108,19 @@ async function removerReuniao(id){
 }
 
 // =================================================== CARD DA TAREFA
+function podeAgirNa(t){return E.perfil.head_sim||ehMeuNome(t.assessor)
+  ||AUTORIZADOS_DELEGAR.includes(E.perfil.nome_sistema);}
 async function abrirTarefa(id){
   if(typeof marcarAtividade==="function")marcarAtividade();
   const t=E.tarefas.find(x=>x.id_tarefa===id);if(!t)return;E.atual=t;
+  t._consulta=!podeAgirNa(t);
   ge("m-titulo").textContent=t.cliente||"";
   ge("m-sub").innerHTML=`<span style="cursor:pointer" title="Clique para corrigir o tipo" onclick="editarOperacao()">${esc(t.operacao||"")} &#9998;</span> · ${esc(t.advogada||"")} · ${esc(t.check_||"")} · ${esc(t.assessor||"")}`;
   ge("m-corpo").innerHTML=`<div class="carregando"><div class="spin"></div></div>`;
-  ge("modal").classList.add("aberto"); iniciarTimer();
-  try{await DB.sessaoIniciar({id_tarefa:t.id_tarefa,cliente:t.cliente,operacao:t.operacao});}catch(e){}
+  ge("modal").classList.add("aberto");
+  if(!t._consulta){iniciarTimer();
+    try{await DB.sessaoIniciar({id_tarefa:t.id_tarefa,cliente:t.cliente,operacao:t.operacao});}catch(e){}}
+  else{E.timerIni=null;}
   let hist=[];try{hist=await DB.historico(id);}catch(e){toast("Erro no histórico: "+e.message,"erro");}
   // impulso: traz junto o histórico da TAREFA DE ORIGEM — quem recebe precisa
   // do contexto para saber que andamento dar (relato dos assessores)
@@ -1132,7 +1137,27 @@ async function abrirTarefa(id){
       (hs||[]).forEach(h=>{h._daOrigem=sub.id_tarefa;});
       hist=(hist||[]).concat(hs||[]);
     }catch(e){}}}
+  // impulsos JÁ FINALIZADOS desta tarefa: recupera a trilha completa
+  // (o retorno gravado traz o id — buscamos o histórico daquele impulso)
+  const jaTem=new Set((hist||[]).map(h=>h._daOrigem).filter(Boolean));
+  const finalizados=[...new Set((hist||[]).map(h=>(String(h.texto||"").match(/Retorno do impulso \((OP-\d+)\)/)||[])[1]).filter(Boolean))]
+    .filter(idf=>!jaTem.has(idf)).slice(0,5);
+  for(const idf of finalizados){
+    try{const hf=await DB.historico(idf);
+      (hf||[]).forEach(h=>{h._daOrigem=idf;});
+      hist=(hist||[]).concat(hf||[]);
+    }catch(e){}}
   E._hist=hist;desenharCard(t,hist||[]);
+  aplicarModoConsulta(t);
+}
+// modo consulta: leitura completa, ações escondidas (o banco já bloqueia a
+// escrita — isto é o cinto por cima do banco)
+function aplicarModoConsulta(t){
+  if(!t._consulta)return;
+  const corpo=ge("m-corpo");if(!corpo||!corpo.querySelectorAll)return;
+  corpo.querySelectorAll("button,input,select,textarea").forEach(el=>{el.style.display="none";});
+  corpo.insertAdjacentHTML("afterbegin",
+    `<div class="aviso info" style="margin-bottom:10px">&#128065; <b>Modo consulta</b> — esta tarefa é de <b>${esc(t.assessor||"—")}</b>. Você vê tudo para se atualizar do cliente; quem age nela é o dono, as heads e quem pode delegar. Viu uma oportunidade? Avise a head ou quem delega.</div>`);
 }
 function desenharCard(t,hist){
   const isHead=E.perfil.head_sim, meuNome=E.perfil.nome_sistema;
@@ -1532,7 +1557,7 @@ function fecharModal(){
   clearInterval(E.timerInt);
   const n=ge("nota-texto");if(n&&n.value.trim()&&!confirm("Há texto não salvo. Fechar mesmo assim?"))return;
   const min=E.timerIni?Math.round((Date.now()-E.timerIni)/60000):0;
-  if(E.atual){DB.sessaoConcluir(min).catch(()=>{});
+  if(E.atual&&!E.atual._consulta&&E.timerIni){DB.sessaoConcluir(min).catch(()=>{});
     if(min>=1&&E.atual)DB.tempo({id_tarefa:E.atual.id_tarefa,id_cliente:E.atual.id_cliente,minutos:min}).catch(()=>{});}
   ge("modal").classList.remove("aberto");E.atual=null;E.timerIni=null;}
 function modal2(titulo,sub,corpo){ge("m2-titulo").innerHTML=titulo;ge("m2-sub").innerHTML=sub;
