@@ -307,6 +307,11 @@ function tempoPlanoDe(assessor,op){
 }
 const CORR_HEADS=["Danielly","Bruna","Eduarda","Ygor","Madu","Malu"];
 const AUTORIZADOS_DELEGAR=["Malu","Ygor","Madu","Bruna","Danielly","Eduarda"];
+// para quem cada autorizado pode delegar (Configurações; vazio = todos)
+const DELEGA_PARA={};
+const alvosDelegacao=nome=>{const l=DELEGA_PARA[nome]||[];
+  return (E.perfil&&E.perfil.head_sim&&nome===E.perfil.nome_sistema)||!l.length
+    ?OPERACIONAIS.filter(a=>a!==nome):l.filter(a=>a!==nome);};
 const PROP_PRODUTOS=["MANDADO DE SEGURANÇA","ÊXITO TRANSAÇÃO","HT","HT MUNICIPAL","LAUDO CAPAG","GARANTIAS","SCORE","ASSESSORIA","TAX","FGTS","BANCÁRIO","CONTABILIZE"];
 const PROP_VERTICAIS=["REGULARIZE","AUDITE","BACARIZE","CONCILIE","CONTABILIZE","RECUPERE","RENEGOCIE","RNC","VILLELA IP","VBB"];
 const VERTICAIS_CLIENTE=["REGULARIZE","RECUPERE","RENEGOCIE","GOLDEN","CONTABILIZE","A PREENCHER"];
@@ -656,7 +661,8 @@ async function carregarConfig(){
     (cf.cap||[]).forEach(r=>{CAP[r.nome]=r.minutos;});
     (cf.tmp||[]).forEach(r=>{TEMPOS_PADRAO[r.operacao==="_PADRAO"?"_default":r.operacao]=r.minutos;});
     if((cf.per||[]).length){CORR_HEADS.length=0;AUTORIZADOS_DELEGAR.length=0;
-      cf.per.forEach(r=>{if(r.pode_corrigir)CORR_HEADS.push(r.nome);if(r.pode_delegar)AUTORIZADOS_DELEGAR.push(r.nome);});}
+      cf.per.forEach(r=>{if(r.pode_corrigir)CORR_HEADS.push(r.nome);if(r.pode_delegar)AUTORIZADOS_DELEGAR.push(r.nome);
+        DELEGA_PARA[r.nome]=String(r.delega_para||"").split(",").map(s=>s.trim()).filter(Boolean);});}
   }catch(e){/* segue com os padrões do código */}
 }
 function nomeCompletoDe(sis){const m=E.equipe.find(x=>x.nome_sistema===sis);return m?m.nome_completo:"";}
@@ -745,9 +751,13 @@ async function telaConfig(){setNav("cfg","Configurações");carregando();
       <input class="fsel" style="width:90px" type="number" min="60" max="720" id="cfg-cap-${esc(n)}" value="${capDeCfg(n)}" placeholder="420"></div>`).join("")}
     <div class="linha-acao"><button class="btn btp btsm" onclick="salvarConfigCap()">&#128190; Salvar capacidades</button></div></div>
   <div class="painel"><div class="bloco-t">Quem pode corrigir e delegar impulso</div>
-    ${nomes.map(n=>{const p=perDe(n);return `<div class="linha-item"><span>${esc(n)}</span><span>
+    <div style="font-size:11px;color:var(--gray);margin-bottom:6px">Em "delega para", marque quem pode RECEBER impulsos dessa pessoa. Nenhum marcado = pode delegar para todos.</div>
+    ${nomes.map(n=>{const p=perDe(n);const dp=String(p.delega_para||"").split(",").map(s=>s.trim()).filter(Boolean);
+      return `<div style="border-bottom:1px solid var(--gray-lt);padding:6px 0"><div class="linha-item" style="border:0;padding:2px 0"><span><b>${esc(n)}</b></span><span>
       <label style="font-size:12px"><input type="checkbox" id="cfg-cor-${esc(n)}" ${p.pode_corrigir?"checked":""}> corrige</label>
-      <label style="font-size:12px;margin-left:10px"><input type="checkbox" id="cfg-del-${esc(n)}" ${p.pode_delegar?"checked":""}> delega</label></span></div>`;}).join("")}
+      <label style="font-size:12px;margin-left:10px"><input type="checkbox" id="cfg-del-${esc(n)}" ${p.pode_delegar?"checked":""}> delega</label></span></div>
+      <div style="font-size:11px;color:var(--gray);display:flex;gap:9px;flex-wrap:wrap;padding-left:6px">delega para:
+        ${OPERACIONAIS.filter(a=>a!==n).map(a=>`<label><input type="checkbox" id="cfg-dp-${esc(n)}-${esc(a)}" ${dp.includes(a)?"checked":""}> ${esc(a)}</label>`).join("")}</div></div>`;}).join("")}
     <div class="linha-acao"><button class="btn btp btsm" onclick="salvarConfigPer()">&#128190; Salvar permissões</button></div></div>
   <div class="painel"><div class="bloco-t">Tempo padrão por operação (minutos)</div>
     <div style="font-size:11px;color:var(--gray);margin-bottom:6px">Usado para planejar o dia quando ainda não há tempo real medido. A linha "_PADRAO" vale para operações sem tempo próprio.</div>
@@ -814,9 +824,10 @@ async function salvarConfigCap(){const cf=E._cfgAtual;let n=0;
 async function salvarConfigPer(){const cf=E._cfgAtual;let n=0;
   for(const nome of (E.equipe||[]).map(m=>m.nome_sistema)){
     const c=ge("cfg-cor-"+nome),d=ge("cfg-del-"+nome);if(!c||!d)continue;
-    const atual=(cf.per||[]).find(x=>x.nome===nome)||{pode_corrigir:false,pode_delegar:false};
-    if(atual.pode_corrigir===c.checked&&atual.pode_delegar===d.checked)continue;
-    try{await DB.configSet("config_permissoes","nome",nome,{pode_corrigir:c.checked,pode_delegar:d.checked});n++;}
+    const dp=OPERACIONAIS.filter(a=>a!==nome&&(ge("cfg-dp-"+nome+"-"+a)||{}).checked).join(",");
+    const atual=(cf.per||[]).find(x=>x.nome===nome)||{pode_corrigir:false,pode_delegar:false,delega_para:""};
+    if(atual.pode_corrigir===c.checked&&atual.pode_delegar===d.checked&&String(atual.delega_para||"")===dp)continue;
+    try{await DB.configSet("config_permissoes","nome",nome,{pode_corrigir:c.checked,pode_delegar:d.checked,delega_para:dp});n++;}
     catch(e){toast("Erro em "+nome+": "+e.message,"erro");return;}}
   await carregarConfig();toast(n?n+" permissão(ões) salva(s)!":"Nada mudou.","ok");telaConfig();}
 async function salvarConfigTmp(){const cf=E._cfgAtual;let n=0;
@@ -987,11 +998,12 @@ async function telaMinhas(){
     const cand=[...plano].filter(t=>t._urg>=2).sort((a,b)=>b._urg-a._urg||a._dias-b._dias);
     for(const t of cand){if(excesso<=0)break;excesso-=t._tempo;nSug++;}
     // carga dos colegas vem do medidor agregado do banco (não-head não
-    // enxerga as tarefas alheias — sem isso, todo mundo parecia "livre")
+    // enxerga as tarefas alheias) e SÓ de quem a pessoa pode delegar
     let cargasEq=[];try{cargasEq=await DB.cargaEquipe();}catch(e){}
-    const folgas=OPERACIONAIS.filter(x=>x!==nome).map(x=>{
+    const folgas=alvosDelegacao(nome).map(x=>{
       const c=(cargasEq||[]).find(r=>loginDe(r.nome)===x);
-      return{n:x,folga:capDe(x)-(c?c.minutos:0)};}).filter(o=>o.folga>=30).sort((a,b)=>b.folga-a.folga);
+      if(!c)return null;   // sem medição visível = fora da lista (não chuta "livre")
+      return{n:x,folga:capDe(x)-c.minutos};}).filter(o=>o&&o.folga>=30).sort((a,b)=>b.folga-a.folga);
     if(nSug>0)h+=`<div class="painel" style="background:#FFF7E6;border-color:var(--amber)">
       <div class="bloco-t" style="color:#7F5200">&#9878; Sugestão do robô: delegar ${nSug} tarefa(s) hoje</div>
       <div style="font-size:12px">Seu dia soma <b>${fmtMin(planejado)}</b> para <b>${fmtMin(capDisp)}</b> de capacidade — delegando ${nSug}, a agenda fecha.
@@ -1346,7 +1358,7 @@ async function redistribuir(){
   catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Redistribuída!","ok");fecharModal();recarregar();}
 function abrirDelegar(){const t=E.atual;
-  const ops=OPERACIONAIS.filter(a=>a!==E.perfil.nome_sistema).map(a=>`<option>${a}</option>`).join("");
+  const ops=alvosDelegacao(E.perfil.nome_sistema).map(a=>`<option>${a}</option>`).join("");
   modal2("&#129309; Delegar impulso",esc(t.cliente)+" — pedir uma ação a outro assessor",`
     <div class="linha-acao"><select class="fsel" id="dg-para"><option value="">Para quem?</option>${ops}</select>
     <select class="fsel" id="dg-freq"><option value="IMEDIATO">Uma vez só (imediato)</option>
@@ -1443,10 +1455,14 @@ function desenhaSugestoes(){
   const ini=E._sugPag*POR,pagina=todas.slice(ini,ini+POR);
   box.innerHTML=`<div style="font-size:12px;font-weight:700;margin:8px 0 3px">Impulsos sugeridos — aprove os que fizerem sentido:</div>`
     +pagina.map((s,j)=>{const i=ini+j;
+      // receptores: quem tem folga E está no grupo de delegação do dono
+      const permitidos=(DELEGA_PARA[s.de]||[]);
+      const opcoes=(E._sugComFolga||[]).filter(x=>!permitidos.length||permitidos.includes(x.n))
+        .map(x=>`<option value="${esc(x.n)}">${esc(x.n)} (&asymp;${fmtMin(x.folga)} livres)</option>`).join("");
       return `<div class="linha-item">
       <span style="cursor:pointer" onclick="abrirTarefa('${esc(s.t.id_tarefa)}')"><b>${esc(s.de)}</b> → ${esc(String(s.t.cliente||"").slice(0,38))} · ${esc(s.t.operacao||"")} <span style="color:var(--gray);font-size:11px">(${esc(s.t.check_||"")})</span></span>
       <span style="display:flex;gap:5px;align-items:center">
-        <select class="fsel" id="sug-para-${i}" style="font-size:11px">${E._sugFolgaOpts||`<option value="">— ninguém com folga —</option>`}</select>
+        <select class="fsel" id="sug-para-${i}" style="font-size:11px">${opcoes||`<option value="">— ninguém do grupo com folga —</option>`}</select>
         <button class="btn btg btsm" onclick="aprovarImpulso(${i})">&#129309; Aprovar</button>
         <button class="btn bts btsm" title="Não delegar — sai das sugestões por 7 dias" onclick="naoDelegar(${i})">&#10005;</button></span></div>`;}).join("")
     +(pags>1?`<div class="linha-acao" style="justify-content:center;margin-top:6px">
@@ -1579,8 +1595,7 @@ async function telaPainel(){
       let excesso=o.min-o.c;
       for(const t of doDia){if(excesso<=0)break;if(t._g===1)continue; // imediata fica com o dono
         E._sugestoes.push({t,de:o.n});excesso-=tempoPlanoDe(o.n,t.operacao);}});
-    E._sugestoesTodas=E._sugestoes;E._sugPag=0;
-    E._sugFolgaOpts=comFolga.map(x=>`<option value="${esc(x.n)}">${esc(x.n)} (&asymp;${fmtMin(x.folga)} livres)</option>`).join("");
+    E._sugestoesTodas=E._sugestoes;E._sugPag=0;E._sugComFolga=comFolga;
     h+=`<div class="painel" style="background:#FFF7E6;border-color:var(--amber)">
       <div class="bloco-t" style="color:#7F5200">&#9878; Sugestão de delegação (robô de produtividade)</div>
       ${sobrec.map(o=>`<div style="font-size:12px;margin-bottom:2px"><b>${esc(o.n)}</b>: dia com &asymp;${fmtMin(o.min)} para ${fmtMin(o.c)} de capacidade</div>`).join("")}
