@@ -1411,6 +1411,9 @@ async function telaPainel(){
     const m=Math.round((Date.now()-new Date(r.ultima).getTime())/60000);
     if(r.nome==="cobranca"&&m>60)return `<div class="linha-item"><span>&#129302; <b>Robô de cobrança</b> sem rodar há ${fmtMin(m)} (esperado: a cada ~5 min) — os pagamentos podem estar desatualizados</span></div>`;
     if(r.nome==="backup"&&m>48*60)return `<div class="linha-item"><span>&#128190; <b>Backup diário</b> não roda há ${Math.round(m/1440)} dia(s)</span></div>`;
+    if(r.nome==="rotina7h"){const ag=new Date(),dw=ag.getDay();
+      if(dw>0&&dw<6&&ag.getHours()>=8&&new Date(r.ultima).toDateString()!==ag.toDateString())
+        return `<div class="linha-item"><span>&#9200; <b>Rotina das 7h</b> (tarefas fixas do dia) não rodou hoje</span></div>`;}
     return "";}).join("");
   let h="";
   if(avisoRobo)h+=`<div class="painel" style="background:var(--red-lt);border-color:var(--red)">
