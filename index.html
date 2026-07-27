@@ -1399,8 +1399,26 @@ async function redistribuir(){
     hist_texto:`Tarefa redistribuída de ${t.assessor||"—"} para ${novo}`});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Redistribuída!","ok");fecharModal();recarregar();}
+// PACOTE DO CLIENTE: outras tarefas pendentes do MESMO cliente e MESMO dono —
+// quem vai "entrar" no cliente já atualiza tudo de uma vez e devolve o todo.
+function pacoteDoCliente(t){
+  if(!t||!t.id_cliente)return[];
+  return (E._todasBanco||E.tarefas||[]).filter(x=>x.id_cliente===t.id_cliente
+    &&x.id_tarefa&&x.id_tarefa!==t.id_tarefa
+    &&loginDe(x.assessor)===loginDe(t.assessor)
+    &&!x._concluida&&!x._delegada&&!x._emCorrecao);
+}
+function htmlPacote(extras,prefixo){
+  if(!extras.length)return"";
+  return `<div style="background:var(--ice);border-radius:9px;padding:8px 11px;margin-top:8px">
+    <div style="font-size:12px;font-weight:700;color:var(--dani)">&#128230; Levar junto — o cliente tem mais ${extras.length} pendente(s) do mesmo dono:</div>
+    ${extras.map((x,i)=>`<label style="display:block;font-size:12px;margin-top:3px"><input type="checkbox" id="${prefixo}-${i}" checked>
+      ${esc(x.operacao||"?")} ${x.numero_processual?"· "+esc(String(x.numero_processual).slice(0,25)):""} <span style="color:var(--gray);font-size:11px">(${esc(x.check_||"")})</span></label>`).join("")}
+    <div style="font-size:10px;color:var(--gray);margin-top:4px">Cada uma vira um impulso próprio e volta individualmente para o dono ao ser finalizada.</div></div>`;
+}
 function abrirDelegar(){const t=E.atual;
   const ops=alvosDelegacao(E.perfil.nome_sistema).map(a=>`<option>${a}</option>`).join("");
+  E._pacoteExtras=pacoteDoCliente(t);
   modal2("&#129309; Delegar impulso",esc(t.cliente)+" — pedir uma ação a outro assessor",`
     <div class="linha-acao"><select class="fsel" id="dg-para"><option value="">Para quem?</option>${ops}</select>
     <select class="fsel" id="dg-freq"><option value="IMEDIATO">Uma vez só (imediato)</option>
@@ -1410,6 +1428,7 @@ function abrirDelegar(){const t=E.atual;
     <textarea class="fta" id="dg-txt" placeholder="O que precisa ser feito? Ex: Ligar para o cartório e confirmar o protocolo..."></textarea>
     <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px">&#128206; Anexo (opcional — print, certificado, documento):</label>
     <input type="file" id="dg-file" class="fsel" style="max-width:240px"></div>
+    ${htmlPacote(E._pacoteExtras,"dg-pac")}
     <button class="btn btp btw" style="margin-top:8px" onclick="confirmarDelegar()">&#129309; Enviar impulso</button>`);}
 async function confirmarDelegar(){
   const t=E.atual,para=ge("dg-para").value,txt=(ge("dg-txt").value||"").trim();
@@ -1422,7 +1441,15 @@ async function confirmarDelegar(){
   if(f){if(f.size>25*1024*1024)toast("Impulso enviado, mas o anexo não foi: arquivo acima de 25 MB.","erro");
     else try{await DB.docEnviar(f,t.id_cliente,(r&&r.sub)||t.id_tarefa);}
     catch(e){toast("Impulso enviado, mas o anexo falhou: "+e.message,"erro");}}
-  toast("Impulso enviado para "+para+"!","ok");fecharModal2();fecharModal();recarregar();}
+  // pacote do cliente: delega junto as marcadas (mesmo receptor, mesmo pedido)
+  let nPac=0;
+  for(let i=0;i<(E._pacoteExtras||[]).length;i++){
+    const cb=ge("dg-pac-"+i);if(!cb||!cb.checked)continue;
+    try{await DB.delegar(E._pacoteExtras[i],{para,freq:ge("dg-freq").value,
+      descricao:txt+" (pacote do cliente — atualizar junto e devolver)"});nPac++;}
+    catch(e){toast("Uma tarefa do pacote falhou: "+e.message,"erro");}}
+  toast("Impulso enviado para "+para+"!"+(nPac?` (+${nPac} do pacote do cliente)`:""),"ok");
+  fecharModal2();fecharModal();recarregar();}
 async function finalizarImpulso(id){
   if(!confirm("Finalizar este impulso e devolver a tarefa ao responsável com o seu retorno?\n\nDica: escreva antes o último andamento com o resultado."))return;
   try{await DB.impulsoFinalizar(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
@@ -1520,17 +1547,42 @@ async function naoDelegar(i){
   toast("Ok — fica fora das sugestões por 7 dias.","ok");
   E._sugestoesTodas.splice(i,1);desenhaSugestoes();
 }
-// aprova um impulso sugerido pelo robô (só heads veem o Painel)
+// aprova um impulso sugerido pelo robô (só heads veem o Painel); se o cliente
+// tiver mais pendentes do mesmo dono, oferece o PACOTE
 async function aprovarImpulso(i){
   const s=(E._sugestoesTodas||[])[i];if(!s)return;
   const para=ge("sug-para-"+i).value;
   if(!para){toast("Escolha quem recebe o impulso.","erro");return;}
-  if(!confirm(`Delegar "${s.t.cliente} · ${s.t.operacao||""}" de ${s.de} para ${para}?\n\nVira um impulso: ${para} executa e devolve; a tarefa de ${s.de} fica aguardando o retorno.`))return;
-  try{await DB.delegar(s.t,{para:para,freq:"IMEDIATO",
-    descricao:`Impulso sugerido pelo robô (dia de ${s.de} acima da capacidade) e aprovado pela head ${E.perfil.nome_sistema}. Executar e devolver o retorno.`});}
+  const extras=pacoteDoCliente(s.t);
+  if(!extras.length){
+    if(!confirm(`Delegar "${s.t.cliente} · ${s.t.operacao||""}" de ${s.de} para ${para}?\n\nVira um impulso: ${para} executa e devolve; a tarefa de ${s.de} fica aguardando o retorno.`))return;
+    await executarAprovacao(i,para,[]);return;}
+  E._pacoteAprov={i,para,extras};
+  modal2("&#128230; Pacote do cliente — "+esc(s.t.cliente),
+    `${esc(s.de)} → ${esc(para)} · a principal é ${esc(s.t.operacao||"")}`,
+    `<div style="font-size:12px">Além da tarefa sugerida, este cliente tem <b>${extras.length}</b> pendente(s) do mesmo dono. Quem entra no cliente já atualiza tudo e devolve o todo.</div>
+    ${htmlPacote(extras,"ap-pac")}
+    <button class="btn btp btw" style="margin-top:10px" onclick="aprovarPacote()">&#129309; Aprovar impulso + marcadas</button>`);
+}
+async function aprovarPacote(){
+  const {i,para,extras}=E._pacoteAprov||{};if(para===undefined)return;
+  const escolhidas=extras.filter((x,j)=>{const cb=ge("ap-pac-"+j);return cb&&cb.checked;});
+  fecharModal2();
+  await executarAprovacao(i,para,escolhidas);
+}
+async function executarAprovacao(i,para,extras){
+  const s=(E._sugestoesTodas||[])[i];if(!s)return;
+  const desc=`Impulso sugerido pelo robô (dia de ${s.de} acima da capacidade) e aprovado pela head ${E.perfil.nome_sistema}. Executar e devolver o retorno.`;
+  try{await DB.delegar(s.t,{para:para,freq:"IMEDIATO",descricao:desc});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
-  toast(`✓ Impulso criado: ${para} recebeu a tarefa.`,"ok");
-  E._sugestoesTodas.splice(i,1);desenhaSugestoes();
+  let nPac=0;
+  for(const x of extras){
+    try{await DB.delegar(x,{para:para,freq:"IMEDIATO",descricao:desc+" (pacote do cliente — atualizar junto e devolver)"});nPac++;}
+    catch(e){toast("Uma tarefa do pacote falhou: "+e.message,"erro");}}
+  toast(`✓ Impulso criado: ${para} recebeu ${1+nPac} tarefa(s) do cliente.`,"ok");
+  const idsPac=new Set(extras.map(x=>x.id_tarefa));idsPac.add(s.t.id_tarefa);
+  E._sugestoesTodas=E._sugestoesTodas.filter(z=>!idsPac.has(z.t.id_tarefa));
+  desenhaSugestoes();
 }
 // ======================================================= TELA: PAINEL (head)
 async function telaPainel(){
