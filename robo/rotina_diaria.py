@@ -108,13 +108,15 @@ def main():
             freq = (freq or "").strip()
             if not head_cl and (criado_por or "").strip() in HEADS:
                 head_cl = criado_por.strip()
+            # já rodou hoje? (aceita qualquer formato de marca: '27/07/26',
+            # '27/07/2026' ou o do Apps Script antigo: '2026-7 (27/07/26)')
+            ja_hoje = (hoje_br in ult) or (hoje_curto in ult)
             deve, check, oper = False, "DIÁRIO", "Cobrança Diária"
-            if freq == "DIARIA" and ult not in (hoje_br, hoje_curto):
+            if freq == "DIARIA" and not ja_hoje:
                 deve = True
             elif freq == "MENSAL_1DIA_UTIL" and prim_util and mes_key not in ult:
                 deve, check, oper = True, "IMEDIATO", "Fechamento Mensal"
-            elif freq in DIAS_SEMANA and hoje.weekday() == DIAS_SEMANA[freq] \
-                    and ult not in (hoje_br, hoje_curto):
+            elif freq in DIAS_SEMANA and hoje.weekday() == DIAS_SEMANA[freq] and not ja_hoje:
                 deve, oper = True, "Tarefa Semanal"
             if not deve:
                 continue
