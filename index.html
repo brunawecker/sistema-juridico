@@ -334,6 +334,7 @@ const L = {  // modo local (servidor de teste na máquina)
   async presencas(){return[];},
   async sugDescartar(){return{ok:true};},
   async sugDescartes(){return[];},
+  cargaEquipe(){return this.f("/api/carga_equipe");},
   historicoDia(d){return this.f("/api/historico_dia?d="+d);},
   sessoesHoje(){return this.f("/api/sessoes_hoje");},
   sessaoAtiva(){return this.f("/api/sessao_ativa");},
@@ -438,6 +439,7 @@ const S = {
   async equipeAdd(m){okS(await supa.from("equipe").insert(m));return{ok:true};},
   async presencaPing(){try{await supa.from("presenca").upsert({nome:E.perfil.nome_sistema,ultima:new Date().toISOString()});}catch(e){}return{ok:true};},
   async presencas(){return okS(await supa.from("presenca").select("*"))||[];},
+  async cargaEquipe(){return okS(await supa.rpc("carga_dia"))||[];},
   async sugDescartar(id){okS(await supa.from("sugestao_descartada").upsert({id_tarefa:id,por:E.perfil.nome_sistema,em:new Date().toISOString()}));return{ok:true};},
   async sugDescartes(){const lim=new Date(Date.now()-7*86400000).toISOString();
     return okS(await supa.from("sugestao_descartada").select("id_tarefa").gte("em",lim))||[];},
@@ -984,10 +986,12 @@ async function telaMinhas(){
     let excesso=planejado-capDisp,nSug=0;
     const cand=[...plano].filter(t=>t._urg>=2).sort((a,b)=>b._urg-a._urg||a._dias-b._dias);
     for(const t of cand){if(excesso<=0)break;excesso-=t._tempo;nSug++;}
+    // carga dos colegas vem do medidor agregado do banco (não-head não
+    // enxerga as tarefas alheias — sem isso, todo mundo parecia "livre")
+    let cargasEq=[];try{cargasEq=await DB.cargaEquipe();}catch(e){}
     const folgas=OPERACIONAIS.filter(x=>x!==nome).map(x=>{
-      const dem=ts.filter(t=>loginDe(t.assessor)===x&&t.id_tarefa&&!t._delegada&&!t._emCorrecao&&!t._concluida&&t._g>=1&&t._g<=3)
-        .reduce((s,t)=>s+tempoPlanoDe(x,t.operacao),0);
-      return{n:x,folga:capDe(x)-dem};}).filter(o=>o.folga>=30).sort((a,b)=>b.folga-a.folga);
+      const c=(cargasEq||[]).find(r=>loginDe(r.nome)===x);
+      return{n:x,folga:capDe(x)-(c?c.minutos:0)};}).filter(o=>o.folga>=30).sort((a,b)=>b.folga-a.folga);
     if(nSug>0)h+=`<div class="painel" style="background:#FFF7E6;border-color:var(--amber)">
       <div class="bloco-t" style="color:#7F5200">&#9878; Sugestão do robô: delegar ${nSug} tarefa(s) hoje</div>
       <div style="font-size:12px">Seu dia soma <b>${fmtMin(planejado)}</b> para <b>${fmtMin(capDisp)}</b> de capacidade — delegando ${nSug}, a agenda fecha.
@@ -1554,9 +1558,14 @@ async function telaPainel(){
   const cargaDia=n=>{const lst=ts.filter(t=>loginDe(t.assessor)===n&&t.id_tarefa&&!t._delegada&&!t._emCorrecao&&!t._concluida&&t._g>=1&&t._g<=3);
     return{min:lst.reduce((s,t)=>s+tempoPlanoDe(n,t.operacao),0),qt:lst.length};};
   const sobrec=[],comFolga=[];
+  let cargasEqP=[];try{cargasEqP=await DB.cargaEquipe();}catch(e){}
   OPERACIONAIS.forEach(n=>{const d=cargaDia(n),c=capDe(n);
     if(d.min>c*1.1&&AUTORIZADOS_DELEGAR.includes(n))sobrec.push({n,...d,c});
-    if(c-d.min>=30)comFolga.push({n,folga:c-d.min});});
+    // folga vem do medidor agregado do banco — a MESMA conta que os
+    // delegadores não-heads veem na tela deles
+    const cg=(cargasEqP||[]).find(r=>loginDe(r.nome)===n);
+    const folga=c-(cg?cg.minutos:d.min);
+    if(folga>=30)comFolga.push({n,folga});});
   if(sobrec.length){comFolga.sort((a,b)=>b.folga-a.folga);
     // candidatas concretas: as MENOS urgentes do dia de quem estourou, até a
     // agenda caber; fixas (📌) e as que a head descartou (7 dias) ficam de fora
