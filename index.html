@@ -1125,6 +1125,13 @@ async function abrirTarefa(id){
       (ho||[]).forEach(h=>{h._daOrigem=orig;});
       hist=(hist||[]).concat(ho||[]);
     }catch(e){}}}
+  // dono de tarefa DELEGADA: vê também o que o receptor registra no impulso
+  if(t._delegada){
+    const sub=(E.tarefas||[]).find(x=>x._impulso&&String(x.supervisao||"").includes("Origem: "+t.id_tarefa+" "));
+    if(sub){try{const hs=await DB.historico(sub.id_tarefa);
+      (hs||[]).forEach(h=>{h._daOrigem=sub.id_tarefa;});
+      hist=(hist||[]).concat(hs||[]);
+    }catch(e){}}}
   E._hist=hist;desenharCard(t,hist||[]);
 }
 function desenharCard(t,hist){
@@ -1223,7 +1230,7 @@ function desenharCard(t,hist){
     return `<div class="hentrada" ${en._daOrigem?'style="opacity:.85;background:#F4F8FB;border-radius:8px"':""}><div class="hbola ${en.tipo==="SUPERVISÃO"?"sup":en.tipo==="ENCERRAMENTO"?"enc":""}"></div>
     <div style="flex:1"><div class="hmeta"><span class="hautor">${esc(en.autor)}</span>
     <span class="hdata">${brData(en.data_dt)||esc(en.data)}</span><span class="htipo">${esc(en.tipo||"")}</span>
-    ${en._daOrigem?`<span class="htipo" style="background:var(--ice);color:var(--dani)">&#129309; tarefa de origem ${esc(en._daOrigem)}</span>`:""}
+    ${en._daOrigem?`<span class="htipo" style="background:var(--ice);color:var(--dani)">&#129309; da tarefa ligada ${esc(en._daOrigem)}</span>`:""}
     ${podeEd?`<button class="btn bts btsm" style="padding:0 6px;font-size:10px" onclick="editarAndamento('${esc(en.id_historico)}',${en.linha})">&#9998; editar</button>`:""}</div>
     <div class="htexto" id="hx-${en.linha}">${esc(en.texto)}</div></div></div>`;}).join("")
     :`<p style="font-size:13px;color:var(--gray)">Sem histórico.</p>`;
