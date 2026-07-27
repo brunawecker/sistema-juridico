@@ -330,6 +330,8 @@ const L = {  // modo local (servidor de teste na máquina)
   roboStatus(){return this.f("/api/robo_status");},
   async equipeSet(){throw new Error("Gestão da equipe funciona no site publicado.");},
   async equipeAdd(){throw new Error("Gestão da equipe funciona no site publicado.");},
+  async presencaPing(){return{ok:true};},
+  async presencas(){return[];},
   historicoDia(d){return this.f("/api/historico_dia?d="+d);},
   sessoesHoje(){return this.f("/api/sessoes_hoje");},
   sessaoAtiva(){return this.f("/api/sessao_ativa");},
@@ -432,6 +434,8 @@ const S = {
   async equipeSet(nome,campos){const r=await supa.from("equipe").update(campos).eq("nome_sistema",nome).select();okS(r);
     if(!(r.data||[]).length)throw new Error("Sem permissão (só admin) ou membro não encontrado.");return{ok:true};},
   async equipeAdd(m){okS(await supa.from("equipe").insert(m));return{ok:true};},
+  async presencaPing(){try{await supa.from("presenca").upsert({nome:E.perfil.nome_sistema,ultima:new Date().toISOString()});}catch(e){}return{ok:true};},
+  async presencas(){return okS(await supa.from("presenca").select("*"))||[];},
   async historicoDia(d){return okS(await supa.from("historico").select("*").eq("data_dt",d))||[];},
   async sessoesHoje(){return okS(await supa.from("sessoes").select("*").eq("data_dt",hojeISO()).order("linha"))||[];},
   async sessaoAtiva(){const r=okS(await supa.from("sessoes").select("*").eq("data_dt",hojeISO()).eq("status","ATIVO").eq("assessor",E.perfil.nome_sistema).order("linha",{ascending:false}).limit(1))||[];return r[0]||null;},
@@ -634,6 +638,8 @@ async function entrou(){
   // vigia de inatividade: só assessores de verdade — nunca heads/admin nem no "Ver como"
   if(OPERACIONAIS.includes(p.nome_sistema)&&!p.head_sim&&!p.admin_sim&&!p.vendo_como_outro)
     iniciarVigiaInatividade();
+  // sinal de presença: "estou com o site aberto" a cada 5 min (todos os perfis)
+  if(!p.vendo_como_outro){DB.presencaPing();setInterval(()=>DB.presencaPing(),5*60000);}
 }
 // Configurações vindas do banco (capacidade, tempos por operação, quem
 // corrige/delega). Head edita na tela "Configurações" — sem republicar o
@@ -1448,15 +1454,20 @@ async function telaPainel(){
   // fica em silêncio e é descontado da conta
   const agora=new Date();let inativos="";
   const hAg=agora.getHours();
+  // presença = "site aberto agora" (sinal dos últimos 6 min); sessão = cartão aberto
+  let pres=[];try{pres=await DB.presencas();}catch(e){}
+  const online=n=>pres.some(r=>r.nome===n&&(Date.now()-new Date(r.ultima).getTime())<6*60000);
   if(agora.getDay()>0&&agora.getDay()<6&&hAg>=9&&!(hAg>=12&&hAg<14)){
     OPERACIONAIS.forEach(n=>{
+      const on=online(n);
+      const chip=on?' <span class="tag tek">&#128994; no site agora</span>':' <span class="tag tm">fora do site</span>';
       const dele=(ses||[]).filter(s=>loginDe(s.assessor)===n);
-      if(!dele.length){inativos+=`<div class="linha-item"><b>${esc(n)}</b><span>sem atividade registrada hoje</span></div>`;return;}
+      if(!dele.length){inativos+=`<div class="linha-item"><b>${esc(n)}</b><span>nenhum cartão de tarefa aberto hoje${chip}</span></div>`;return;}
       let ult=0;dele.forEach(s=>{const m=String(s.status==="ATIVO"?s.hora_inicio:s.hora_fim||s.hora_inicio||"").match(/(\d{1,2}):(\d{2})/);
         if(m){const v=(+m[1])*60+(+m[2]);if(v>ult)ult=v;}});
       const agoraMin=hAg*60+agora.getMinutes();
       const almoco=Math.max(0,Math.min(agoraMin,14*60)-Math.max(ult,12*60));
-      if(ult&&agoraMin-ult-almoco>=120)inativos+=`<div class="linha-item"><b>${esc(n)}</b><span>inativo há ${fmtMin(agoraMin-ult-almoco)}</span></div>`;});
+      if(ult&&agoraMin-ult-almoco>=120)inativos+=`<div class="linha-item"><b>${esc(n)}</b><span>sem cartão aberto há ${fmtMin(agoraMin-ult-almoco)}${chip}</span></div>`;});
   }
   // vigia dos robôs: cobrança (~5 min) e backup (diário)
   let robos=[];try{robos=await DB.roboStatus();}catch(e){}
@@ -1574,7 +1585,7 @@ async function telaDiario(dia){
   let hist,ops,casos,snap;
   try{[hist,ops,casos,snap]=await Promise.all([
     ehHoje?DB.historicoHoje():DB.historicoDia(d),DB.tarefas(),
-    ehHoje?Promise.resolve([]):DB.casos().catch(()=>[]),
+    DB.casos().catch(()=>[]),   // sempre: tarefa encerrada HOJE já saiu do quadro ativo
     DB.snapshotDia(d).catch(()=>[])]);}catch(e){return erro(e.message);}
   const ts=(ops||[]).map(classificar);E.tarefas=ts;
   const mapa={};ts.forEach(t=>{if(t.id_tarefa)mapa[t.id_tarefa]=t;});
@@ -1629,7 +1640,7 @@ async function telaDiario(dia){
     else if(r.tipo!=="HISTORICO"){o.upd++;if(r.texto)trf.and.push({tipo:r.tipo,texto:r.texto});}
     const mt=mapa[k],enc=mapaEnc[k];
     if(mt){trf.cliente=mt.cliente;trf.op=mt.operacao||"";trf.impulso=!!mt._impulso;}
-    else if(enc){trf.cliente=enc.cliente||"";trf.op=(enc.operacao?enc.operacao+" · ":"")+"caso encerrado";}
+    else if(enc){trf.cliente=enc.cliente||"";trf.op=enc.operacao||"";trf.encerrada=true;}
     else if(String(k).includes("FIX"))trf.cliente="📌 Tarefa fixa";
     else if(k==="REUNIAO")trf.cliente="📅 Reunião";
     else if(k==="AVULSA")trf.cliente="⏱️ Atividade";});
@@ -1643,7 +1654,7 @@ async function telaDiario(dia){
       const and=temAnd?`<div id="and-${di}-${ti}" style="display:none;margin:4px 0 6px 14px;padding:8px 12px;background:var(--ice);border-radius:8px;border-left:3px solid var(--dani)">
         ${t.and.map(a=>`<div style="font-size:12px;margin-bottom:4px"><span class="htipo">${esc(a.tipo)}</span> ${esc(a.texto)}</div>`).join("")}</div>`:"";
       return `<div class="linha-item" ${temAnd?`style="cursor:pointer" onclick="ge('and-${di}-${ti}').style.display=ge('and-${di}-${ti}').style.display==='none'?'block':'none'"`:""}>
-        <span>${temAnd?"&#9656; ":""}${t.impulso?"&#129309; ":""}${esc(t.cliente||"Tarefa "+tid)}${t.op?" · "+esc(t.op):""}${temAnd?` <span style="color:var(--dani);font-size:11px">ver ${t.and.length}</span>`:""}</span>
+        <span>${temAnd?"&#9656; ":""}${t.impulso?"&#129309; ":""}${esc(t.cliente||"Tarefa "+tid)}${t.op?" · "+esc(t.op):""}${t.encerrada?' <span class="tag" style="background:#455A64;color:white">&#128193; ENCERRADA</span>':""}${temAnd?` <span style="color:var(--dani);font-size:11px">ver ${t.and.length}</span>`:""}</span>
         ${t.min?`<b>${t.min}min</b>`:""}</div>${and}`;}).join("");
     return `<div class="painel"><div style="display:flex;justify-content:space-between;margin-bottom:6px">
       <span style="font-weight:700;color:var(--navy)">${esc(nome)}${nc?` <span style="font-weight:400;color:var(--gray);font-size:12px">(${esc(nc)})</span>`:""}</span>
