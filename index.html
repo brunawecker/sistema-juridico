@@ -367,7 +367,7 @@ const L = {  // modo local (servidor de teste na máquina)
   correcaoEnviar(t,x){return this.f("/api/correcao_enviar",P({id_tarefa:t.id_tarefa,linha:t.linha,id_cliente:t.id_cliente,...x,retorno_br:brData(x.retorno)}));},
   correcaoDevolver(t){return this.f("/api/correcao_devolver",P({id_tarefa:t.id_tarefa,linha:t.linha,id_cliente:t.id_cliente}));},
   correcaoPuxar(t){return this.f("/api/correcao_puxar",P({id_tarefa:t.id_tarefa,linha:t.linha,id_cliente:t.id_cliente}));},
-  delegar(t,x){return this.f("/api/delegar",P({id_tarefa:t.id_tarefa,...x}));},
+  delegar(t,x){return this.f("/api/delegar",P({quando:x.quando||null,id_tarefa:t.id_tarefa,...x}));},
   impulsoFinalizar(id){return this.f("/api/impulso_finalizar",P({id_tarefa:id}));},
   criarTarefa(d){return this.f("/api/criar_tarefa",P(d));},
   criarCliente(d){return this.f("/api/criar_cliente",P(d));},
@@ -514,7 +514,7 @@ const S = {
     await histS(t.id_tarefa,t.id_cliente,"CORRECAO","Correção concluída — devolvida ao assessor (imediato)");return{ok:true};},
   async delegar(t,x){const sub=await novoIdS("OP"),hid=await novoIdS("HIS");
     await rpcS("delegar_impulso",{p_id_tarefa:t.id_tarefa,p_para:x.para,p_desc:x.descricao,
-      p_freq:x.freq||"IMEDIATO",p_sub_id:sub,p_hist_id:hid});return{ok:true,sub:sub};},
+      p_freq:x.freq||"IMEDIATO",p_sub_id:sub,p_hist_id:hid,p_quando:x.quando||null});return{ok:true,sub:sub};},
   async impulsoFinalizar(id){const hid=await novoIdS("HIS");
     const ok=await rpcS("finalizar_impulso",{p_sub_id:id,p_hist_id:hid});
     if(!ok)throw new Error("não foi possível finalizar");return{ok:true};},
@@ -870,7 +870,7 @@ function classificar(t){
   t._chk=chk;
   t._atrasada=!t._concluida&&d!==null&&d<0;
   if(t._delegada)t._g=0;
-  else if(chk==="IMEDIATO"&&!t._concluida)t._g=1;
+  else if(chk==="IMEDIATO"&&!t._concluida&&(d===null||d<=0))t._g=1;
   else if(t._atrasada&&chk!=="IMEDIATO")t._g=2;
   else if(!t._concluida&&(d===0||/DI[ÁA]RIO/.test(chk)))t._g=3;
   else t._g=4;
@@ -1410,6 +1410,16 @@ async function redistribuir(){
   toast("Redistribuída!","ok");fecharModal();recarregar();}
 // PACOTE DO CLIENTE: outras tarefas pendentes do MESMO cliente e MESMO dono —
 // quem vai "entrar" no cliente já atualiza tudo de uma vez e devolve o todo.
+function proxDiaUtil(){const d=new Date();d.setDate(d.getDate()+1);
+  while(d.getDay()===0||d.getDay()===6)d.setDate(d.getDate()+1);
+  return d.toISOString().slice(0,10);}
+function ehTarde(){return new Date().getHours()>=15;}
+// depois das 15h, delegação IMEDIATA pergunta se é para hoje ou amanhã
+function perguntarQuandoDelegar(freq){
+  if(freq!=="IMEDIATO"||!ehTarde())return null;
+  const amanha=proxDiaUtil();
+  return confirm(`⏰ Já passa das 15h.\n\nEsta delegação IMEDIATA é para HOJE mesmo?\n\nOK = para hoje · Cancelar = entra amanhã (${brData(amanha)}), pelo tempo hábil.`)
+    ?null:amanha;}
 function pacoteDoCliente(t){
   if(!t||!t.id_cliente)return[];
   return (E._todasBanco||E.tarefas||[]).filter(x=>x.id_cliente===t.id_cliente
@@ -1444,8 +1454,9 @@ async function confirmarDelegar(){
   if(!para){toast("Escolha para quem delegar.","erro");return;}
   if(!txt){toast("Descreva o que precisa ser feito.","erro");return;}
   const f=ge("dg-file")&&ge("dg-file").files?ge("dg-file").files[0]:null;
+  const quando=perguntarQuandoDelegar(ge("dg-freq").value);
   let r;
-  try{r=await DB.delegar(t,{para,descricao:txt,freq:ge("dg-freq").value});}
+  try{r=await DB.delegar(t,{para,descricao:txt,freq:ge("dg-freq").value,quando});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   if(f){if(f.size>25*1024*1024)toast("Impulso enviado, mas o anexo não foi: arquivo acima de 25 MB.","erro");
     else try{await DB.docEnviar(f,t.id_cliente,(r&&r.sub)||t.id_tarefa);}
@@ -1454,7 +1465,7 @@ async function confirmarDelegar(){
   let nPac=0;
   for(let i=0;i<(E._pacoteExtras||[]).length;i++){
     const cb=ge("dg-pac-"+i);if(!cb||!cb.checked)continue;
-    try{await DB.delegar(E._pacoteExtras[i],{para,freq:ge("dg-freq").value,
+    try{await DB.delegar(E._pacoteExtras[i],{para,freq:ge("dg-freq").value,quando,
       descricao:txt+" (pacote do cliente — atualizar junto e devolver)"});nPac++;}
     catch(e){toast("Uma tarefa do pacote falhou: "+e.message,"erro");}}
   toast("Impulso enviado para "+para+"!"+(nPac?` (+${nPac} do pacote do cliente)`:""),"ok");
@@ -1582,11 +1593,12 @@ async function aprovarPacote(){
 async function executarAprovacao(i,para,extras){
   const s=(E._sugestoesTodas||[])[i];if(!s)return;
   const desc=`Impulso sugerido pelo robô (dia de ${s.de} acima da capacidade) e aprovado pela head ${E.perfil.nome_sistema}. Executar e devolver o retorno.`;
-  try{await DB.delegar(s.t,{para:para,freq:"IMEDIATO",descricao:desc});}
+  const quando=perguntarQuandoDelegar("IMEDIATO");
+  try{await DB.delegar(s.t,{para:para,freq:"IMEDIATO",descricao:desc,quando});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   let nPac=0;
   for(const x of extras){
-    try{await DB.delegar(x,{para:para,freq:"IMEDIATO",descricao:desc+" (pacote do cliente — atualizar junto e devolver)"});nPac++;}
+    try{await DB.delegar(x,{para:para,freq:"IMEDIATO",quando,descricao:desc+" (pacote do cliente — atualizar junto e devolver)"});nPac++;}
     catch(e){toast("Uma tarefa do pacote falhou: "+e.message,"erro");}}
   toast(`✓ Impulso criado: ${para} recebeu ${1+nPac} tarefa(s) do cliente.`,"ok");
   const idsPac=new Set(extras.map(x=>x.id_tarefa));idsPac.add(s.t.id_tarefa);
@@ -2796,11 +2808,14 @@ async function criarTarefaNova(){
   const op=ge("nt-op").value;if(!op){toast("Selecione a operação.","erro");return;}
   const chk=ge("nt-chk").value;
   const rev=new Date();if(!["IMEDIATO","DIÁRIO"].includes(chk))rev.setDate(rev.getDate()+7);
+  let revISO=rev.toISOString().slice(0,10);
+  if(chk==="IMEDIATO"&&ge("nt-ass").value!==E.perfil.nome_sistema){
+    const q=perguntarQuandoDelegar("IMEDIATO");if(q)revISO=q;}
   let r;
   try{r=await DB.criarTarefa({id_cliente:c.id_cliente,cliente:c.nome,cnpj:c.cnpj_cpf,head:c.head||"",
     operacao:op,check:chk,assessor:ge("nt-ass").value,prazo_fatal:ge("nt-pf").value||"",
     numero_proc:ge("nt-proc").value||"",estado:ge("nt-uf").value||"",supervisao:ge("nt-sup").value||"",
-    revisao:rev.toISOString().slice(0,10)});
+    revisao:revISO});
     toast("✓ Tarefa criada: "+r.id,"ok");}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   const fdoc=ge("nt-doc");const f=fdoc&&fdoc.files&&fdoc.files[0];
@@ -2841,7 +2856,7 @@ async function criarClienteTarefa(){
       resumo:ge("nc-res").value});
     const rt=await DB.criarTarefa({id_cliente:rc.id,cliente:nome,cnpj,head:ge("nc-head").value,
       operacao:op,check:chk,assessor:ge("nc-ass").value,supervisao:ge("nc-sup").value||"",
-      revisao:rev.toISOString().slice(0,10)});
+      revisao:revISO});
     toast(`✓ Cliente ${rc.id} + tarefa ${rt.id} criados!`,"ok");}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   fecharModal2();recarregar();
