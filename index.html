@@ -1652,9 +1652,12 @@ async function telaCapacidade(){
   setNav("cap","Capacidade da Equipe"); carregando();
   let ops,hist,reu;try{[ops,hist,reu]=await Promise.all([DB.tarefas(),DB.historicoHoje(),DB.reunioes()]);}catch(e){return erro(e.message);}
   const hjBR=brHoje(),hjISO=hojeISO();
+  const tsCap=(ops||[]).map(classificar);
   const linhasCap=OPERACIONAIS.map(nome=>{
-    const minhas=(ops||[]).filter(t=>t.id_tarefa&&String(t.assessor||"").toLowerCase()===nome.toLowerCase());
-    const imed=minhas.filter(t=>String(t.check_||"")==="IMEDIATO").length;
+    // mesma régua do Painel Geral: só tarefas ativas (fora delegadas/correção),
+    // e "imediatas" = IMEDIATO pendente (não conta as já concluídas no ciclo)
+    const minhas=tsCap.filter(t=>t.id_tarefa&&loginDe(t.assessor)===nome&&!t._delegada&&!t._emCorrecao);
+    const imed=minhas.filter(t=>t._g===1).length;
     const min=(hist||[]).filter(r=>r.tipo==="TIMER"&&loginDe(r.autor)===nome)
       .reduce((s,r)=>s+parseInt((String(r.texto||"").match(/(\d+)\s*min/)||[0,0])[1]),0);
     const upd=(hist||[]).filter(r=>r.tipo!=="TIMER"&&loginDe(r.autor)===nome).length;
