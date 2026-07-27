@@ -1429,17 +1429,38 @@ function fecharModal2(){ge("modal2").classList.remove("aberto");}
 ge("modal").addEventListener("click",ev=>{if(ev.target===ge("modal"))fecharModal();});
 ge("modal2").addEventListener("click",ev=>{if(ev.target===ge("modal2"))fecharModal2();});
 
+// vitrine paginada das sugestões: 8 por página, navegação sem recarregar
+function desenhaSugestoes(){
+  const box=ge("sug-box");if(!box)return;
+  const todas=E._sugestoesTodas||[];
+  if(!todas.length){box.innerHTML=`<div style="font-size:12px;color:var(--gray)">Sem candidatas delegáveis no momento.</div>`;return;}
+  const POR=8,pags=Math.ceil(todas.length/POR);
+  if(E._sugPag>=pags)E._sugPag=pags-1;if(E._sugPag<0)E._sugPag=0;
+  const ini=E._sugPag*POR,pagina=todas.slice(ini,ini+POR);
+  box.innerHTML=`<div style="font-size:12px;font-weight:700;margin:8px 0 3px">Impulsos sugeridos — aprove os que fizerem sentido:</div>`
+    +pagina.map((s,j)=>{const i=ini+j;
+      return `<div class="linha-item">
+      <span style="cursor:pointer" onclick="abrirTarefa('${esc(s.t.id_tarefa)}')"><b>${esc(s.de)}</b> → ${esc(String(s.t.cliente||"").slice(0,38))} · ${esc(s.t.operacao||"")} <span style="color:var(--gray);font-size:11px">(${esc(s.t.check_||"")})</span></span>
+      <span style="display:flex;gap:5px;align-items:center">
+        <select class="fsel" id="sug-para-${i}" style="font-size:11px">${E._sugFolgaOpts||`<option value="">— ninguém com folga —</option>`}</select>
+        <button class="btn btg btsm" onclick="aprovarImpulso(${i})">&#129309; Aprovar</button>
+        <button class="btn bts btsm" title="Não delegar — sai das sugestões por 7 dias" onclick="naoDelegar(${i})">&#10005;</button></span></div>`;}).join("")
+    +(pags>1?`<div class="linha-acao" style="justify-content:center;margin-top:6px">
+      <button class="btn bts btsm" ${E._sugPag===0?"disabled":""} onclick="E._sugPag--;desenhaSugestoes()">&#9664;</button>
+      <span style="font-size:11px;color:var(--gray)">página ${E._sugPag+1} de ${pags} · ${todas.length} sugestões</span>
+      <button class="btn bts btsm" ${E._sugPag>=pags-1?"disabled":""} onclick="E._sugPag++;desenhaSugestoes()">&#9654;</button></div>`:"");
+}
 // descarta uma sugestão ("não vou delegar esta") — sai por 7 dias e a
-// próxima candidata entra no lugar
+// vitrine se renova na hora, sem recarregar a página
 async function naoDelegar(i){
-  const s=(E._sugestoes||[])[i];if(!s)return;
+  const s=(E._sugestoesTodas||[])[i];if(!s)return;
   try{await DB.sugDescartar(s.t.id_tarefa);}catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Ok — fica fora das sugestões por 7 dias.","ok");
-  telaPainel();
+  E._sugestoesTodas.splice(i,1);desenhaSugestoes();
 }
 // aprova um impulso sugerido pelo robô (só heads veem o Painel)
 async function aprovarImpulso(i){
-  const s=(E._sugestoes||[])[i];if(!s)return;
+  const s=(E._sugestoesTodas||[])[i];if(!s)return;
   const para=ge("sug-para-"+i).value;
   if(!para){toast("Escolha quem recebe o impulso.","erro");return;}
   if(!confirm(`Delegar "${s.t.cliente} · ${s.t.operacao||""}" de ${s.de} para ${para}?\n\nVira um impulso: ${para} executa e devolve; a tarefa de ${s.de} fica aguardando o retorno.`))return;
@@ -1447,7 +1468,7 @@ async function aprovarImpulso(i){
     descricao:`Impulso sugerido pelo robô (dia de ${s.de} acima da capacidade) e aprovado pela head ${E.perfil.nome_sistema}. Executar e devolver o retorno.`});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   toast(`✓ Impulso criado: ${para} recebeu a tarefa.`,"ok");
-  const el=ge("sug-"+i);if(el)el.style.opacity=".4";if(el)el.innerHTML=`<span>&#10003; delegada para <b>${esc(para)}</b></span>`;
+  E._sugestoesTodas.splice(i,1);desenhaSugestoes();
 }
 // ======================================================= TELA: PAINEL (head)
 async function telaPainel(){
@@ -1549,23 +1570,15 @@ async function telaPainel(){
       let excesso=o.min-o.c;
       for(const t of doDia){if(excesso<=0)break;if(t._g===1)continue; // imediata fica com o dono
         E._sugestoes.push({t,de:o.n});excesso-=tempoPlanoDe(o.n,t.operacao);}});
-    const sugTotal=E._sugestoes.length;
-    E._sugestoes=E._sugestoes.slice(0,8);   // vitrine enxuta: 8 por vez
-    const opcoesFolga=comFolga.map(x=>`<option value="${esc(x.n)}">${esc(x.n)} (&asymp;${fmtMin(x.folga)} livres)</option>`).join("");
+    E._sugestoesTodas=E._sugestoes;E._sugPag=0;
+    E._sugFolgaOpts=comFolga.map(x=>`<option value="${esc(x.n)}">${esc(x.n)} (&asymp;${fmtMin(x.folga)} livres)</option>`).join("");
     h+=`<div class="painel" style="background:#FFF7E6;border-color:var(--amber)">
       <div class="bloco-t" style="color:#7F5200">&#9878; Sugestão de delegação (robô de produtividade)</div>
       ${sobrec.map(o=>`<div style="font-size:12px;margin-bottom:2px"><b>${esc(o.n)}</b>: dia com &asymp;${fmtMin(o.min)} para ${fmtMin(o.c)} de capacidade</div>`).join("")}
-      ${E._sugestoes.length?`<div style="font-size:12px;font-weight:700;margin:8px 0 3px">Impulsos sugeridos — aprove os que fizerem sentido:</div>`
-        +E._sugestoes.map((s,i)=>`<div class="linha-item" id="sug-${i}">
-          <span style="cursor:pointer" onclick="abrirTarefa('${esc(s.t.id_tarefa)}')"><b>${esc(s.de)}</b> → ${esc(String(s.t.cliente||"").slice(0,38))} · ${esc(s.t.operacao||"")} <span style="color:var(--gray);font-size:11px">(${esc(s.t.check_||"")})</span></span>
-          <span style="display:flex;gap:5px;align-items:center">
-            <select class="fsel" id="sug-para-${i}" style="font-size:11px">${opcoesFolga||`<option value="">— ninguém com folga —</option>`}</select>
-            <button class="btn btg btsm" onclick="aprovarImpulso(${i})">&#129309; Aprovar</button>
-            <button class="btn bts btsm" title="Não delegar — sai das sugestões por 7 dias" onclick="naoDelegar(${i})">&#10005;</button></span></div>`).join("")
-        :`<div style="font-size:12px;color:var(--gray)">Sem candidatas delegáveis (só restaram imediatas ou fixas).</div>`}
-      ${sugTotal>8?`<div style="font-size:11px;color:var(--gray);margin-top:4px">Mostrando 8 de ${sugTotal} — aprove algumas e recarregue (&#8635;) para ver as próximas.</div>`:""}
+      <div id="sug-box"></div>
       ${comFolga.length?"":`<div style="font-size:12px;color:var(--red);margin-top:4px">Atenção: ninguém com folga hoje — considere reagendar em vez de delegar.</div>`}
       <div style="font-size:11px;color:var(--gray);margin-top:5px">O robô sugere as menos urgentes de quem estourou e o receptor com mais folga — mas <b>nada acontece sem a sua aprovação</b>. Ao aprovar, vira um impulso normal: o dono fica como DELEGADA aguardando o retorno.</div></div>`;}
+  else{E._sugestoesTodas=[];}
   h+=`<div class="sg">
     <div class="sc"><div class="sl">Total</div><div class="sv">${total}</div></div>
     <div class="sc"><div class="sl">Em dia</div><div class="sv green">${total-atr}</div></div>
@@ -1582,7 +1595,7 @@ async function telaPainel(){
     <select class="fsel" id="pf-st" onchange="filtraPainel()"><option value="">Todos status</option><option value="atr">Em atraso</option><option value="imed">Imediatas</option><option value="dia">Em dia</option></select>
     <select class="fsel" id="pf-hd" onchange="filtraPainel()"><option value="">Todas heads</option><option>Danielly</option><option>Bruna</option><option>Eduarda</option></select></div>
     <div id="pf-lista"></div><div id="pf-corrigir"></div>`;
-  ge("conteudo").innerHTML=h;filtraPainel();painelParaCorrigir("pf-corrigir");
+  ge("conteudo").innerHTML=h;filtraPainel();painelParaCorrigir("pf-corrigir");desenhaSugestoes();
 }
 function filtraPainel(){
   const q=(ge("pf-q").value||"").toLowerCase(),a=ge("pf-ass").value,st=ge("pf-st").value,hd=ge("pf-hd").value;
