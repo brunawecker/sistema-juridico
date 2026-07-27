@@ -332,6 +332,8 @@ const L = {  // modo local (servidor de teste na máquina)
   async equipeAdd(){throw new Error("Gestão da equipe funciona no site publicado.");},
   async presencaPing(){return{ok:true};},
   async presencas(){return[];},
+  async sugDescartar(){return{ok:true};},
+  async sugDescartes(){return[];},
   historicoDia(d){return this.f("/api/historico_dia?d="+d);},
   sessoesHoje(){return this.f("/api/sessoes_hoje");},
   sessaoAtiva(){return this.f("/api/sessao_ativa");},
@@ -436,6 +438,9 @@ const S = {
   async equipeAdd(m){okS(await supa.from("equipe").insert(m));return{ok:true};},
   async presencaPing(){try{await supa.from("presenca").upsert({nome:E.perfil.nome_sistema,ultima:new Date().toISOString()});}catch(e){}return{ok:true};},
   async presencas(){return okS(await supa.from("presenca").select("*"))||[];},
+  async sugDescartar(id){okS(await supa.from("sugestao_descartada").upsert({id_tarefa:id,por:E.perfil.nome_sistema,em:new Date().toISOString()}));return{ok:true};},
+  async sugDescartes(){const lim=new Date(Date.now()-7*86400000).toISOString();
+    return okS(await supa.from("sugestao_descartada").select("id_tarefa").gte("em",lim))||[];},
   async historicoDia(d){return okS(await supa.from("historico").select("*").eq("data_dt",d))||[];},
   async sessoesHoje(){return okS(await supa.from("sessoes").select("*").eq("data_dt",hojeISO()).order("linha"))||[];},
   async sessaoAtiva(){const r=okS(await supa.from("sessoes").select("*").eq("data_dt",hojeISO()).eq("status","ATIVO").eq("assessor",E.perfil.nome_sistema).order("linha",{ascending:false}).limit(1))||[];return r[0]||null;},
@@ -1424,6 +1429,14 @@ function fecharModal2(){ge("modal2").classList.remove("aberto");}
 ge("modal").addEventListener("click",ev=>{if(ev.target===ge("modal"))fecharModal();});
 ge("modal2").addEventListener("click",ev=>{if(ev.target===ge("modal2"))fecharModal2();});
 
+// descarta uma sugestão ("não vou delegar esta") — sai por 7 dias e a
+// próxima candidata entra no lugar
+async function naoDelegar(i){
+  const s=(E._sugestoes||[])[i];if(!s)return;
+  try{await DB.sugDescartar(s.t.id_tarefa);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Ok — fica fora das sugestões por 7 dias.","ok");
+  telaPainel();
+}
 // aprova um impulso sugerido pelo robô (só heads veem o Painel)
 async function aprovarImpulso(i){
   const s=(E._sugestoes||[])[i];if(!s)return;
@@ -1525,11 +1538,13 @@ async function telaPainel(){
     if(c-d.min>=30)comFolga.push({n,folga:c-d.min});});
   if(sobrec.length){comFolga.sort((a,b)=>b.folga-a.folga);
     // candidatas concretas: as MENOS urgentes do dia de quem estourou, até a
-    // agenda caber; fixas (📌) ficam de fora (rotina pessoal não se delega)
+    // agenda caber; fixas (📌) e as que a head descartou (7 dias) ficam de fora
+    let descartadas=new Set();
+    try{descartadas=new Set((await DB.sugDescartes()).map(r=>r.id_tarefa));}catch(e){}
     E._sugestoes=[];
     sobrec.forEach(o=>{
       const doDia=ts.filter(t=>loginDe(t.assessor)===o.n&&t.id_tarefa&&!t._delegada&&!t._emCorrecao&&!t._concluida
-          &&t._g>=1&&t._g<=3&&!String(t.cliente||"").startsWith("📌"))
+          &&t._g>=1&&t._g<=3&&!String(t.cliente||"").startsWith("📌")&&!descartadas.has(t.id_tarefa))
         .sort((a,b)=>(b._g-a._g)||((b._dias??9)-(a._dias??9)));   // menos urgente primeiro
       let excesso=o.min-o.c;
       for(const t of doDia){if(excesso<=0)break;if(t._g===1)continue; // imediata fica com o dono
@@ -1545,7 +1560,8 @@ async function telaPainel(){
           <span style="cursor:pointer" onclick="abrirTarefa('${esc(s.t.id_tarefa)}')"><b>${esc(s.de)}</b> → ${esc(String(s.t.cliente||"").slice(0,38))} · ${esc(s.t.operacao||"")} <span style="color:var(--gray);font-size:11px">(${esc(s.t.check_||"")})</span></span>
           <span style="display:flex;gap:5px;align-items:center">
             <select class="fsel" id="sug-para-${i}" style="font-size:11px">${opcoesFolga||`<option value="">— ninguém com folga —</option>`}</select>
-            <button class="btn btg btsm" onclick="aprovarImpulso(${i})">&#129309; Aprovar</button></span></div>`).join("")
+            <button class="btn btg btsm" onclick="aprovarImpulso(${i})">&#129309; Aprovar</button>
+            <button class="btn bts btsm" title="Não delegar — sai das sugestões por 7 dias" onclick="naoDelegar(${i})">&#10005;</button></span></div>`).join("")
         :`<div style="font-size:12px;color:var(--gray)">Sem candidatas delegáveis (só restaram imediatas ou fixas).</div>`}
       ${sugTotal>8?`<div style="font-size:11px;color:var(--gray);margin-top:4px">Mostrando 8 de ${sugTotal} — aprove algumas e recarregue (&#8635;) para ver as próximas.</div>`:""}
       ${comFolga.length?"":`<div style="font-size:12px;color:var(--red);margin-top:4px">Atenção: ninguém com folga hoje — considere reagendar em vez de delegar.</div>`}
