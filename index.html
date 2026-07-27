@@ -561,9 +561,12 @@ const S = {
   async sessaoConcluir(min){okS(await supa.from("sessoes").update({status:"CONCLUIDO",hora_fim:horaAgora(),
       hora_fim_hr:horaAgora(),duracao_min:String(min||0),duracao_min_num:min||0})
       .eq("status","ATIVO").eq("data_dt",hojeISO()).eq("assessor",E.perfil.nome_sistema));return{ok:true};},
-  async liberarAtrasadas(a,q){const cand=okS(await supa.from("operacional").select("linha,check_,data_revisao_dt,status_tarefa")
+  async liberarAtrasadas(a,q){const cand=okS(await supa.from("operacional").select("linha,check_,data_revisao_dt,status_tarefa,correcao_head")
       .eq("assessor",a).lt("data_revisao_dt",hojeISO()).order("data_revisao_dt").limit(200))||[];
-    const alvo=cand.filter(t=>!["IMEDIATO","DIÁRIO","DIARIO"].includes(t.check_||"")&&!String(t.status_tarefa||"").includes("EM DIA")).slice(0,q||5);
+    const alvo=cand.filter(t=>!["IMEDIATO","DIÁRIO","DIARIO"].includes(t.check_||"")
+      &&!String(t.status_tarefa||"").includes("EM DIA")
+      &&!String(t.status_tarefa||"").includes("DELEGADA")
+      &&!String(t.correcao_head||"").trim()).slice(0,q||5);
     if(alvo.length)okS(await supa.from("operacional").update({data_revisao_dt:hojeISO(),data_revisao:brData(hojeISO())})
       .in("linha",alvo.map(t=>t.linha)));
     return{ok:true,liberadas:alvo.length};},
@@ -1548,9 +1551,11 @@ async function telaPorAssessor(){
   setNav("assessor","Por Assessor"); carregando();
   let data;try{data=await DB.tarefas();}catch(e){return erro(e.message);}
   const ts=(data||[]).map(classificar);E.tarefas=ts;
-  const grp={};ts.filter(t=>t.id_tarefa).forEach(t=>{const a=t.assessor||"(sem assessor)";(grp[a]=grp[a]||[]).push(t);});
+  // agrupa pelo nome oficial (loginDe unifica apelidos/nome completo) e a
+  // etiqueta de atrasadas usa a mesma régua do Painel (fora delegadas/correção)
+  const grp={};ts.filter(t=>t.id_tarefa).forEach(t=>{const a=loginDe(t.assessor)||"(sem assessor)";(grp[a]=grp[a]||[]).push(t);});
   const ord=Object.entries(grp).sort((a,b)=>b[1].length-a[1].length);
-  ge("conteudo").innerHTML=ord.map(([n,lista])=>{const atr=lista.filter(t=>t._atrasada).length;
+  ge("conteudo").innerHTML=ord.map(([n,lista])=>{const atr=lista.filter(t=>t._atrasada&&!t._delegada&&!t._emCorrecao).length;
     return `<details class="det" open><summary><span style="flex:1;font-weight:700;color:var(--navy)">${esc(n)}</span>
       <span class="tag ${atr?"ti":"tek"}">${lista.length} tarefas · ${atr} atrasadas</span></summary>
       <div style="padding:8px 12px 12px">${lista.slice(0,60).map(t=>cardTarefa(t)).join("")}</div></details>`;}).join("")
@@ -1881,7 +1886,7 @@ async function telaRelatorio(){
   // indicadores gerais
   const concl=ts.filter(t=>t._concluida).length,
     atras=ts.filter(t=>t._atrasada&&!t._delegada&&!t._emCorrecao).length,
-    imed=ts.filter(t=>t._g===1).length,
+    imed=ts.filter(t=>t._g===1&&!t._emCorrecao).length,
     pf7=ts.filter(t=>t._pfDias!==null&&t._pfDias>=0&&t._pfDias<=7).length,
     corr=ts.filter(t=>t._emCorrecao).length,
     encSem=(casos||[]).filter(c=>naSemana(c.data_encerramento_dt)).length,
