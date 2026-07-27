@@ -481,6 +481,7 @@ const S = {
     if(x.data_revisao){u.data_revisao_dt=x.data_revisao;u.data_revisao=brData(x.data_revisao);}
     if(x.prazo_fatal){u.prazo_fatal_dt=x.prazo_fatal;u.prazo_fatal=brData(x.prazo_fatal);}
     if(x.queda_impedimento){u.queda_impedimento_dt=x.queda_impedimento;u.queda_impedimento=brData(x.queda_impedimento);}
+    if(x.limpar_prazo){u.prazo_fatal=null;u.prazo_fatal_dt=null;}
     okS(await supa.from("operacional").update(u).eq("id_tarefa",t.id_tarefa).eq("linha",t.linha));
     if(x.hist_texto)await histS(t.id_tarefa,t.id_cliente,x.hist_tipo||"ASSESSOR",x.hist_texto);
     return{ok:true};},
@@ -1129,7 +1130,8 @@ function desenharCard(t,hist){
       <button class="btn btp btsm" onclick="salvarQueda()">&#128190;</button></span></div>`:""}
     <div>Frequência:<br><b>${esc(t.check_||"—")}</b></div>
     <div>Próxima revisão:<br><b>${brData(t.data_revisao_dt)||"—"}</b></div>
-    ${t.prazo_fatal_dt?`<div>Prazo fatal:<br><b style="color:${t._prazoAlerta?"var(--red)":"var(--navy)"}">${brData(t.prazo_fatal_dt)}</b></div>`:""}
+    ${t.prazo_fatal_dt?`<div>Prazo fatal:<br><b style="color:${t._prazoAlerta?"var(--red)":"var(--navy)"}">${brData(t.prazo_fatal_dt)}</b>
+      ${(isHead||ehMeuNome(t.assessor))?` <button class="btn bts btsm" style="padding:1px 8px;font-size:10px" title="O prazo foi cumprido — limpar o alerta" onclick="marcarPrazoCumprido()">&#10003; cumprido</button>`:""}</div>`:""}
     <div>Responsável:<br><b>${esc(t.assessor||"—")}</b></div></div>
     <div id="cli-extra" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"></div>
     <div class="bloco" style="margin-top:10px"><div class="bloco-t">&#128206; Documentos</div>
@@ -1308,6 +1310,14 @@ function mostrarAlertaInativo(min){
     let liga=false;
     E._tituloInt=setInterval(()=>{liga=!liga;
       document.title=liga?"🔴 (1) Volte ao sistema!":E._tituloOrig;},1200);}}
+async function marcarPrazoCumprido(){
+  const t=E.atual;if(!t||!t.prazo_fatal_dt)return;
+  if(!confirm(`Confirmar que o prazo fatal de ${brData(t.prazo_fatal_dt)} foi CUMPRIDO?\n\nO alerta some das telas; fica registrado no histórico.`))return;
+  try{await DB.tarefaUpdate(t,{limpar_prazo:true,
+    hist_texto:`✅ Prazo fatal de ${brData(t.prazo_fatal_dt)} marcado como cumprido.`,hist_tipo:"HISTORICO"});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  t.prazo_fatal_dt=null;t.prazo_fatal=null;t._prazoAlerta=false;t._pfDias=null;
+  toast("Prazo marcado como cumprido — alerta removido.","ok");abrirTarefa(t.id_tarefa);}
 function editarQueda(){ge("qi-ver").style.display="none";ge("qi-ed").style.display="inline";}
 async function salvarQueda(){
   const t=E.atual,v=ge("qi-in").value;
@@ -1334,7 +1344,14 @@ async function concluirTarefa(){
   if(!confirm(dm?`Concluir? A tarefa volta em ${brData(dm)}.`:`Concluir? Volta sozinha pela frequência (${check}).`))return;
   try{await DB.concluir(t,{check,proximo:prox});await DB.sessaoConcluir(Math.round((Date.now()-E.timerIni)/60000));
     if(avisoGrupo)await DB.nota({id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,tipo:"HISTORICO",
-      texto:"📣 Confirmou envio de mensagem no grupo de atendimento (WhatsApp) ao concluir."});}
+      texto:"📣 Confirmou envio de mensagem no grupo de atendimento (WhatsApp) ao concluir."});
+    // prazo fatal já vencido + tarefa concluída = provavelmente cumprido: oferece
+    // limpar (dias calculados na hora, direto da data — nada pré-calculado)
+    const pfDiasAgora=diasAte(t.prazo_fatal_dt);
+    if(t.prazo_fatal_dt&&pfDiasAgora!==null&&pfDiasAgora<=0
+       &&confirm(`Esta tarefa tinha prazo fatal em ${brData(t.prazo_fatal_dt)} (já passou).\n\nO prazo foi CUMPRIDO? OK = sim, limpar o alerta.`)){
+      await DB.tarefaUpdate(t,{limpar_prazo:true,
+        hist_texto:`✅ Prazo fatal de ${brData(t.prazo_fatal_dt)} marcado como cumprido (na conclusão).`,hist_tipo:"HISTORICO"});}}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Concluída!","ok");fecharModal();recarregar();}
 async function colocarAguardando(){
