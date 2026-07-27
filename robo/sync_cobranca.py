@@ -38,7 +38,8 @@ def sessao_google():
 
 
 def ler_aba(sess, aba):
-    rng = urllib.parse.quote(f"'{aba}'")
+    nome_a1 = aba.replace("'", "''")   # apóstrofo em nome de aba dobra (regra A1)
+    rng = urllib.parse.quote(f"'{nome_a1}'", safe="")
     url = (f"https://sheets.googleapis.com/v4/spreadsheets/{SHEET_ID}/values/{rng}"
            f"?valueRenderOption=FORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING")
     ultimo = None
@@ -86,7 +87,8 @@ def main():
     hoje = date.today()
     ano2 = str(hoje.year)[-2:]
     m = hoje.month - 1
-    candidatas = [f"{MESES[m]} {ano2}", f"{ABREV[m]} {ano2}", "COBRANÇA_ATUAL"]
+    candidatas = [f"{MESES[m]} {ano2}", f"{MESES[m]} {ano2}'",
+                  f"{ABREV[m]} {ano2}", f"{ABREV[m]} {ano2}'", "COBRANÇA_ATUAL"]
 
     valores, aba_usada = None, None
     for aba in candidatas:
