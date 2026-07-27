@@ -1,0 +1,29 @@
+name: robo-diario
+on:
+  schedule:
+    - cron: "0 10 * * 1-5"   # 10h UTC = 7h Brasília, dias úteis
+  workflow_dispatch:
+
+concurrency:
+  group: robo-diario
+  cancel-in-progress: false
+
+jobs:
+  rotina:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q "psycopg[binary]"
+      - name: Rotina diária (fixas, saneamento, órfãs, reuniões)
+        env:
+          PGHOST: ${{ secrets.PGHOST }}
+          PGPORT: "5432"
+          PGUSER: ${{ secrets.PGUSER }}
+          PGPASSWORD: ${{ secrets.PGPASSWORD }}
+          PGDATABASE: postgres
+          PGSSLMODE: require
+        run: python robo/rotina_diaria.py
