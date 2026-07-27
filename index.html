@@ -328,6 +328,8 @@ const L = {  // modo local (servidor de teste na máquina)
   historicoPeriodo(d){return this.f("/api/historico_periodo?dias="+d);},
   historicoTimers(d){return this.f("/api/historico_periodo?dias="+d);},
   roboStatus(){return this.f("/api/robo_status");},
+  async equipeSet(){throw new Error("Gestão da equipe funciona no site publicado.");},
+  async equipeAdd(){throw new Error("Gestão da equipe funciona no site publicado.");},
   historicoDia(d){return this.f("/api/historico_dia?d="+d);},
   sessoesHoje(){return this.f("/api/sessoes_hoje");},
   sessaoAtiva(){return this.f("/api/sessao_ativa");},
@@ -427,6 +429,9 @@ const S = {
     return paginadoS(()=>supa.from("historico").select("*").eq("tipo","TIMER")
       .gte("data_dt",corte).order("linha"));},
   async roboStatus(){return okS(await supa.from("robo_status").select("*"))||[];},
+  async equipeSet(nome,campos){const r=await supa.from("equipe").update(campos).eq("nome_sistema",nome).select();okS(r);
+    if(!(r.data||[]).length)throw new Error("Sem permissão (só admin) ou membro não encontrado.");return{ok:true};},
+  async equipeAdd(m){okS(await supa.from("equipe").insert(m));return{ok:true};},
   async historicoDia(d){return okS(await supa.from("historico").select("*").eq("data_dt",d))||[];},
   async sessoesHoje(){return okS(await supa.from("sessoes").select("*").eq("data_dt",hojeISO()).order("linha"))||[];},
   async sessaoAtiva(){const r=okS(await supa.from("sessoes").select("*").eq("data_dt",hojeISO()).eq("status","ATIVO").eq("assessor",E.perfil.nome_sistema).order("linha",{ascending:false}).limit(1))||[];return r[0]||null;},
@@ -733,8 +738,53 @@ async function telaConfig(){setNav("cfg","Configurações");carregando();
     ${(cf.tmp||[]).slice().sort((a,b)=>a.operacao.localeCompare(b.operacao)).map(t=>`<div class="linha-item"><span>${esc(t.operacao)}</span>
       <input class="fsel" style="width:80px" type="number" min="1" max="480" id="cfg-tmp-${esc(t.operacao)}" value="${t.minutos}"></div>`).join("")}
     <div class="linha-acao"><button class="btn btp btsm" onclick="salvarConfigTmp()">&#128190; Salvar tempos</button></div></div>
+  ${E.perfil.admin_sim?montarGestaoEquipe():""}
   <div style="font-size:11px;color:var(--gray)">As mudanças valem para cada pessoa a partir da próxima vez que ela abrir o sistema.</div>`;
 }
+// ---- Gestão da Equipe (só admin): quem entra, quem sai, e-mails
+function montarGestaoEquipe(){
+  const membros=[...(E.equipe||[])].sort((a,b)=>String(a.nome_sistema).localeCompare(String(b.nome_sistema)));
+  return `<div class="painel"><div class="bloco-t">&#128101; Gestão da Equipe (só você vê)</div>
+    <div style="font-size:11px;color:var(--gray);margin-bottom:8px">Quem está ATIVO com o e-mail certo consegue entrar; INATIVO perde o acesso na hora. Qualquer pessoa pode criar login, mas só abre para quem está nesta lista.</div>
+    ${membros.map(m=>{const at=String(m.status).toUpperCase()==="ATIVO";
+      return `<div style="border:1px solid var(--border);border-radius:9px;padding:8px 10px;margin-bottom:6px;${at?"":"opacity:.55;background:var(--gray-lt)"}">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+        <b style="color:var(--navy)">${esc(m.nome_sistema)}</b>
+        <span style="font-size:11px;color:var(--gray)">${esc(m.nome_completo||"")}</span></div>
+      <div class="linha-acao" style="margin-top:5px">
+        <input class="fsel" id="ge-em-${esc(m.nome_sistema)}" value="${esc(m.email||"")}" placeholder="e-mail do Gmail" style="flex:1;min-width:200px">
+        <input class="fsel" id="ge-cg-${esc(m.nome_sistema)}" value="${esc(m.cargo||"")}" placeholder="cargo" style="width:150px">
+        <select class="fsel" id="ge-st-${esc(m.nome_sistema)}">
+          <option ${at?"selected":""}>ATIVO</option><option ${at?"":"selected"}>INATIVO</option></select>
+        <button class="btn btp btsm" onclick="salvarMembro('${esc(m.nome_sistema)}')">&#128190;</button></div></div>`;}).join("")}
+    <div class="bloco-t" style="margin-top:12px">+ Adicionar membro</div>
+    <div class="linha-acao">
+      <input class="fsel" id="ge-novo-nome" placeholder="Nome no sistema (ex: Paula)" style="width:150px">
+      <input class="fsel" id="ge-novo-completo" placeholder="Nome completo" style="flex:1;min-width:170px">
+      <input class="fsel" id="ge-novo-email" placeholder="e-mail do Gmail" style="flex:1;min-width:200px">
+      <input class="fsel" id="ge-novo-cargo" placeholder="cargo" style="width:140px">
+      <button class="btn btg btsm" onclick="adicionarMembro()">&#10003; Adicionar</button></div></div>`;
+}
+async function salvarMembro(nome){
+  const em=(ge("ge-em-"+nome).value||"").trim().toLowerCase(),
+        cg=(ge("ge-cg-"+nome).value||"").trim(), st=ge("ge-st-"+nome).value;
+  if(!em||!/.+@.+\..+/.test(em)){toast("E-mail inválido para "+nome+".","erro");return;}
+  if(st==="INATIVO"&&nome===E.perfil.nome_sistema){toast("Você não pode desativar a si mesma.","erro");return;}
+  if(st==="INATIVO"&&!confirm(`Desativar ${nome}? A pessoa perde o acesso imediatamente.`))return;
+  try{await DB.equipeSet(nome,{email:em,cargo:cg,status:st});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  E.equipe=await DB.equipe();toast(nome+" atualizado(a)!","ok");telaConfig();}
+async function adicionarMembro(){
+  const nome=(ge("ge-novo-nome").value||"").trim(),comp=(ge("ge-novo-completo").value||"").trim(),
+        em=(ge("ge-novo-email").value||"").trim().toLowerCase(),cg=(ge("ge-novo-cargo").value||"").trim()||"Assessor Jurídico";
+  if(!nome){toast("Informe o nome no sistema.","erro");return;}
+  if(!/.+@.+\..+/.test(em)){toast("Informe um e-mail válido.","erro");return;}
+  if((E.equipe||[]).some(m=>String(m.nome_sistema).toLowerCase()===nome.toLowerCase())){toast("Já existe um membro com esse nome.","erro");return;}
+  if((E.equipe||[]).some(m=>String(m.email||"").toLowerCase()===em)){toast("Esse e-mail já pertence a outro membro.","erro");return;}
+  const prox="ASS-"+String(Math.max(0,...(E.equipe||[]).map(m=>parseInt(String(m.id_assessor||"").replace("ASS-",""))||0))+1).padStart(3,"0");
+  try{await DB.equipeAdd({id_assessor:prox,nome_sistema:nome,nome_completo:comp||nome,email:em,cargo:cg,status:"ATIVO"});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  E.equipe=await DB.equipe();toast(nome+" adicionado(a)! Já pode entrar com o Gmail "+em+".","ok");telaConfig();}
 async function salvarConfigCap(){const cf=E._cfgAtual;let n=0;
   for(const nome of (E.equipe||[]).map(m=>m.nome_sistema)){
     const el=ge("cfg-cap-"+nome);if(!el||el.value==="")continue;
@@ -1698,6 +1748,7 @@ async function telaPrevisao(){
   setNav("prev","Previsão Mensal"); carregando();
   let ops;try{ops=await DB.tarefas();}catch(e){return erro(e.message);}
   const ts=(ops||[]).map(classificar).filter(t=>t.id_tarefa&&!t._delegada);E.tarefas=ts;
+  await carregarTemposReais(ts);  // tempos reais para o resumo por assessor no detalhe do dia
   const hoje=new Date();hoje.setHours(0,0,0,0);
   const ano=hoje.getFullYear(),mes=hoje.getMonth();
   const porDia={},chave=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
@@ -1780,7 +1831,26 @@ async function verDia(k){
   const d=k.split("-");
   ge("m-titulo").textContent=`${d[2]}/${d[1]}/${d[0]}`+(f!=="todos"?` · ${f}`:"");
   ge("m-sub").textContent=`${lst.length} tarefa(s) prevista(s)`;
-  let h=lst.length?lst.map(({t,tipo})=>cardTarefa(t,true)+(tipo==="estimado"?"":"")).join(""):`<div class="vazio">Nada previsto.</div>`;
+  // um bloco por assessor, na MESMA ordem que o sistema mostra para a pessoa
+  // (urgência primeiro: imediatas → atrasadas → do dia → janela da semana/mês)
+  const porAss={};lst.forEach(x=>{const a=primeiroNome(x.t.assessor||"?")||"?";(porAss[a]=porAss[a]||[]).push(x);});
+  const tipoPeso={agendado:0,estimado:1,recorrente:2};
+  const nomesDia=OPERACIONAIS.filter(a=>porAss[a]).concat(Object.keys(porAss).filter(a=>!OPERACIONAIS.includes(a)).sort());
+  let h="";
+  nomesDia.forEach(a=>{const grupo=porAss[a];
+    grupo.sort((x,y)=>((x.t._g??4)-(y.t._g??4))||((x.t._dias??9)-(y.t._dias??9))||(tipoPeso[x.tipo]-tipoPeso[y.tipo]));
+    const c=corDe(a);
+    const min=grupo.reduce((s,x)=>s+tempoPlanoDe(a,x.t.operacao),0);
+    h+=`<div style="background:${c.bg};border:1.5px solid ${c.border};border-radius:12px;padding:10px 12px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <b style="color:${c.text}">${esc(a)}</b>
+        <span style="font-size:11px;color:${c.text};font-weight:600">${grupo.length} tarefa(s) · &asymp;${fmtMin(min)}</span></div>
+      ${grupo.map((x,i)=>{const rot=x.tipo==="agendado"?"data marcada":x.tipo==="estimado"?"estimado":"&#8635; recorrente";
+        return `<div class="linha-item" style="cursor:pointer;background:white;border-radius:8px;margin-bottom:4px;padding:6px 10px" onclick="abrirTarefa('${esc(x.t.id_tarefa)}')">
+        <span><b style="color:${c.text}">${i+1}.</b> ${esc(String(x.t.cliente||"").slice(0,42))} · ${esc(x.t.operacao||"")}${x.t._g===1?' <span class="tag ti">IMEDIATO</span>':x.t._g===2?' <span class="tag" style="background:var(--amber);color:white">atrasada</span>':""}</span>
+        <span style="font-size:10px;color:var(--gray)">${rot}</span></div>`;}).join("")}
+    </div>`;});
+  if(!h)h=`<div class="vazio">Nada previsto.</div>`;
   h+=`<div id="dia-feito" style="margin-top:12px"></div>`;
   ge("m-corpo").innerHTML=h;ge("modal").classList.add("aberto");
   clearInterval(E.timerInt);E.atual=null;E.timerIni=null;
