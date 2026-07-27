@@ -1042,7 +1042,7 @@ function desenhaMinhas(){
     (String(t.cliente||"").toLowerCase().includes(q)||String(t.operacao||"").toLowerCase().includes(q)));
   if(u)lista=lista.filter(t=>String(t._urg||t._g)===u);
   if(E._vis==="kanban"){alvo.innerHTML=renderKanban(lista);return;}
-  const rot={1:"&#128308; Imediatas",2:"&#128992; Urgentes / Em atraso",3:"&#128309; Para hoje",4:"&#128995; Completando capacidade"};
+  const rot={1:"&#128308; Imediatas",2:"&#128992; Em atraso",3:"&#128309; Para hoje",4:"&#128995; Completando capacidade"};
   const g={1:[],2:[],3:[],4:[]};lista.forEach(t=>g[t._urg||4]?.push(t));
   let h="";let algum=false;
   [1,2,3,4].forEach(k=>{if(!g[k].length)return;algum=true;
