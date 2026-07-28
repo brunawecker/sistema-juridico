@@ -1705,9 +1705,11 @@ async function telaPainel(){
   const ts=(data||[]).map(classificar);aplicarFinanceiro(ts);E.tarefas=ts;E._todasBanco=ts;
   const at=ts.filter(t=>t.id_tarefa&&!t._delegada&&!t._emCorrecao);
   const total=at.length,atr=at.filter(t=>t._atrasada).length,imed=at.filter(t=>t._g===1).length;
-  const porHead={Danielly:0,Bruna:0,Eduarda:0},porAss={};
+  const porHead={Danielly:0,Bruna:0,Eduarda:0},porAss={},porAssAtivas={};
   at.forEach(t=>{if(porHead[t.advogada]!==undefined)porHead[t.advogada]++;
-    if(t.assessor)porAss[t.assessor]=(porAss[t.assessor]||0)+1;});
+    const nA=loginDe(t.assessor);if(!nA)return;
+    porAss[nA]=(porAss[nA]||0)+1;
+    if(!t._concluida)porAssAtivas[nA]=(porAssAtivas[nA]||0)+1;});
   const ae=Object.entries(porAss).sort((a,b)=>b[1]-a[1]);const mx=ae.length?ae[0][1]:1;
   // alerta de dia zerado + inatividade (sessões)
   let alerta="";
@@ -1818,9 +1820,10 @@ async function telaPainel(){
     <div class="sc"><div class="sl">Danielly</div><div class="sv">${porHead.Danielly}</div></div>
     <div class="sc"><div class="sl">Bruna</div><div class="sv">${porHead.Bruna}</div></div>
     <div class="sc"><div class="sl">Eduarda</div><div class="sv">${porHead.Eduarda}</div></div></div>`;
-  h+=`<div class="painel"><div class="bloco-t">Carga por assessor</div>`+
-    ae.map(([n,c])=>{const p=Math.round(c/mx*100),cor=c>150?"var(--red)":c>100?"var(--amber)":"var(--navy)";
-      return `<div class="barra"><span class="nm">${esc(n)}</span><div class="tk"><div class="fl" style="width:${p}%;background:${cor}"></div></div><span class="vl" style="color:${cor}">${c}</span></div>`;}).join("")+`</div>`;
+  h+=`<div class="painel"><div class="bloco-t">Carga por assessor</div>
+    <div style="font-size:11px;color:var(--gray);margin-bottom:4px">portfólio total · <b>ativas</b> (pendentes no ciclo — concluídas aguardando a próxima rodada ficam de fora do segundo número)</div>`+
+    ae.map(([n,c])=>{const atv=porAssAtivas[n]||0;const p=Math.round(c/mx*100),cor=c>150?"var(--red)":c>100?"var(--amber)":"var(--navy)";
+      return `<div class="barra"><span class="nm">${esc(n)}</span><div class="tk"><div class="fl" style="width:${p}%;background:${cor}"></div></div><span class="vl" style="color:${cor}">${c} · <b>${atv} ativas</b></span></div>`;}).join("")+`</div>`;
   h+=`<div class="flr"><input class="si" id="pf-q" placeholder="&#128269; Buscar cliente..." oninput="filtraPainel()">
     <select class="fsel" id="pf-ass" onchange="filtraPainel()"><option value="">Todos assessores</option>${ae.map(([n])=>`<option>${esc(n)}</option>`).join("")}</select>
     <select class="fsel" id="pf-st" onchange="filtraPainel()"><option value="">Todos status</option><option value="atr">Em atraso</option><option value="imed">Imediatas</option><option value="dia">Em dia</option></select>
