@@ -1074,9 +1074,17 @@ async function painelParaCorrigir(alvoId){
   const lista=E.perfil.head_sim?todas:minhas;
   if(!lista.length){box.innerHTML="";return;}
   const dias=v=>v?diasAte(String(v).slice(0,10)):99;
-  box.innerHTML=`<div class="painel" style="border-color:#D9CEF0;margin-top:14px">
-    <div class="bloco-t" style="color:#6B4FBF">&#9999; Para corrigir · ${lista.length}${E.perfil.head_sim&&minhas.length?` (${minhas.length} com você)`:""}</div>`+
-    lista.map(t=>{const d=dias(t.correcao_retorno_dt);
+  // head: agrupado por corretora — o SEU grupo primeiro (mesmo vazio, os
+  // demais aparecem), depois do mais carregado para o menos
+  let grupos;
+  if(E.perfil.head_sim){
+    const g={};lista.forEach(t=>{const k=String(t.correcao_head||"(sem head)").trim()||"(sem head)";(g[k]=g[k]||[]).push(t);});
+    const nomes=Object.keys(g).sort((a,b)=>g[b].length-g[a].length);
+    const idx=nomes.findIndex(n=>n.toLowerCase()===meu);
+    if(idx>0){nomes.splice(idx,1);nomes.unshift(E.perfil.nome_sistema);}
+    grupos=nomes.map(n=>({nome:n,itens:g[n]}));
+  }else grupos=[{nome:null,itens:lista}];
+  const itemHtml=t=>{const d=dias(t.correcao_retorno_dt);
       const cor=d<0?"var(--red)":d<=1?"var(--amber)":"var(--gray)";
       const txt=d<0?"venceu":d===0?"vence hoje":d===1?"vence amanhã":"retorno "+brData(t.correcao_retorno_dt);
       return `<div style="border-bottom:1px solid var(--gray-lt);padding:8px 0">
@@ -1089,7 +1097,17 @@ async function painelParaCorrigir(alvoId){
           ${t.correcao_link?`<a href="${esc(t.correcao_link)}" target="_blank" style="font-size:11px;color:var(--dani)">&#128193; Pasta</a>`:""}
           <button class="btn btp btsm" onclick="devolverCorrecao('${esc(t.id_tarefa)}',${t.linha})">&#8617; Devolver ao assessor</button>
           ${(E.perfil.head_sim&&d<0)?`<button class="btn bts btsm" onclick="puxarCorrecao('${esc(t.id_tarefa)}',${t.linha})">&#9995; ${String(t.correcao_head||"").toLowerCase()===meu?"Renovar prazo (3d úteis)":"Puxar para mim"}</button>`:""}</span></div>
-        ${t.correcao_justif?`<div style="font-size:11px;color:var(--gray);font-style:italic;margin-top:3px">Justificativa: ${esc(t.correcao_justif)}</div>`:""}</div>`;}).join("")+`</div>`;
+        ${t.correcao_justif?`<div style="font-size:11px;color:var(--gray);font-style:italic;margin-top:3px">Justificativa: ${esc(t.correcao_justif)}</div>`:""}</div>`;};
+  box.innerHTML=`<div class="painel" style="border-color:#D9CEF0;margin-top:14px">
+    <div class="bloco-t" style="color:#6B4FBF">&#9999; Para corrigir · ${lista.length}${E.perfil.head_sim?` (${minhas.length} com você)`:""}</div>`+
+    grupos.map(gr=>{
+      const cab=gr.nome===null?"":(()=>{
+        const souEu=gr.nome.toLowerCase()===meu;
+        const venc=gr.itens.filter(t=>dias(t.correcao_retorno_dt)<0).length;
+        return `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:9px;padding:5px 9px;border-radius:8px;background:${souEu?"#EFE9FA":"var(--gray-lt)"}">
+          <b style="color:${souEu?"#6B4FBF":"var(--navy)"}">${esc(gr.nome)}${souEu?" (você)":""}</b>
+          <span style="font-size:11px;color:var(--gray)">${gr.itens.length} correção(ões)${venc?` · <b style="color:var(--red)">${venc} vencida(s)</b>`:""}</span></div>`;})();
+      return cab+gr.itens.map(itemHtml).join("");}).join("")+`</div>`;
 }
 async function puxarCorrecao(id,linha){
   const t=(E._todasBanco||E.tarefas||[]).find(x=>x.id_tarefa===id)||{id_tarefa:id,linha:linha};
