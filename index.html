@@ -1705,12 +1705,20 @@ async function telaPainel(){
   const ts=(data||[]).map(classificar);aplicarFinanceiro(ts);E.tarefas=ts;E._todasBanco=ts;
   const at=ts.filter(t=>t.id_tarefa&&!t._delegada&&!t._emCorrecao);
   const total=at.length,atr=at.filter(t=>t._atrasada).length,imed=at.filter(t=>t._g===1).length;
-  const porHead={Danielly:0,Bruna:0,Eduarda:0},porAss={},porAssAtivas={};
-  at.forEach(t=>{if(porHead[t.advogada]!==undefined)porHead[t.advogada]++;
-    const nA=loginDe(t.assessor);if(!nA)return;
-    porAss[nA]=(porAss[nA]||0)+1;
-    if(!t._concluida)porAssAtivas[nA]=(porAssAtivas[nA]||0)+1;});
-  const ae=Object.entries(porAss).sort((a,b)=>b[1]-a[1]);const mx=ae.length?ae[0][1]:1;
+  const porHead={Danielly:0,Bruna:0,Eduarda:0};
+  at.forEach(t=>{if(porHead[t.advogada]!==undefined)porHead[t.advogada]++;});
+  // carga = TUDO que está no nome da pessoa (encerradas já saíram do quadro):
+  // atrasadas, pendentes, em dia no ciclo, em correção e delegadas
+  const porAss={};
+  ts.forEach(t=>{if(!t.id_tarefa)return;const nA=loginDe(t.assessor);if(!nA)return;
+    const o=porAss[nA]=porAss[nA]||{tot:0,atr:0,pend:0,dia:0,corr:0,deleg:0};
+    o.tot++;
+    if(t._delegada)o.deleg++;
+    else if(t._emCorrecao)o.corr++;
+    else if(t._concluida)o.dia++;
+    else if(t._atrasada)o.atr++;
+    else o.pend++;});
+  const ae=Object.entries(porAss).sort((a,b)=>b[1].tot-a[1].tot);const mx=ae.length?ae[0][1].tot:1;
   // alerta de dia zerado + inatividade (sessões)
   let alerta="";
   const zerados=OPERACIONAIS.filter(n=>{
@@ -1820,10 +1828,21 @@ async function telaPainel(){
     <div class="sc"><div class="sl">Danielly</div><div class="sv">${porHead.Danielly}</div></div>
     <div class="sc"><div class="sl">Bruna</div><div class="sv">${porHead.Bruna}</div></div>
     <div class="sc"><div class="sl">Eduarda</div><div class="sv">${porHead.Eduarda}</div></div></div>`;
-  h+=`<div class="painel"><div class="bloco-t">Carga por assessor</div>
-    <div style="font-size:11px;color:var(--gray);margin-bottom:4px">portfólio total · <b>ativas</b> (pendentes no ciclo — concluídas aguardando a próxima rodada ficam de fora do segundo número)</div>`+
-    ae.map(([n,c])=>{const atv=porAssAtivas[n]||0;const p=Math.round(c/mx*100),cor=c>150?"var(--red)":c>100?"var(--amber)":"var(--navy)";
-      return `<div class="barra"><span class="nm">${esc(n)}</span><div class="tk"><div class="fl" style="width:${p}%;background:${cor}"></div></div><span class="vl" style="color:${cor}">${c} · <b>${atv} ativas</b></span></div>`;}).join("")+`</div>`;
+  h+=`<div class="painel"><div class="bloco-t">Carga por assessor — tudo sob a responsabilidade de cada um</div>
+    <div style="font-size:11px;color:var(--gray);margin-bottom:6px">
+      <span style="color:var(--red)">&#9632;</span> atrasadas ·
+      <span style="color:var(--navy)">&#9632;</span> aguardando andamento ·
+      <span style="color:var(--green)">&#9632;</span> em dia no ciclo ·
+      <span style="color:#6B4FBF">&#9632;</span> em correção ·
+      <span style="color:#1F4E79">&#9632;</span> delegadas (aguardando retorno) — encerradas não contam</div>`+
+    ae.map(([n,o])=>{const w=x=>Math.round(x/mx*100);
+      const seg=(x,cor)=>x?`<div class="fl" style="display:inline-block;width:${w(x)}%;background:${cor}"></div>`:"";
+      const det=[o.atr?o.atr+" atrasadas":"",o.pend?o.pend+" aguard. andamento":"",o.dia?o.dia+" em dia":"",
+                 o.corr?o.corr+" em correção":"",o.deleg?o.deleg+" delegadas":""].filter(Boolean).join(" · ");
+      return `<div class="barra" title="${esc(det)}"><span class="nm">${esc(n)}</span>
+        <div class="tk" style="white-space:nowrap;font-size:0">${seg(o.atr,"var(--red)")}${seg(o.pend,"var(--navy)")}${seg(o.dia,"var(--green)")}${seg(o.corr,"#6B4FBF")}${seg(o.deleg,"#1F4E79")}</div>
+        <span class="vl" style="color:var(--navy)">${o.tot}</span></div>
+        <div style="font-size:10px;color:var(--gray);margin:-3px 0 5px 2px">${det}</div>`;}).join("")+`</div>`;
   h+=`<div class="flr"><input class="si" id="pf-q" placeholder="&#128269; Buscar cliente..." oninput="filtraPainel()">
     <select class="fsel" id="pf-ass" onchange="filtraPainel()"><option value="">Todos assessores</option>${ae.map(([n])=>`<option>${esc(n)}</option>`).join("")}</select>
     <select class="fsel" id="pf-st" onchange="filtraPainel()"><option value="">Todos status</option><option value="atr">Em atraso</option><option value="imed">Imediatas</option><option value="dia">Em dia</option></select>
