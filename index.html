@@ -1959,7 +1959,14 @@ async function telaDiario(dia){
         <span style="font-size:12px;color:var(--gray)">Mostrando <b>${brData(d)}</b></span>`}</div>`;
   // resumo do dia: fotografia do robô + conclusões por pessoa
   const sn=(snap||[])[0];
-  const concl=(hist||[]).filter(r=>/Tarefa concluída pelo site/.test(r.texto||""));
+  // conclusões do dia: cartões concluídos + impulsos finalizados (📥 evita
+  // contar o aviso "⚙️ reagendado" do robô); cada tarefa/impulso conta 1x
+  const vistoC=new Set();
+  const concl=(hist||[]).filter(r=>{const tx=String(r.texto||"");
+    if(!/^Tarefa concluída pelo site|📥 Retorno do impulso/.test(tx))return false;
+    const mi=tx.match(/📥 Retorno do impulso \((OP-\d+)\)/);
+    const k=(r.autor||"")+"|"+(mi?mi[1]:r.id_tarefa);
+    if(vistoC.has(k))return false;vistoC.add(k);return true;});
   const conclPor={};concl.forEach(r=>{const a=loginDe(r.autor);if(a)conclPor[a]=(conclPor[a]||0)+1;});
   if(sn||concl.length||!ehHoje){
     h+=`<div class="painel" style="background:#F6F9F6;border-color:#CFE3CF">
@@ -1972,7 +1979,7 @@ async function telaDiario(dia){
         <b>${pct}% em dia</b></div>`;}
     else h+=`<div style="font-size:12px;color:var(--gray);margin-bottom:6px">Sem fotografia da equipe para este dia (o robô só passou a registrar a partir de 15/07/2026).</div>`;
     const nomesC=Object.entries(conclPor).sort((a,b)=>b[1]-a[1]);
-    h+=nomesC.length?`<div style="font-size:12px">&#9989; Tarefas concluídas no dia (${concl.length}): ${nomesC.map(([n,q])=>`<b>${esc(n)}</b> ${q}`).join(" · ")}</div>`
+    h+=nomesC.length?`<div style="font-size:12px">&#9989; Tarefas concluídas no dia (${concl.length}, impulsos devolvidos incluídos): ${nomesC.map(([n,q])=>`<b>${esc(n)}</b> ${q}`).join(" · ")}</div>`
       :`<div style="font-size:12px;color:var(--gray)">&#9989; Nenhuma conclusão de tarefa registrada neste dia.</div>`;
     h+=`</div>`;}
   // painel de delegações ativas (só no hoje — é uma foto do presente) + movimentações do dia
@@ -2978,7 +2985,14 @@ async function telaProdutividade(){
     else if(k==="AVULSA")t.cliente="⏱️ Atividade avulsa";
     else if(k==="REUNIAO")t.cliente="📅 Reunião";});
   const lista=Object.entries(tarefas);
-  const concl=lista.filter(([k])=>{const t=mapa[k];return t&&String(t.status_tarefa||"").includes("EM DIA");}).length;
+  // concluídas = carimbos do próprio dia no histórico (concluir grava o status
+  // AGUARDANDO no quadro, então o status não serve de régua) + impulsos
+  // devolvidos; cada tarefa/impulso conta uma vez
+  const vistoC=new Set();
+  meu.forEach(r=>{const tx=String(r.texto||"");
+    if(/^Tarefa concluída pelo site/.test(tx))vistoC.add("C|"+r.id_tarefa);
+    const mi=tx.match(/📥 Retorno do impulso \((OP-\d+)\)/);if(mi)vistoC.add("I|"+mi[1]);});
+  const concl=vistoC.size;
   ge("conteudo").innerHTML=`<div class="sg">
     <div class="sc"><div class="sl">Andamentos hoje</div><div class="sv">${updates}</div></div>
     <div class="sc"><div class="sl">Tarefas tocadas</div><div class="sv">${lista.length}</div></div>
