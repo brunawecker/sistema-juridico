@@ -1689,6 +1689,12 @@ async function executarAprovacao(i,para,extras){
   toast(`✓ Impulso criado: ${para} recebeu ${1+nPac} tarefa(s) do cliente.`,"ok");
   const idsPac=new Set(extras.map(x=>x.id_tarefa));idsPac.add(s.t.id_tarefa);
   E._sugestoesTodas=E._sugestoesTodas.filter(z=>!idsPac.has(z.t.id_tarefa));
+  // desconto AO VIVO: cada tarefa delegada consome a folga do receptor agora
+  const gasto=tempoPlanoDe(para,s.t.operacao)
+    +extras.reduce((soma,x)=>soma+tempoPlanoDe(para,x.operacao),0);
+  const rec=(E._sugComFolga||[]).find(x=>x.n===para);
+  if(rec){rec.folga-=gasto;
+    E._sugComFolga=E._sugComFolga.filter(x=>x.folga>=30);}
   desenhaSugestoes();
 }
 // ======================================================= TELA: PAINEL (head)
