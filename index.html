@@ -1981,6 +1981,14 @@ async function telaDiario(dia){
     const nomesC=Object.entries(conclPor).sort((a,b)=>b[1]-a[1]);
     h+=nomesC.length?`<div style="font-size:12px">&#9989; Tarefas concluídas no dia (${concl.length}, impulsos devolvidos incluídos): ${nomesC.map(([n,q])=>`<b>${esc(n)}</b> ${q}`).join(" · ")}</div>`
       :`<div style="font-size:12px;color:var(--gray)">&#9989; Nenhuma conclusão de tarefa registrada neste dia.</div>`;
+    // casos encerrados/arquivados no dia, por pessoa (quadro próprio — não se
+    // misturam com as concluídas, que voltam pela frequência)
+    const encV=new Set(),encPor={};
+    (hist||[]).forEach(r=>{if(r.tipo!=="ENCERRAMENTO")return;const a=loginDe(r.autor);
+      if(!a||a==="Sistema"||a==="Migração")return;
+      const k=a+"|"+r.id_tarefa;if(encV.has(k))return;encV.add(k);encPor[a]=(encPor[a]||0)+1;});
+    const nomesE=Object.entries(encPor).sort((a,b)=>b[1]-a[1]);
+    if(nomesE.length)h+=`<div style="font-size:12px;margin-top:4px">&#128451; Casos encerrados no dia (${encV.size}): ${nomesE.map(([n,q])=>`<b>${esc(n)}</b> ${q}`).join(" · ")}</div>`;
     h+=`</div>`;}
   // painel de delegações ativas (só no hoje — é uma foto do presente) + movimentações do dia
   const delegAtivas=ehHoje?ts.filter(t=>t._impulso):[];
@@ -2973,14 +2981,19 @@ async function salvarReuniao(){
 // ============================================== TELA: PRODUTIVIDADE
 async function telaProdutividade(){
   setNav("prod","Minha Produtividade"); carregando();
-  let hist,ops;try{[hist,ops]=await Promise.all([DB.historicoHoje(),DB.tarefas()]);}catch(e){return erro(e.message);}
+  let hist,ops,casos;try{[hist,ops,casos]=await Promise.all([DB.historicoHoje(),DB.tarefas(),DB.casos().catch(()=>[])]);}catch(e){return erro(e.message);}
   const meu=(hist||[]).filter(r=>ehMeuNome(r.autor));
   const mapa={};(ops||[]).forEach(t=>{if(t.id_tarefa)mapa[t.id_tarefa]=t;});
+  // tarefa encerrada hoje já saiu do quadro ativo — o nome do cliente vem
+  // do arquivo de Casos Encerrados
+  const mapaEnc={};(casos||[]).forEach(c=>{const k=c.id_tarefa_origem||c.id_tarefa;if(k)mapaEnc[k]=c;});
   const tarefas={};let updates=0,min=0;
   meu.forEach(r=>{const k=r.id_tarefa||"—";const t=tarefas[k]=tarefas[k]||{cliente:"",op:"",and:[],min:0};
     if(r.tipo==="TIMER"){const m=parseInt((String(r.texto||"").match(/(\d+)/)||[0,0])[1]);min+=m;t.min+=m;}
     else{updates++;if(r.texto)t.and.push(r.texto);}
-    const mt=mapa[k];if(mt){t.cliente=mt.cliente;t.op=mt.operacao||"";}
+    const mt=mapa[k],enc=mapaEnc[k];
+    if(mt){t.cliente=mt.cliente;t.op=mt.operacao||"";}
+    else if(enc){t.cliente=enc.cliente||"";t.op=enc.operacao||"";t.enc=true;}
     else if(String(k).includes("FIX"))t.cliente="📌 Tarefa fixa";
     else if(k==="AVULSA")t.cliente="⏱️ Atividade avulsa";
     else if(k==="REUNIAO")t.cliente="📅 Reunião";});
@@ -2993,14 +3006,20 @@ async function telaProdutividade(){
     if(/^Tarefa concluída pelo site/.test(tx))vistoC.add("C|"+r.id_tarefa);
     const mi=tx.match(/📥 Retorno do impulso \((OP-\d+)\)/);if(mi)vistoC.add("I|"+mi[1]);});
   const concl=vistoC.size;
+  // encerradas (arquivadas hoje) contam num quadro próprio — encerrar é
+  // desfecho definitivo, diferente de concluir (que volta pela frequência)
+  const vistoE=new Set();
+  meu.forEach(r=>{if(r.tipo==="ENCERRAMENTO")vistoE.add(r.id_tarefa);});
+  const ence=vistoE.size;
   ge("conteudo").innerHTML=`<div class="sg">
     <div class="sc"><div class="sl">Andamentos hoje</div><div class="sv">${updates}</div></div>
     <div class="sc"><div class="sl">Tarefas tocadas</div><div class="sv">${lista.length}</div></div>
     <div class="sc"><div class="sl">Tempo hoje</div><div class="sv green pq">${fmtMin(min)}</div></div>
-    <div class="sc"><div class="sl">Concluídas</div><div class="sv green">${concl}</div></div></div>
+    <div class="sc"><div class="sl">Concluídas</div><div class="sv green">${concl}</div></div>
+    <div class="sc"><div class="sl">Encerradas (arquivadas)</div><div class="sv">${ence}</div></div></div>
     <div class="bloco-t">O que você trabalhou hoje</div>`+
     (lista.length?lista.map(([k,t])=>`<div class="painel" style="padding:11px 14px">
-      <div style="font-weight:700;color:var(--navy)">${esc(t.cliente||"Tarefa "+k)}</div>
+      <div style="font-weight:700;color:var(--navy)">${esc(t.cliente||"Tarefa "+k)}${t.enc?' <span class="tag" style="background:#455A64;color:white">&#128193; ENCERRADA</span>':""}</div>
       <div style="font-size:11px;color:var(--gray)">${esc(t.op||"")}${t.min?" · "+t.min+"min":""}</div>
       ${t.and.map(a=>`<div style="font-size:12px;color:#555;margin-top:4px">• ${esc(a)}</div>`).join("")}</div>`).join("")
       :`<div class="vazio">Nenhum registro hoje ainda. Abra uma tarefa ou registre um andamento. &#128170;</div>`);
