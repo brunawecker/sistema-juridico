@@ -2354,11 +2354,13 @@ async function telaClientes(){
   E._fSit="TODOS";E._fReg="TODOS";E._fAtivo="TODOS";E._clPag=0;
   let cs,ops;try{[cs,ops]=await Promise.all([DB.clientes(""),DB.tarefas()]);}catch(e){return erro(e.message);}
   E._clsTodos=cs||[];E._cli={};E._clsTodos.forEach(c=>E._cli[c.id_cliente]=c);
-  E._temTarefa={};E._minhaTarefa={};
+  E._temTarefa={};E._minhaTarefa={};E._minhaQtd={};
   (ops||[]).forEach(t=>{if(!t.id_cliente||!t.id_tarefa)return;
     E._temTarefa[t.id_cliente]=true;
     const st=String(t.status_tarefa||"");
-    if(loginDe(t.assessor)===E.perfil.nome_sistema&&!st.includes("EM DIA"))E._minhaTarefa[t.id_cliente]=true;});
+    if(loginDe(t.assessor)===E.perfil.nome_sistema&&!st.includes("EM DIA")){
+      E._minhaTarefa[t.id_cliente]=true;
+      E._minhaQtd[t.id_cliente]=(E._minhaQtd[t.id_cliente]||0)+1;}});
   E.tarefas=(ops||[]).map(classificar);
   const pill=(grupo,val,rot)=>`<button class="btn ${E["_f"+grupo]===val?"btp":"bts"} btsm" onclick="E._f${grupo}='${val}';E._clPag=0;desenhaClientes()">${rot}</button>`;
   ge("conteudo").innerHTML=`
@@ -2427,10 +2429,11 @@ function desenhaClientes(){
   const PAG=60,fim=Math.min((E._clPag+1)*PAG,f.length);
   const tag=c=>c.situacao==="PROSPECCAO"?'<span class="tag td2">&#128270; PROSPECÇÃO</span>'
     :'<span class="tag tek">&#10003; CLIENTE</span>';
-  alvo.innerHTML=`<p style="font-size:12px;color:var(--gray);margin-bottom:8px">${f.length} de ${E._clsTodos.length} cliente(s)</p>`+
+  const totMinhas=E._fAtivo==="MINHAS"?f.reduce((soma,c)=>soma+(E._minhaQtd[c.id_cliente]||0),0):0;
+  alvo.innerHTML=`<p style="font-size:12px;color:var(--gray);margin-bottom:8px">${f.length} de ${E._clsTodos.length} cliente(s)${E._fAtivo==="MINHAS"?` · <b style="color:var(--navy)">${totMinhas} tarefa(s) ativas suas dentro deles</b>`:""}</p>`+
     f.slice(0,fim).map(c=>`<details class="det" id="cd-${esc(c.id_cliente)}"><summary onclick="prepCliente('${esc(c.id_cliente)}')">
       <div style="flex:1;min-width:0"><div style="font-weight:700;color:var(--navy)">${esc(c.nome)} ${tag(c)}
-        ${E._temTarefa[c.id_cliente]?'<span class="tag tek">com tarefa</span>':'<span class="tag ti">sem tarefa ativa</span>'}${String(c.assessor_responsavel||"").trim()===""?'<span class="tag" style="background:var(--red);color:white">&#9888; sem responsável</span>':""}</div>
+        ${E._temTarefa[c.id_cliente]?'<span class="tag tek">com tarefa</span>':'<span class="tag ti">sem tarefa ativa</span>'}${String(c.assessor_responsavel||"").trim()===""?'<span class="tag" style="background:var(--red);color:white">&#9888; sem responsável</span>':""}${(E._minhaQtd||{})[c.id_cliente]?`<span class="tag" style="background:var(--ice);color:var(--dani)">&#128100; ${E._minhaQtd[c.id_cliente]} sua(s)</span>`:""}</div>
       <div style="font-size:11px;color:var(--gray)">${esc(c.cnpj_cpf||"")} · ${esc(c.head||"—")}${c.vertical?" · "+esc(c.vertical):""}${c.regime?" · "+esc(c.regime):""}</div></div>
       ${c.head?`<span class="tag tda">${esc(c.head)}</span>`:""}</summary>
       <div style="padding:4px 12px 12px" id="cb-${esc(c.id_cliente)}"></div></details>`).join("")+
