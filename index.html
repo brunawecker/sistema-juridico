@@ -460,7 +460,8 @@ const S = {
     const e=await supa.from("casos_encerrados").select("*").eq("id_cliente",id);
     return{ativas:a.data||[],encerradas:e.data||[]};},
   async casos(){return paginadoS(()=>supa.from("casos_encerrados").select("*").order("data_encerramento_dt",{ascending:false,nullsFirst:false}).order("linha"));},
-  async propostas(){return okS(await supa.from("propostas").select("*").order("linha",{ascending:false}))||[];},
+  async propostas(){return okS(await supa.from("propostas_visiveis").select("*").order("linha",{ascending:false}))||[];},
+  async docsProposta(idProp){return okS(await supa.from("documentos").select("*").eq("id_tarefa",idProp).order("linha",{ascending:false}))||[];},
   async tarefasFixas(){return okS(await supa.from("tarefas_fixas").select("*").order("id_fixa"))||[];},
   async reunioes(){return okS(await supa.from("reunioes").select("*").order("data_dt",{ascending:false,nullsFirst:false}).limit(500))||[];},
   async snapshot(){return okS(await supa.from("snapshot_diario").select("*").order("data_dt"))||[];},
@@ -545,7 +546,7 @@ const S = {
       tempo_min:String(d.tempo||0),tempo_min_num:d.tempo||0,status:d.status||"Enviada",obs:d.obs||"",fechada:"NÃO"}));
     if(idc)await histS("",idc,"PROPOSTA","Proposta "+pr+" lançada — R$ "+(d.valor||0)+" ("+(d.status||"Enviada")+")");
     return{ok:true,id:pr,id_cliente:idc};},
-  async negociacao(d){const r=okS(await supa.from("propostas").select("negociacao_log,id_cliente").eq("id_proposta",d.id_proposta));
+  async negociacao(d){const r=okS(await supa.from("propostas_visiveis").select("negociacao_log,id_cliente").eq("id_proposta",d.id_proposta));
     if(!r||!r.length)throw new Error("proposta não encontrada");
     const log=(r[0].negociacao_log||""),idc=r[0].id_cliente;
     const u={negociacao_log:d.linha_log+(log?"\n"+log:""),proximo_passo:d.passo||"",data_retorno:d.retorno||""};
@@ -2646,17 +2647,19 @@ async function telaPropostas(){
   desenhaProps();
 }
 function desenhaProps(){
+  if(!E._props||!ge("pp-q"))return;   // tela de propostas não está aberta
   const q=(ge("pp-q").value||"").toLowerCase(),st=ge("pp-st").value,or=ge("pp-or").value,mi=ge("pp-mi")?ge("pp-mi").value:"";
   const meu=String(E.perfil.nome_sistema||"").trim().toLowerCase();
   // head/vendedor mexem em todas; executor e solicitante, nas próprias
-  const podeMexerEm=p=>E.perfil.head_sim||/vendedor|comercial/i.test(E.perfil.cargo||"")
+  const podeMexerEm=p=>E.perfil.head_sim
     ||String(p.executor||"").trim().toLowerCase()===meu||String(p.quem_pediu||"").trim().toLowerCase()===meu;
   const base=E._props.filter(p=>!mi||String(p.executor||"").trim().toLowerCase()===meu
     ||String(p.quem_pediu||"").trim().toLowerCase()===meu);
   if(ge("pp-s-tot")){ge("pp-s-tot").textContent=base.length;
     ge("pp-s-rua").textContent=base.filter(p=>!["Aceita","Recusada"].includes(p.status)).length;
     ge("pp-s-ace").textContent=base.filter(p=>p.status==="Aceita").length;
-    ge("pp-s-val").textContent="R$ "+base.reduce((s,p)=>s+(parseFloat(p.valor_num)||0),0).toLocaleString("pt-BR",{minimumFractionDigits:2});}
+    const somaVis=base.reduce((s,p)=>s+(parseFloat(p.valor_num)||0),0);
+    ge("pp-s-val").textContent="R$ "+somaVis.toLocaleString("pt-BR",{minimumFractionDigits:2})+(E.perfil.head_sim?"":" (suas)");}
   const f=base.filter(p=>(!q||String(p.cliente||"").toLowerCase().includes(q))
     &&(!st||p.status===st)&&(!or||p.origem===or));
   ge("pp-lista").innerHTML=f.length?f.map(p=>{
@@ -2670,7 +2673,17 @@ function desenhaProps(){
     const prosp=p.prospeccao==="SIM"?'<span class="tag ts">PROSPECÇÃO</span>':"";
     const nLog=p.negociacao_log?String(p.negociacao_log).split("\n").length:0;
     const cnpj=(E._cnpjMap||{})[p.id_cliente]||"";
-    const podeMexer=podeMexerEm(p);
+    const podeMexer=podeMexerEm(p)&&p.detalhes_visiveis!==false;
+    if(p.detalhes_visiveis===false){
+      // resumo: só o suficiente para NÃO duplicar proposta — sem detalhes
+      return `<div class="painel" style="padding:10px 14px;background:#F7F9FB">
+        <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center">
+          <div><b style="color:var(--navy)">${esc(p.cliente)}</b> ${prosp}
+            ${cnpj?`<span style="font-size:11px;color:var(--gray);font-family:'DM Mono'"> ${esc(cnpj)}</span>`:""}
+            <div style="font-size:12px;color:var(--text)">&#128230; ${esc(p.produtos||"—")}</div>
+            <div style="font-size:11px;color:var(--gray)">em andamento por <b>${esc(p.executor||p.quem_pediu||"—")}</b> desde ${esc(p.data_proposta||"—")}</div></div>
+          <div style="text-align:right"><span class="tag" style="background:${cor};color:white">${esc(p.status||"")}</span>
+            <div style="font-size:10px;color:var(--gray);margin-top:3px">&#128274; detalhes restritos</div></div></div></div>`;}
     return `<div class="painel" style="padding:12px 14px">
       <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
         <div style="flex:1;min-width:160px;cursor:pointer" title="Abrir negociação" onclick='abrirNegociacao(${JSON.stringify(p.id_proposta)})'><div style="font-weight:700;color:var(--navy)">${esc(p.cliente)} ${prosp}</div>
@@ -2704,11 +2717,19 @@ async function fecharProp(id){
 }
 function abrirNegociacao(id){
   const p=E._propMap[id];if(!p)return;
+  if(p.detalhes_visiveis===false){
+    toast("Detalhes restritos — esta proposta está em andamento por "+(p.executor||"outro membro")+". Fale com a pessoa ou com uma head antes de propor algo a este cliente.","erro");return;}
   const valOrig="R$ "+(parseFloat(p.valor_num)||0).toLocaleString("pt-BR",{minimumFractionDigits:2});
   const cnpjN=(E._cnpjMap||{})[p.id_cliente]||"";
   modal2("&#128172; Negociação — "+esc(p.cliente),esc(p.id_proposta)+(cnpjN?" · CNPJ "+esc(cnpjN):"")+" · etapa atual: "+esc(p.status||""),`
-    <div class="bloco-t">Proposta original (não muda)</div>
+    <div class="bloco-t">Proposta original
+      <button class="btn bts btsm" style="padding:1px 8px;font-size:10px" onclick="ge('ng-fix').style.display=ge('ng-fix').style.display==='none'?'block':'none'">&#9998; corrigir valor/pagamento</button></div>
     <div style="font-size:12px;background:#F7F9FB;border:1px solid var(--border);border-radius:8px;padding:8px 11px"><b>${valOrig}</b> · ${esc(p.cond_pagamento||"—")} · lançada em ${esc(p.data_proposta||"")}</div>
+    <div id="ng-fix" style="display:none;background:var(--amber-lt);border-radius:8px;padding:8px 11px;margin-top:5px">
+      <div style="font-size:11px;color:#7A5C00;margin-bottom:4px">Corrige a proposta em si (negociou outra forma? entrada no cartão?). Fica registrado na linha do tempo.</div>
+      <div class="linha-acao"><label style="font-size:11px">Valor R$:</label><input class="fsel" id="ng-fixval" style="width:110px" value="${esc(p.valor||"")}">
+        <label style="font-size:11px">Forma de pagamento:</label><input class="fsel" id="ng-fixcond" style="flex:1" value="${esc(p.cond_pagamento||"")}"></div>
+      <button class="btn btp btsm" style="margin-top:5px" onclick='corrigirProposta(${JSON.stringify(id)})'>&#128190; Salvar correção</button></div>
     ${p.valor_atual||p.cond_atual?`<div class="bloco-t" style="margin-top:8px">Condições atuais</div>
       <div style="font-size:12px;background:var(--amber-lt);border-radius:8px;padding:8px 11px;color:#7A5C00"><b>${p.valor_atual?"R$ "+esc(p.valor_atual):"(valor original)"}</b> · ${esc(p.cond_atual||"—")}</div>`:""}
     <div class="bloco-t" style="margin-top:8px">Linha do tempo</div>
@@ -2723,7 +2744,43 @@ function abrirNegociacao(id){
     <div class="linha-acao"><label style="font-size:11px">Próximo passo:</label><input class="fsel" id="ng-passo" style="flex:1" placeholder="Ex: ligar para confirmar">
       <input type="date" class="fsel" id="ng-ret"></div>
     <div id="ng-perda-w" style="display:none;margin-top:6px"><input class="fi" id="ng-perda" placeholder="Motivo da perda"></div>
-    <button class="btn btp btw" style="margin-top:8px" onclick='salvarNegociacao(${JSON.stringify(id)})'>&#128190; Salvar rodada</button>`);
+    <div class="bloco-t" style="margin-top:10px">&#128206; Levantamento anexado</div>
+    <div id="ng-docs" style="font-size:12px;color:var(--gray)">carregando…</div>
+    <div class="linha-acao" style="margin-top:4px"><input type="file" id="ng-file" class="fsel" style="max-width:240px">
+      <button class="btn bts btsm" onclick='enviarDocProposta(${JSON.stringify(id)})'>&#8613; Anexar levantamento</button></div>
+    <button class="btn btp btw" style="margin-top:10px" onclick='salvarNegociacao(${JSON.stringify(id)})'>&#128190; Salvar rodada</button>`);
+  carregarDocsProposta(id);}
+async function carregarDocsProposta(id){
+  const box=ge("ng-docs");if(!box)return;
+  let docs=[];try{docs=await DB.docsProposta(id);}catch(e){box.innerHTML=esc(e.message);return;}
+  box.innerHTML=docs.length?docs.map(d=>linhaDoc(d)).join("")
+    :`<span>Nenhum levantamento anexado ainda.</span>`;}
+async function enviarDocProposta(id){
+  const p=E._propMap[id];const inp=ge("ng-file");const f=inp&&inp.files&&inp.files[0];
+  if(!f){toast("Escolha o arquivo do levantamento.","erro");return;}
+  if(f.size>25*1024*1024){toast("Arquivo muito grande (limite 25 MB).","erro");return;}
+  try{await DB.docEnviar(f,p.id_cliente||"PROSPECT",p.id_proposta);}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Levantamento anexado!","ok");carregarDocsProposta(id);}
+
+async function corrigirProposta(id){
+  const p=E._propMap[id];if(!p)return;
+  const vTxt=(ge("ng-fixval").value||"").trim(),cond=(ge("ng-fixcond").value||"").trim();
+  const v=numBR(vTxt);
+  if(!v&&!cond){toast("Informe o novo valor e/ou a forma de pagamento.","erro");return;}
+  const antes=`R$ ${p.valor||"—"} · ${p.cond_pagamento||"—"}`;
+  const hora=new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+  const linha=`${brHoje()} ${hora} — ${E.perfil.nome_sistema}: ✏️ proposta corrigida para R$ ${vTxt||p.valor||"—"} · ${cond||p.cond_pagamento||"—"} (antes: ${antes})`;
+  try{const u={negociacao_log:linha+(p.negociacao_log?"\n"+p.negociacao_log:"")};
+    if(v){u.valor=vTxt;u.valor_num=v;}
+    if(cond)u.cond_pagamento=cond;
+    okS(await supa.from("propostas").update(u).eq("id_proposta",id));}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  if(v){p.valor=vTxt;p.valor_num=v;}
+  if(cond)p.cond_pagamento=cond;
+  p.negociacao_log=linha+(p.negociacao_log?"\n"+p.negociacao_log:"");
+  toast("Proposta corrigida — registrado na linha do tempo.","ok");
+  abrirNegociacao(id);desenhaProps();
 }
 async function salvarNegociacao(id){
   const txt=(ge("ng-txt").value||"").trim();
@@ -3023,7 +3080,10 @@ async function abrirProposta(){
     <div>${chk("pr-prod",PROP_PRODUTOS)}</div>
     <div class="bloco-t" style="margin-top:8px">Verticais *</div>
     <div>${chk("pr-vert",PROP_VERTICAIS)}</div>
-    <div class="bloco-t" style="margin-top:8px">Valor e pagamento * <span style="font-weight:400;font-size:10px">(marque as formas; total soma tudo)</span></div>
+    <div class="bloco-t" style="margin-top:8px">Valor e pagamento *</div>
+    <div style="font-size:11px;margin-bottom:4px">
+      <label><input type="radio" name="pr-modo" value="soma" checked onchange="somaProposta()"> <b>Somadas</b> (entrada + parcelas compõem o total)</label>
+      <label style="margin-left:12px"><input type="radio" name="pr-modo" value="ou" onchange="somaProposta()"> <b>Alternativas</b> (cliente escolhe UMA das formas)</label></div>
     <div id="pr-pgs">${[["entrada","💵 Entrada",0],["boleto","Boleto",1],["cartao","Cartão",1],["vista","À vista",0]].map(([id,rot,temX])=>`
       <div class="linha-acao"><label style="min-width:96px;font-size:12px"><input type="checkbox" id="pg-${id}" onchange="ge('pgw-${id}').style.display=this.checked?'inline-flex':'none';somaProposta()"> ${rot}</label>
       <span id="pgw-${id}" style="display:none;align-items:center;gap:5px">R$ <input class="fsel" id="pgv-${id}" style="width:100px" placeholder="0,00" oninput="somaProposta()">
@@ -3068,11 +3128,19 @@ function avisaPropDup(){
     ${dups.map(p=>`<div style="margin-top:3px">• ${esc(p.status||"?")} em ${esc(p.data_proposta||"?")} — executou <b>${esc(p.executor||"?")}</b>, pediu ${esc(p.quem_pediu||"?")}</div>`).join("")}
     <div style="margin-top:4px">Confira com o colega antes de lançar de novo.</div></div>`:"";}
 function numBR(s){s=String(s||"").trim();if(!s)return 0;if(s.includes(","))s=s.replace(/\./g,"").replace(",",".");return parseFloat(s)||0;}
+function modoPagamento(){
+  const r=document.querySelector('input[name="pr-modo"]:checked');
+  return (r&&r.value)||"soma";
+}
 function somaProposta(){
-  let tot=0;["entrada","boleto","cartao","vista"].forEach(id=>{
-    if(ge("pg-"+id)?.checked){const v=numBR(ge("pgv-"+id).value);tot+=v;
+  const modo=modoPagamento();
+  let tot=0,maior=0;const opcoes=[];
+  ["entrada","boleto","cartao","vista"].forEach(id=>{
+    if(ge("pg-"+id)?.checked){const v=numBR(ge("pgv-"+id).value);tot+=v;if(v>maior)maior=v;
+      if(v)opcoes.push("R$ "+v.toLocaleString("pt-BR",{minimumFractionDigits:2}));
       const x=ge("pgx-"+id);if(x&&ge("pgh-"+id)){const n=parseInt(x.value)||1;
         ge("pgh-"+id).textContent=(v&&n>1)?`= ${n}x de R$ ${(v/n).toLocaleString("pt-BR",{minimumFractionDigits:2})}`:"";}}});
+  if(modo==="ou"){ge("pr-total").textContent=opcoes.length?opcoes.join("  OU  "):"—";return maior;}
   ge("pr-total").textContent="R$ "+tot.toLocaleString("pt-BR",{minimumFractionDigits:2});return tot;
 }
 async function lancarProposta(){
@@ -3095,7 +3163,16 @@ async function lancarProposta(){
     partes.push(`${rot}${x>1?" "+x+"x":""}: R$ ${v.toLocaleString("pt-BR",{minimumFractionDigits:2})}`);return true;};
   if(!forma("entrada","Entrada",0)||!forma("boleto","Boleto",1)||!forma("cartao","Cartão",1)||!forma("vista","À vista",0))return;
   if(!partes.length){toast("Marque ao menos uma forma de pagamento.","erro");return;}
-  const cond=(partes.length>1?`Total R$ ${tot.toLocaleString("pt-BR",{minimumFractionDigits:2})} = `:"")+partes.join(" + ");
+  const modoPg=modoPagamento();
+  let cond;
+  if(modoPg==="ou"&&partes.length>1){
+    // alternativas: nada soma — o valor de referência é a MAIOR opção
+    tot=0;["entrada","boleto","cartao","vista"].forEach(id=>{
+      if(ge("pg-"+id).checked){const v=numBR(ge("pgv-"+id).value);if(v>tot)tot=v;}});
+    cond="OPÇÕES (cliente escolhe uma): "+partes.join("  OU  ");
+  }else{
+    cond=(partes.length>1?`Total R$ ${tot.toLocaleString("pt-BR",{minimumFractionDigits:2})} = `:"")+partes.join(" + ");
+  }
   const orig=ge("pr-orig").value;if(!orig){toast("Informe a origem.","erro");return;}
   const cont=ge("pr-cont").value;if(!cont){toast("Como foi feita?","erro");return;}
   const par=ge("pr-par").value;if(!par){toast("Tipo de parecer?","erro");return;}
