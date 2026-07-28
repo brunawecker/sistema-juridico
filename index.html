@@ -1588,7 +1588,7 @@ async function fazerEncerrar(){
   toast("Caso encerrado!","ok");fecharModal2();fecharModal();recarregar();}
 // -------- timer + modais base
 function iniciarTimer(){E.timerIni=Date.now();clearInterval(E.timerInt);
-  E._timerPergunta=null;E._timerConfirmado=false;
+  E._timerPergunta=null;E._timerConfirmado=false;E._timerNegado=false;
   E.timerInt=setInterval(()=>{const s=Math.floor((Date.now()-E.timerIni)/1000);const el=ge("timer-num");
     if(el)el.textContent=Math.floor(s/60)+":"+String(s%60).padStart(2,"0");
     // sessão longa em horário normal: pergunta se a pessoa continua na atividade
@@ -1603,10 +1603,15 @@ function mostrarPerguntaAtividade(){
   b.innerHTML=`<div style="background:white;border-radius:18px;padding:32px 30px;max-width:440px;text-align:center;box-shadow:0 24px 80px rgba(0,0,0,.4)">
     <div style="font-size:44px;margin-bottom:8px">&#9201;</div>
     <div style="font-size:18px;font-weight:700;color:var(--navy);margin-bottom:6px">Você ainda está nesta atividade?</div>
-    <div style="font-size:13px;color:var(--gray);margin-bottom:16px">O cartão está aberto há bastante tempo. Se você continua trabalhando nele, confirme — senão, ao fechar, o tempo será limitado a 3× o padrão da operação.</div>
-    <button class="btn btp btw" style="font-size:15px;padding:12px" onclick="confirmarAtividade()">&#10003; Sim, continuo trabalhando</button></div>`;}
+    <div style="font-size:13px;color:var(--gray);margin-bottom:16px">O cartão está aberto há bastante tempo. Se você continua trabalhando nele, confirme. Se já saiu, avise — o tempo extra é descartado e fica valendo só o tempo padrão da operação.</div>
+    <button class="btn btp btw" style="font-size:15px;padding:12px" onclick="confirmarAtividade()">&#10003; Sim, continuo trabalhando</button>
+    <button class="btn bts btw" style="font-size:14px;padding:11px;margin-top:8px" onclick="negarAtividade()">&#10007; Não, já saí — desconsiderar o tempo extra</button></div>`;}
 function confirmarAtividade(){E._timerConfirmado=true;
   const b=document.getElementById("pergunta-atividade");if(b)b.remove();}
+function negarAtividade(){E._timerNegado=true;
+  const b=document.getElementById("pergunta-atividade");if(b)b.remove();
+  const pad=tempoDe(E.atual&&E.atual.operacao);
+  toast("Ok — ao fechar, será registrado só o tempo padrão ("+pad+" min).","ok");}
 // fecha a conta da sessão com as travas anti-esquecimento:
 // - atravessou a noite / fora do expediente: teto de 60 min
 // - pergunta sem resposta em horário normal: teto de 3× o tempo padrão
@@ -1614,6 +1619,9 @@ function minutosDaSessao(t){
   const bruto=E.timerIni?Math.round((Date.now()-E.timerIni)/60000):0;
   if(!E.timerIni||bruto<1)return{min:bruto,nota:null};
   const ini=new Date(E.timerIni),agora=new Date();
+  const pad=tempoDe(t&&t.operacao);
+  if(E._timerNegado&&bruto>pad)
+    return{min:pad,nota:`⚠️ A pessoa avisou que já não estava na atividade (cartão aberto ${bruto} min). Tempo registrado: ${pad} min (padrão da operação); o restante foi descartado.`};
   const outroDia=ini.toDateString()!==agora.toDateString();
   const foraExp=agora.getHours()>=19||agora.getHours()<7;
   if((outroDia||foraExp)&&bruto>60)
