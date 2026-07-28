@@ -1137,15 +1137,26 @@ function podeAgirNa(t){return E.perfil.head_sim||ehMeuNome(t.assessor)
   ||AUTORIZADOS_DELEGAR.includes(E.perfil.nome_sistema);}
 async function abrirTarefa(id){
   if(typeof marcarAtividade==="function")marcarAtividade();
-  const t=E.tarefas.find(x=>x.id_tarefa===id);if(!t)return;E.atual=t;
+  const t=E.tarefas.find(x=>x.id_tarefa===id);if(!t)return;
+  // reabertura do MESMO cartão (ex.: depois de registrar andamento): o
+  // cronômetro NÃO zera — continua contando do início da sessão
+  const mesma=!!(E.atual&&E.atual.id_tarefa===id&&E.timerIni&&!E.atual._consulta);
+  // troca para OUTRO cartão sem fechar: grava o tempo do anterior antes
+  if(E.atual&&E.atual.id_tarefa!==id&&E.timerIni&&!E.atual._consulta){
+    const ant=E.atual,c=minutosDaSessao(ant);
+    clearInterval(E.timerInt);E.timerIni=null;
+    DB.sessaoConcluir(c.min).catch(()=>{});
+    if(c.min>=1)DB.tempo({id_tarefa:ant.id_tarefa,id_cliente:ant.id_cliente,minutos:c.min}).catch(()=>{});
+    if(c.nota)DB.nota({id_tarefa:ant.id_tarefa,id_cliente:ant.id_cliente,tipo:"HISTORICO",texto:c.nota}).catch(()=>{});}
+  E.atual=t;
   t._consulta=!podeAgirNa(t);
   ge("m-titulo").textContent=t.cliente||"";
   ge("m-sub").innerHTML=`<span style="cursor:pointer" title="Clique para corrigir o tipo" onclick="editarOperacao()">${esc(t.operacao||"")} &#9998;</span> · ${esc(t.advogada||"")} · ${esc(t.check_||"")} · ${esc(t.assessor||"")}`;
   ge("m-corpo").innerHTML=`<div class="carregando"><div class="spin"></div></div>`;
   ge("modal").classList.add("aberto");
-  if(!t._consulta){iniciarTimer();
+  if(t._consulta){E.timerIni=null;}
+  else if(!mesma){iniciarTimer();
     try{await DB.sessaoIniciar({id_tarefa:t.id_tarefa,cliente:t.cliente,operacao:t.operacao});}catch(e){}}
-  else{E.timerIni=null;}
   let hist=[];try{hist=await DB.historico(id);}catch(e){toast("Erro no histórico: "+e.message,"erro");}
   // impulso: traz junto o histórico da TAREFA DE ORIGEM — quem recebe precisa
   // do contexto para saber que andamento dar (relato dos assessores)
