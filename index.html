@@ -2354,7 +2354,11 @@ async function telaClientes(){
   E._fSit="TODOS";E._fReg="TODOS";E._fAtivo="TODOS";E._clPag=0;
   let cs,ops;try{[cs,ops]=await Promise.all([DB.clientes(""),DB.tarefas()]);}catch(e){return erro(e.message);}
   E._clsTodos=cs||[];E._cli={};E._clsTodos.forEach(c=>E._cli[c.id_cliente]=c);
-  E._temTarefa={};(ops||[]).forEach(t=>{if(t.id_cliente&&t.id_tarefa)E._temTarefa[t.id_cliente]=true;});
+  E._temTarefa={};E._minhaTarefa={};
+  (ops||[]).forEach(t=>{if(!t.id_cliente||!t.id_tarefa)return;
+    E._temTarefa[t.id_cliente]=true;
+    const st=String(t.status_tarefa||"");
+    if(loginDe(t.assessor)===E.perfil.nome_sistema&&!st.includes("EM DIA"))E._minhaTarefa[t.id_cliente]=true;});
   E.tarefas=(ops||[]).map(classificar);
   const pill=(grupo,val,rot)=>`<button class="btn ${E["_f"+grupo]===val?"btp":"bts"} btsm" onclick="E._f${grupo}='${val}';E._clPag=0;desenhaClientes()">${rot}</button>`;
   ge("conteudo").innerHTML=`
@@ -2382,7 +2386,8 @@ function desenhaPills(){
       <option value="SIMPLES">Simples/MEI</option><option value="PR">Presumido/Real</option><option value="SEM">Sem regime</option></select>
     <select class="fsel" onchange="E._fAtivo=this.value;E._clPag=0;desenhaClientes()">
       <option value="TODOS">Tarefas: todas</option><option value="SEM">&#10060; Sem tarefa ativa</option>
-      <option value="COM">&#10003; Com tarefa ativa</option></select>`;
+      <option value="COM">&#10003; Com tarefa ativa</option>
+      <option value="MINHAS">&#128100; Sob minha responsabilidade</option></select>`;
 }
 function modoClientes(m){
   ge("tabcli").className="btn "+(m==="cli"?"btp":"bts")+" btsm";
@@ -2409,6 +2414,8 @@ function filtroCliente(c){
   if(E._fReg==="SEM"&&rg!=="")return false;
   if(E._fAtivo==="SEM"&&E._temTarefa[c.id_cliente])return false;
   if(E._fAtivo==="COM"&&!E._temTarefa[c.id_cliente])return false;
+  if(E._fAtivo==="MINHAS"&&!(E._minhaTarefa[c.id_cliente]
+    ||loginDe(c.assessor_responsavel||"")===E.perfil.nome_sistema))return false;
   return true;
 }
 function desenhaClientes(){
@@ -2951,6 +2958,9 @@ async function criarClienteTarefa(){
   if(!cnpj){toast("Informe o CNPJ/CPF.","erro");return;}
   const op=ge("nc-op").value;if(!op){toast("Selecione a operação da primeira tarefa.","erro");return;}
   const chk=ge("nc-chk").value;const rev=new Date();if(!["IMEDIATO","DIÁRIO"].includes(chk))rev.setDate(rev.getDate()+7);
+  let revISO=rev.toISOString().slice(0,10);
+  if(chk==="IMEDIATO"&&ge("nc-ass").value!==E.perfil.nome_sistema){
+    const q=perguntarQuandoDelegar("IMEDIATO");if(q)revISO=q;}
   try{
     const rc=await DB.criarCliente({nome,cnpj,head:ge("nc-head").value,vertical:ge("nc-vert").value,
       situacao:ge("nc-sit").value,regime:ge("nc-reg").value,municipio:ge("nc-mun").value,uf:ge("nc-uf").value,
