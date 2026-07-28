@@ -1875,6 +1875,8 @@ async function telaDiario(dia){
   const ts=(ops||[]).map(classificar);E.tarefas=ts;
   const mapa={};ts.forEach(t=>{if(t.id_tarefa)mapa[t.id_tarefa]=t;});
   const mapaEnc={};(casos||[]).forEach(c=>{const k=c.id_tarefa_origem||c.id_tarefa;if(k)mapaEnc[k]=c;});
+  E._cliNomes={};ts.forEach(t=>{if(t.id_cliente&&t.cliente)E._cliNomes[t.id_cliente]=t.cliente;});
+  (casos||[]).forEach(c=>{if(c.id_cliente&&c.cliente&&!E._cliNomes[c.id_cliente])E._cliNomes[c.id_cliente]=c.cliente;});
   // barra de navegação por data
   let h=`<div class="painel" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <button class="btn bts btsm" onclick="diarioNavegar(-1)" title="Dia anterior">&#9664;</button>
@@ -1926,6 +1928,11 @@ async function telaDiario(dia){
     const mt=mapa[k],enc=mapaEnc[k];
     if(mt){trf.cliente=mt.cliente;trf.op=mt.operacao||"";trf.impulso=!!mt._impulso;}
     else if(enc){trf.cliente=enc.cliente||"";trf.op=enc.operacao||"";trf.encerrada=true;}
+    else if(String(k).startsWith("OP-")&&r.id_cliente){
+      // impulso finalizado hoje: a subtarefa já não existe — resolve o nome
+      // do cliente pelo id e marca como impulso devolvido
+      const cli=(E._cliNomes||{})[r.id_cliente];
+      if(cli){trf.cliente=cli;trf.impulsoFinal=true;}}
     else if(String(k).includes("FIX"))trf.cliente="📌 Tarefa fixa";
     else if(k==="REUNIAO")trf.cliente="📅 Reunião";
     else if(k==="AVULSA")trf.cliente="⏱️ Atividade";});
@@ -1939,7 +1946,7 @@ async function telaDiario(dia){
       const and=temAnd?`<div id="and-${di}-${ti}" style="display:none;margin:4px 0 6px 14px;padding:8px 12px;background:var(--ice);border-radius:8px;border-left:3px solid var(--dani)">
         ${t.and.map(a=>`<div style="font-size:12px;margin-bottom:4px"><span class="htipo">${esc(a.tipo)}</span> ${esc(a.texto)}</div>`).join("")}</div>`:"";
       return `<div class="linha-item" ${temAnd?`style="cursor:pointer" onclick="ge('and-${di}-${ti}').style.display=ge('and-${di}-${ti}').style.display==='none'?'block':'none'"`:""}>
-        <span>${temAnd?"&#9656; ":""}${t.impulso?"&#129309; ":""}${esc(t.cliente||"Tarefa "+tid)}${t.op?" · "+esc(t.op):""}${t.encerrada?' <span class="tag" style="background:#455A64;color:white">&#128193; ENCERRADA</span>':""}${temAnd?` <span style="color:var(--dani);font-size:11px">ver ${t.and.length}</span>`:""}</span>
+        <span>${temAnd?"&#9656; ":""}${t.impulso?"&#129309; ":""}${esc(t.cliente||"Tarefa "+tid)}${t.op?" · "+esc(t.op):""}${t.encerrada?' <span class="tag" style="background:#455A64;color:white">&#128193; ENCERRADA</span>':""}${t.impulsoFinal?' <span class="tag tek">&#129309; impulso devolvido</span>':""}${temAnd?` <span style="color:var(--dani);font-size:11px">ver ${t.and.length}</span>`:""}</span>
         ${t.min?`<b>${t.min}min</b>`:""}</div>${and}`;}).join("");
     return `<div class="painel"><div style="display:flex;justify-content:space-between;margin-bottom:6px">
       <span style="font-weight:700;color:var(--navy)">${esc(nome)}${nc?` <span style="font-weight:400;color:var(--gray);font-size:12px">(${esc(nc)})</span>`:""}</span>
