@@ -570,7 +570,7 @@ const S = {
   async fixaDel(id){const r=await supa.from("tarefas_fixas").delete().eq("id_fixa",id).select();okS(r);
     if(!(r.data||[]).length)throw new Error("Apagar tarefa fixa é ação de head.");return{ok:true};},
   async reuniaoAdd(d){const reu=await novoIdS("REU");
-    okS(await supa.from("reunioes").insert({id_reuniao:reu,data:brHoje(),data_dt:hojeISO(),
+    okS(await supa.from("reunioes").insert({id_reuniao:reu,data:brData(d.data||hojeISO()),data_dt:d.data||hojeISO(),
       assessor:E.perfil.nome_sistema,titulo:d.titulo,cliente:d.cliente||"",id_cliente:d.id_cliente||null,
       horario:d.horario||"",horario_hr:d.horario||null,duracao_min:String(d.duracao||30),
       duracao_min_num:d.duracao||30,obs:d.obs||""}));
@@ -1408,7 +1408,8 @@ async function concluirTarefa(){
     {toast("Lance a proposta antes de concluir.","erro");return;}
   let prox;if(dm)prox=dm;else{const d=new Date();d.setDate(d.getDate()+(/SEMANAL/.test(check)?7:/MENSAL/.test(check)?30:1));prox=d.toISOString().slice(0,10);}
   if(!confirm(dm?`Concluir? A tarefa volta em ${brData(dm)}.`:`Concluir? Volta sozinha pela frequência (${check}).`))return;
-  try{await DB.concluir(t,{check,proximo:prox});await DB.sessaoConcluir(Math.round((Date.now()-E.timerIni)/60000));
+  try{const contaC=minutosDaSessao(t);await DB.concluir(t,{check,proximo:prox});await DB.sessaoConcluir(contaC.min);
+    if(contaC.nota)await DB.nota({id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,tipo:"HISTORICO",texto:contaC.nota});
     if(avisoGrupo)await DB.nota({id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,tipo:"HISTORICO",
       texto:"📣 Confirmou envio de mensagem no grupo de atendimento (WhatsApp) ao concluir."});
     // prazo fatal já vencido + tarefa concluída = provavelmente cumprido: oferece
@@ -1550,15 +1551,50 @@ async function fazerEncerrar(){
   toast("Caso encerrado!","ok");fecharModal2();fecharModal();recarregar();}
 // -------- timer + modais base
 function iniciarTimer(){E.timerIni=Date.now();clearInterval(E.timerInt);
+  E._timerPergunta=null;E._timerConfirmado=false;
   E.timerInt=setInterval(()=>{const s=Math.floor((Date.now()-E.timerIni)/1000);const el=ge("timer-num");
-    if(el)el.textContent=Math.floor(s/60)+":"+String(s%60).padStart(2,"0");},1000);}
+    if(el)el.textContent=Math.floor(s/60)+":"+String(s%60).padStart(2,"0");
+    // sessão longa em horário normal: pergunta se a pessoa continua na atividade
+    const h=new Date().getHours();
+    if(!E._timerPergunta&&E.atual&&h>=7&&h<19&&s/60>=3*tempoDe(E.atual.operacao)){
+      E._timerPergunta=Date.now();mostrarPerguntaAtividade();}},1000);}
+function mostrarPerguntaAtividade(){
+  let b=document.getElementById("pergunta-atividade");
+  if(!b){b=ce("div");b.id="pergunta-atividade";
+    b.style.cssText="position:fixed;inset:0;z-index:600;background:rgba(26,46,56,.85);display:flex;align-items:center;justify-content:center;padding:20px";
+    document.body.appendChild(b);}
+  b.innerHTML=`<div style="background:white;border-radius:18px;padding:32px 30px;max-width:440px;text-align:center;box-shadow:0 24px 80px rgba(0,0,0,.4)">
+    <div style="font-size:44px;margin-bottom:8px">&#9201;</div>
+    <div style="font-size:18px;font-weight:700;color:var(--navy);margin-bottom:6px">Você ainda está nesta atividade?</div>
+    <div style="font-size:13px;color:var(--gray);margin-bottom:16px">O cartão está aberto há bastante tempo. Se você continua trabalhando nele, confirme — senão, ao fechar, o tempo será limitado a 3× o padrão da operação.</div>
+    <button class="btn btp btw" style="font-size:15px;padding:12px" onclick="confirmarAtividade()">&#10003; Sim, continuo trabalhando</button></div>`;}
+function confirmarAtividade(){E._timerConfirmado=true;
+  const b=document.getElementById("pergunta-atividade");if(b)b.remove();}
+// fecha a conta da sessão com as travas anti-esquecimento:
+// - atravessou a noite / fora do expediente: teto de 60 min
+// - pergunta sem resposta em horário normal: teto de 3× o tempo padrão
+function minutosDaSessao(t){
+  const bruto=E.timerIni?Math.round((Date.now()-E.timerIni)/60000):0;
+  if(!E.timerIni||bruto<1)return{min:bruto,nota:null};
+  const ini=new Date(E.timerIni),agora=new Date();
+  const outroDia=ini.toDateString()!==agora.toDateString();
+  const foraExp=agora.getHours()>=19||agora.getHours()<7;
+  if((outroDia||foraExp)&&bruto>60)
+    return{min:60,nota:`⚠️ Cartão ficou aberto ${bruto} min (atravessou o fim do expediente — provável esquecimento). Tempo registrado limitado a 60 min.`};
+  const teto=3*tempoDe(t&&t.operacao);
+  if(E._timerPergunta&&!E._timerConfirmado&&bruto>teto)
+    return{min:teto,nota:`⚠️ Cartão aberto ${bruto} min sem resposta à confirmação de atividade. Tempo registrado limitado a ${teto} min (3× o padrão da operação).`};
+  return{min:bruto,nota:null};
+}
 function fecharModal(){
   marcarAtividade();
   clearInterval(E.timerInt);
   const n=ge("nota-texto");if(n&&n.value.trim()&&!confirm("Há texto não salvo. Fechar mesmo assim?"))return;
-  const min=E.timerIni?Math.round((Date.now()-E.timerIni)/60000):0;
-  if(E.atual&&!E.atual._consulta&&E.timerIni){DB.sessaoConcluir(min).catch(()=>{});
-    if(min>=1&&E.atual)DB.tempo({id_tarefa:E.atual.id_tarefa,id_cliente:E.atual.id_cliente,minutos:min}).catch(()=>{});}
+  const conta=minutosDaSessao(E.atual);
+  if(E.atual&&!E.atual._consulta&&E.timerIni){DB.sessaoConcluir(conta.min).catch(()=>{});
+    if(conta.min>=1&&E.atual)DB.tempo({id_tarefa:E.atual.id_tarefa,id_cliente:E.atual.id_cliente,minutos:conta.min}).catch(()=>{});
+    if(conta.nota&&E.atual)DB.nota({id_tarefa:E.atual.id_tarefa,id_cliente:E.atual.id_cliente,tipo:"HISTORICO",texto:conta.nota}).catch(()=>{});}
+  const pa=document.getElementById("pergunta-atividade");if(pa)pa.remove();
   ge("modal").classList.remove("aberto");E.atual=null;E.timerIni=null;}
 function modal2(titulo,sub,corpo){ge("m2-titulo").innerHTML=titulo;ge("m2-sub").innerHTML=sub;
   ge("m2-corpo").innerHTML=corpo;ge("modal2").classList.add("aberto");}
@@ -2745,9 +2781,10 @@ async function telaAgenda(){
   ge("conteudo").innerHTML=h;
 }
 function abrirReuniao(){
-  modal2("&#128197; Nova reunião / compromisso","Entra na sua agenda de hoje e desconta da capacidade",`
+  modal2("&#128197; Nova reunião / compromisso","Escolha o dia — dá para lançar compromissos que já aconteceram",`
     <input class="fi" id="re-tit" placeholder="Título (ex: Reunião com cliente, Ligação...)">
-    <div class="linha-acao"><input class="fsel" id="re-hora" type="time">
+    <div class="linha-acao"><label style="font-size:11px">Dia:</label><input class="fsel" id="re-data" type="date" value="${hojeISO()}">
+      <input class="fsel" id="re-hora" type="time">
       <select class="fsel" id="re-dur">${[15,30,45,60,90,120].map(n=>`<option ${n===30?"selected":""} value="${n}">${n>=60?(n/60)+"h"+(n%60?String(n%60):""):n+" min"}</option>`).join("")}</select></div>
     <input class="fi" id="re-cli" placeholder="Cliente (opcional)" style="margin-top:6px">
     <textarea class="fta" id="re-obs" placeholder="Observações / pauta (opcional)"></textarea>
@@ -2755,7 +2792,8 @@ function abrirReuniao(){
 }
 async function salvarReuniao(){
   const t=(ge("re-tit").value||"").trim();if(!t){toast("Informe o título.","erro");return;}
-  try{await DB.reuniaoAdd({titulo:t,horario:ge("re-hora").value,duracao:parseInt(ge("re-dur").value)||30,
+  try{await DB.reuniaoAdd({titulo:t,data:ge("re-data").value||hojeISO(),
+    horario:ge("re-hora").value,duracao:parseInt(ge("re-dur").value)||30,
     cliente:ge("re-cli").value,obs:ge("re-obs").value});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Compromisso salvo!","ok");fecharModal2();recarregar();
