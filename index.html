@@ -1336,9 +1336,20 @@ async function salvarTempo(){
   try{await DB.tempo({id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,minutos:min});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   toast(`Tempo salvo: ${min} min`,"ok");E.timerIni=Date.now();}
+function impulsoTemRegistro(){
+  return (E._hist||[]).some(h=>!h._daOrigem&&h.tipo==="ASSESSOR");}
 async function salvarFreqData(){
   const t=E.atual,check=ge("conc-check").value,dm=ge("conc-data").value;
-  try{await DB.tarefaUpdate(t,{campos:{check_:check},...(dm?{data_revisao:dm}:{})});}
+  let notaImp=null;
+  if(t._impulso){
+    if(!impulsoTemRegistro()){
+      toast("Este impulso não tem nenhum andamento registrado. Escreva o que está acontecendo antes de reagendar — o dono precisa saber.","erro");return;}
+    if(dm||check!==t.check_){
+      const motivo=(prompt("Justifique a mudança de data/frequência deste IMPULSO (obrigatório — vai para o histórico e o dono verá):")||"").trim();
+      if(!motivo){toast("Sem justificativa o impulso não é reagendado.","erro");return;}
+      notaImp=`🗓 Impulso reagendado${dm?` para ${brData(dm)}`:""} (frequência ${check}) — motivo: ${motivo}`;}}
+  try{await DB.tarefaUpdate(t,{campos:{check_:check},...(dm?{data_revisao:dm}:{})});
+    if(notaImp)await DB.nota({id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,tipo:"ASSESSOR",texto:notaImp});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   t.check_=check;if(dm)t.data_revisao_dt=dm;toast("Salvo!","ok");}
 // ===== Vigia de inatividade (assessores): aviso após 30 min sem sessão =====
@@ -1399,6 +1410,8 @@ async function concluirTarefa(){
   if(t._impulso){
     if(confirm(`🤝 Esta tarefa é um IMPULSO delegado a você.\n\nO pedido está ATENDIDO?\n\nOK = Finalizar impulso (devolve ao dono com o seu retorno)\nCancelar = ainda não terminei — só reagendar para mim`)){
       await finalizarImpulso(t.id_tarefa);return;}
+    if(!impulsoTemRegistro()){
+      toast("Antes de reagendar o impulso, registre um andamento — o dono precisa saber o que está acontecendo.","erro");return;}
   }
   if(t._impedimento&&!t.queda_impedimento_dt){
     toast("Antes de concluir, informe a data de queda do impedimento (campo no topo do cartão).","erro");
