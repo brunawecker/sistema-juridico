@@ -2387,7 +2387,8 @@ function desenhaPills(){
     <select class="fsel" onchange="E._fAtivo=this.value;E._clPag=0;desenhaClientes()">
       <option value="TODOS">Tarefas: todas</option><option value="SEM">&#10060; Sem tarefa ativa</option>
       <option value="COM">&#10003; Com tarefa ativa</option>
-      <option value="MINHAS">&#128100; Sob minha responsabilidade</option></select>`;
+      <option value="MINHAS">&#128100; Sob minha responsabilidade</option>
+      <option value="SEMRESP">&#9888; Sem responsável vinculado</option></select>`;
 }
 function modoClientes(m){
   ge("tabcli").className="btn "+(m==="cli"?"btp":"bts")+" btsm";
@@ -2416,6 +2417,7 @@ function filtroCliente(c){
   if(E._fAtivo==="COM"&&!E._temTarefa[c.id_cliente])return false;
   if(E._fAtivo==="MINHAS"&&!(E._minhaTarefa[c.id_cliente]
     ||loginDe(c.assessor_responsavel||"")===E.perfil.nome_sistema))return false;
+  if(E._fAtivo==="SEMRESP"&&String(c.assessor_responsavel||"").trim()!=="")return false;
   return true;
 }
 function desenhaClientes(){
@@ -2428,7 +2430,7 @@ function desenhaClientes(){
   alvo.innerHTML=`<p style="font-size:12px;color:var(--gray);margin-bottom:8px">${f.length} de ${E._clsTodos.length} cliente(s)</p>`+
     f.slice(0,fim).map(c=>`<details class="det" id="cd-${esc(c.id_cliente)}"><summary onclick="prepCliente('${esc(c.id_cliente)}')">
       <div style="flex:1;min-width:0"><div style="font-weight:700;color:var(--navy)">${esc(c.nome)} ${tag(c)}
-        ${E._temTarefa[c.id_cliente]?'<span class="tag tek">com tarefa</span>':'<span class="tag ti">sem tarefa ativa</span>'}</div>
+        ${E._temTarefa[c.id_cliente]?'<span class="tag tek">com tarefa</span>':'<span class="tag ti">sem tarefa ativa</span>'}${String(c.assessor_responsavel||"").trim()===""?'<span class="tag" style="background:var(--red);color:white">&#9888; sem responsável</span>':""}</div>
       <div style="font-size:11px;color:var(--gray)">${esc(c.cnpj_cpf||"")} · ${esc(c.head||"—")}${c.vertical?" · "+esc(c.vertical):""}${c.regime?" · "+esc(c.regime):""}</div></div>
       ${c.head?`<span class="tag tda">${esc(c.head)}</span>`:""}</summary>
       <div style="padding:4px 12px 12px" id="cb-${esc(c.id_cliente)}"></div></details>`).join("")+
