@@ -383,7 +383,7 @@ const L = {  // modo local (servidor de teste na máquina)
   reuniaoAdd(d){return this.f("/api/reuniao_add",P(d));},
   reuniaoDel(id){return this.f("/api/reuniao_del",P({id_reuniao:id}));},
   sessaoIniciar(d){return this.f("/api/sessao_iniciar",P(d));},
-  sessaoConcluir(min){return this.f("/api/sessao_concluir",P({minutos:min}));},
+  sessaoConcluir(min,alvo){return this.f("/api/sessao_concluir",P({minutos:min,alvo:alvo||""}));},
   liberarAtrasadas(a,q){return this.f("/api/liberar_atrasadas",P({assessor:a,qtd:q}));},
   verComo(a){return this.f("/api/vercomo",P({alvo:a}));},
   verComoSair(){return this.f("/api/vercomo_sair",P({}));},
@@ -451,7 +451,7 @@ const S = {
     return okS(await supa.from("sugestao_descartada").select("id_tarefa").gte("em",lim))||[];},
   async historicoDia(d){return okS(await supa.from("historico").select("*").eq("data_dt",d))||[];},
   async sessoesHoje(){return okS(await supa.from("sessoes").select("*").eq("data_dt",hojeISO()).order("linha"))||[];},
-  async sessaoAtiva(){const r=okS(await supa.from("sessoes").select("*").eq("data_dt",hojeISO()).eq("status","ATIVO").eq("assessor",E.perfil.nome_sistema).order("linha",{ascending:false}).limit(1))||[];return r[0]||null;},
+  async sessaoAtiva(){const r=okS(await supa.from("sessoes").select("*").eq("data_dt",hojeISO()).eq("status","ATIVO").eq("id_tarefa","AVULSA").eq("assessor",E.perfil.nome_sistema).order("linha",{ascending:false}).limit(1))||[];return r[0]||null;},
   async clientes(q){const todos=()=>paginadoS(()=>supa.from("clientes").select("*").order("nome").order("linha"));
     if(!q)return todos();
     const dados=okS(await supa.from("clientes").select("*").order("nome").ilike("nome","%"+q+"%").limit(1000))||[];
@@ -578,16 +578,22 @@ const S = {
     if(d.id_cliente)await histS("",d.id_cliente,"REUNIÃO","Reunião: "+d.titulo+(d.horario?" às "+d.horario:"")+" ("+(d.duracao||30)+"min)");
     return{ok:true,id:reu};},
   async reuniaoDel(id){okS(await supa.from("reunioes").delete().eq("id_reuniao",id));return{ok:true};},
-  async sessaoIniciar(d){await supa.from("sessoes").update({status:"INTERROMPIDO",hora_fim:horaAgora(),hora_fim_hr:horaAgora()})
+  // o relógio avulso e o cronômetro dos cartões vivem em "vagas" separadas:
+  // abrir um cartão não derruba mais a atividade avulsa (e vice-versa)
+  async sessaoIniciar(d){const ehAv=(d.id_tarefa||"")==="AVULSA";
+    let qi=supa.from("sessoes").update({status:"INTERROMPIDO",hora_fim:horaAgora(),hora_fim_hr:horaAgora()})
       .eq("status","ATIVO").eq("data_dt",hojeISO()).eq("assessor",E.perfil.nome_sistema);
+    await(ehAv?qi.eq("id_tarefa","AVULSA"):qi.neq("id_tarefa","AVULSA"));
     const ses=await novoIdS("SES");
     okS(await supa.from("sessoes").insert({id_sessao:ses,data:brHoje(),data_dt:hojeISO(),
       assessor:E.perfil.nome_sistema,id_tarefa:d.id_tarefa||"",cliente:d.cliente||"",operacao:d.operacao||"",
       hora_inicio:horaAgora(),hora_inicio_hr:horaAgora(),duracao_min:"0",duracao_min_num:0,status:"ATIVO"}));
     return{ok:true,id:ses};},
-  async sessaoConcluir(min){okS(await supa.from("sessoes").update({status:"CONCLUIDO",hora_fim:horaAgora(),
+  async sessaoConcluir(min,alvo){
+    let qc=supa.from("sessoes").update({status:"CONCLUIDO",hora_fim:horaAgora(),
       hora_fim_hr:horaAgora(),duracao_min:String(min||0),duracao_min_num:min||0})
-      .eq("status","ATIVO").eq("data_dt",hojeISO()).eq("assessor",E.perfil.nome_sistema));return{ok:true};},
+      .eq("status","ATIVO").eq("data_dt",hojeISO()).eq("assessor",E.perfil.nome_sistema);
+    okS(await(alvo==="AVULSA"?qc.eq("id_tarefa","AVULSA"):qc.neq("id_tarefa","AVULSA")));return{ok:true};},
   async liberarAtrasadas(a,q){const cand=okS(await supa.from("operacional").select("linha,check_,data_revisao_dt,status_tarefa,correcao_head")
       .eq("assessor",a).lt("data_revisao_dt",hojeISO()).order("data_revisao_dt").limit(200))||[];
     const alvo=cand.filter(t=>!["IMEDIATO","DIÁRIO","DIARIO"].includes(t.check_||"")
@@ -3238,7 +3244,7 @@ async function pararAvulsa(){
   if(!E._avulsa)return;
   const min=Math.round((Date.now()-E._avulsa.ini)/60000);
   clearInterval(E._avulsaInt);ge("chip-timer").style.display="none";
-  try{await DB.sessaoConcluir(min);
+  try{await DB.sessaoConcluir(min,"AVULSA");
     if(min>=1)await DB.nota({id_tarefa:"AVULSA",id_cliente:null,tipo:"TIMER",texto:`Tempo registrado: ${min} min — ⏱️ ${E._avulsa.desc}`});}
   catch(e){toast("Erro: "+e.message,"erro");}
   toast(`Atividade registrada: ${min} min.`,"ok");E._avulsa=null;marcarAtividade();
