@@ -1395,6 +1395,11 @@ async function salvarQueda(){
   t.queda_impedimento_dt=v;toast("Data de queda salva!","ok");abrirTarefa(t.id_tarefa);}
 async function concluirTarefa(){
   const t=E.atual,check=ge("conc-check").value,dm=ge("conc-data").value;
+  // IMPULSO: "concluir" não devolve ao dono — oferece o caminho certo
+  if(t._impulso){
+    if(confirm(`🤝 Esta tarefa é um IMPULSO delegado a você.\n\nO pedido está ATENDIDO?\n\nOK = Finalizar impulso (devolve ao dono com o seu retorno)\nCancelar = ainda não terminei — só reagendar para mim`)){
+      await finalizarImpulso(t.id_tarefa);return;}
+  }
   if(t._impedimento&&!t.queda_impedimento_dt){
     toast("Antes de concluir, informe a data de queda do impedimento (campo no topo do cartão).","erro");
     editarQueda();return;}
