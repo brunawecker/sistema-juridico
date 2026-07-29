@@ -557,7 +557,9 @@ const S = {
     if(d.etapa==="Aceita"&&idc)conv=!!(await rpcS("converter_cliente_oficial",{p_id_cliente:idc}));
     return{ok:true,convertido:conv};},
   async propostaUpdate(d){okS(await supa.from("propostas").update({status:d.status,fechada:d.fechada||undefined}).eq("id_proposta",d.id_proposta));
-    if(d.fechada==="SIM"){const r=okS(await supa.from("propostas").select("id_cliente").eq("id_proposta",d.id_proposta));
+    // id_cliente sai da VISÃO (a tabela bruta é bloqueada pelo sigilo das
+    // propostas; a dona enxerga tudo pela visão)
+    if(d.fechada==="SIM"){const r=okS(await supa.from("propostas_visiveis").select("id_cliente").eq("id_proposta",d.id_proposta));
       if(r&&r[0]&&r[0].id_cliente)await rpcS("converter_cliente_oficial",{p_id_cliente:r[0].id_cliente});}
     return{ok:true};},
   async clienteUpdate(id,campos){okS(await supa.from("clientes").update(campos).eq("id_cliente",id));return{ok:true};},
