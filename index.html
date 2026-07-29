@@ -860,7 +860,11 @@ async function salvarConfigTmp(){const cf=E._cfgAtual;let n=0;
 // ============================================== classificação de tarefas
 function classificar(t){
   const d=diasAte(t.data_revisao_dt), st=String(t.status_tarefa||"");
-  t._dias=d; t._concluida=st.includes("EM DIA"); t._delegada=st.includes("DELEGADA");
+  // concluída = marcada EM DIA (robô das 7h) OU recém-concluída pelo site:
+  // o botão Concluir grava status AGUARDANDO com a revisão no futuro — sem
+  // isto, a tarefa DIÁRIO concluída ficava pendurada no dia até a manhã seguinte
+  t._dias=d; t._concluida=st.includes("EM DIA")||(st.includes("AGUARDANDO")&&d!==null&&d>0);
+  t._delegada=st.includes("DELEGADA");
   t._emCorrecao=!!String(t.correcao_head||"").trim();
   t._impulso=String(t.supervisao||"").includes("IMPULSO de");
   const pf=diasAte(t.prazo_fatal_dt); t._pfDias=pf; t._prazoAlerta=(pf!==null&&pf<=5);
