@@ -3067,9 +3067,21 @@ function formNT(id){
     <div class="linha-acao"><input class="fsel" id="nt-proc" placeholder="Nº processual (opcional)" style="flex:1">
       <input class="fsel" id="nt-uf" placeholder="UF" style="width:64px"></div>
     <textarea class="fta" id="nt-sup" style="margin-top:6px" placeholder="Orientação inicial para o assessor (opcional)"></textarea>
-    <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px">&#128206; Documento inicial (opcional):</label>
-      <input type="file" id="nt-doc" class="fsel" style="max-width:240px"></div>
+    <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px">&#128206; Documentos iniciais (opcional — pode selecionar v&aacute;rios):</label>
+      <input type="file" id="nt-doc" class="fsel" multiple style="max-width:240px"></div>
     <button class="btn btp btw" style="margin-top:8px" onclick="criarTarefaNova()">&#10003; Criar tarefa</button>`;
+}
+// envia os anexos escolhidos na criação (um a um; avisa o que subiu e o que não)
+async function enviarDocsCriacao(inputId,idCli,idTar){
+  const inp=ge(inputId);const fs=inp&&inp.files?Array.from(inp.files):[];
+  if(!fs.length)return;
+  let ok=0;const falhas=[];
+  for(const f of fs){
+    if(f.size>25*1024*1024){falhas.push(f.name+" (mais de 25 MB)");continue;}
+    try{await DB.docEnviar(f,idCli,idTar);ok++;}
+    catch(e){falhas.push(f.name+" ("+e.message+")");}}
+  if(ok)toast(ok+" documento(s) anexado(s) à tarefa.","ok");
+  if(falhas.length)toast("Não anexado(s): "+falhas.join("; "),"erro");
 }
 async function criarTarefaNova(){
   const c=E._ntCli;if(!c){toast("Selecione um cliente.","erro");return;}
@@ -3086,10 +3098,7 @@ async function criarTarefaNova(){
     revisao:revISO});
     toast("✓ Tarefa criada: "+r.id,"ok");}
   catch(e){toast("Erro: "+e.message,"erro");return;}
-  const fdoc=ge("nt-doc");const f=fdoc&&fdoc.files&&fdoc.files[0];
-  if(f){if(f.size>25*1024*1024)toast("Documento não anexado: muito grande (limite 25 MB).","erro");
-    else try{await DB.docEnviar(f,c.id_cliente,r.id);toast("Documento anexado à tarefa.","ok");}
-    catch(e){toast("Tarefa criada, mas o anexo falhou: "+e.message,"erro");}}
+  await enviarDocsCriacao("nt-doc",c.id_cliente,r.id);
   fecharModal2();recarregar();
 }
 // ---- novo cliente + tarefa
@@ -3110,6 +3119,8 @@ function abrirNovoCliente(){
       <select class="fsel" id="nc-chk">${["IMEDIATO","DIÁRIO","SEMANAL","MENSAL"].map(x=>`<option>${x}</option>`).join("")}</select>
       <select class="fsel" id="nc-ass">${OPERACIONAIS.map(a=>`<option>${a}</option>`).join("")}</select></div>
     <textarea class="fta" id="nc-sup" style="margin-top:6px" placeholder="Orientação inicial (opcional)"></textarea>
+    <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px">&#128206; Documentos iniciais (opcional — pode selecionar v&aacute;rios):</label>
+      <input type="file" id="nc-doc" class="fsel" multiple style="max-width:240px"></div>
     <button class="btn btp btw" style="margin-top:8px" onclick="criarClienteTarefa()">&#10003; Cadastrar cliente + criar tarefa</button>`);
 }
 async function criarClienteTarefa(){
@@ -3128,7 +3139,8 @@ async function criarClienteTarefa(){
     const rt=await DB.criarTarefa({id_cliente:rc.id,cliente:nome,cnpj,head:ge("nc-head").value,
       operacao:op,check:chk,assessor:ge("nc-ass").value,supervisao:ge("nc-sup").value||"",
       revisao:revISO});
-    toast(`✓ Cliente ${rc.id} + tarefa ${rt.id} criados!`,"ok");}
+    toast(`✓ Cliente ${rc.id} + tarefa ${rt.id} criados!`,"ok");
+    await enviarDocsCriacao("nc-doc",rc.id,rt.id);}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   fecharModal2();recarregar();
 }
