@@ -2703,7 +2703,7 @@ async function telaPropostas(){
       <select class="fsel" id="pp-st" onchange="desenhaProps()"><option value="">Todos status</option>
         ${["Em análise","Enviada","Em negociação","Aguardando cliente","Aceita","Recusada"].map(s=>`<option>${s}</option>`).join("")}</select>
       <select class="fsel" id="pp-or" onchange="desenhaProps()"><option value="">Todas origens</option>
-        ${["Franqueado","Parceiro","T2","Golden","Backoffice"].map(s=>`<option>${s}</option>`).join("")}</select>
+        ${["Carteira","Franqueado","Parceiro","T2","Golden","Backoffice"].map(s=>`<option>${s}</option>`).join("")}</select>
       <button class="btn btp btsm" onclick="abrirProposta()">+ Lançar proposta</button></div>
     <div id="pp-lista"></div>`;
   desenhaProps();
@@ -3183,7 +3183,7 @@ async function abrirProposta(){
     <div style="background:var(--green-lt);border-radius:9px;padding:8px 12px;display:flex;justify-content:space-between;margin-top:6px">
       <b style="font-size:12px;color:var(--green)">&#128176; Total da proposta</b><b id="pr-total" style="color:var(--green)">R$ 0,00</b></div>
     <div class="bloco-t" style="margin-top:8px">Origem e formato</div>
-    <div class="linha-acao"><select class="fsel" id="pr-orig"><option value="">Veio de *</option>${["Franqueado","Parceiro","T2","Golden","Backoffice"].map(x=>`<option>${x}</option>`).join("")}</select>
+    <div class="linha-acao"><select class="fsel" id="pr-orig"><option value="">Veio de *</option>${["Carteira","Franqueado","Parceiro","T2","Golden","Backoffice"].map(x=>`<option>${x}</option>`).join("")}</select>
       <select class="fsel" id="pr-cont"><option value="">Como foi feita *</option><option>Reunião</option><option>WhatsApp</option></select>
       <select class="fsel" id="pr-par" onchange="ge('pr-sp-w').style.display=this.value==='Word'?'block':'none'"><option value="">Parecer *</option><option value="Word">Word / levantamento</option><option value="Mensagem">Mensagem / ligação</option></select></div>
     <div id="pr-sp-w" style="display:none;margin-top:5px"><input class="fi" id="pr-sp" placeholder="Link do levantamento no SharePoint *"></div>
