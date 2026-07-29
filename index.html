@@ -374,6 +374,7 @@ const L = {  // modo local (servidor de teste na máquina)
   criarProposta(d){return this.f("/api/criar_proposta",P(d));},
   negociacao(d){return this.f("/api/negociacao",P(d));},
   propostaUpdate(d){return this.f("/api/proposta_update",P(d));},
+  propostaFechar(d){return this.f("/api/proposta_fechar",P(d));},
   clienteUpdate(id,campos){return this.f("/api/cliente_update",P({id_cliente:id,campos}));},
   definirAssessor(id,novo){return this.f("/api/definir_assessor",P({id_cliente:id,novo}));},
   converterCliente(id){return this.f("/api/converter_cliente",P({id_cliente:id}));},
@@ -561,6 +562,15 @@ const S = {
     // propostas; a dona enxerga tudo pela visão)
     if(d.fechada==="SIM"){const r=okS(await supa.from("propostas_visiveis").select("id_cliente").eq("id_proposta",d.id_proposta));
       if(r&&r[0]&&r[0].id_cliente)await rpcS("converter_cliente_oficial",{p_id_cliente:r[0].id_cliente});}
+    return{ok:true};},
+  // fechamento com valor final confirmado: grava o valor/forma que o cliente
+  // vai pagar, o log do antes/depois, e converte prospect em oficial
+  async propostaFechar(d){
+    const u={status:"Aceita",fechada:"SIM",valor:d.valor_txt,valor_num:d.valor_num,valor_atual:d.valor_txt};
+    if(d.cond){u.cond_pagamento=d.cond;u.cond_atual=d.cond;}
+    if(d.log)u.negociacao_log=d.log;
+    okS(await supa.from("propostas").update(u).eq("id_proposta",d.id_proposta));
+    if(d.id_cliente)await rpcS("converter_cliente_oficial",{p_id_cliente:d.id_cliente});
     return{ok:true};},
   async clienteUpdate(id,campos){okS(await supa.from("clientes").update(campos).eq("id_cliente",id));return{ok:true};},
   async definirAssessor(id,novo){const n=await rpcS("definir_assessor_cliente",{p_id_cliente:id,p_novo:novo});return{ok:true,reatribuidas:n};},
@@ -2690,7 +2700,7 @@ async function telaPropostas(){
   setNav("prop",E.perfil.head_sim?"Propostas Comerciais":"Minhas Propostas"); carregando();
   let ps,cls;try{[ps,cls]=await Promise.all([DB.propostas(),DB.clientes("").catch(()=>[])]);}catch(e){return erro(e.message);}
   E._props=ps||[];E._propMap={};E._props.forEach(p=>E._propMap[p.id_proposta]=p);
-  E._cnpjMap={};(cls||[]).forEach(c=>{if(c.id_cliente)E._cnpjMap[c.id_cliente]=c.cnpj_cpf||"";});
+  E._cnpjMap={};E._situMap={};(cls||[]).forEach(c=>{if(c.id_cliente){E._cnpjMap[c.id_cliente]=c.cnpj_cpf||"";E._situMap[c.id_cliente]=c.situacao||"";}});
   // head e vendedor abrem em "Todas"; assessor abre em "Minhas" (pode alternar p/ conferir duplicidade)
   const soMinhas=!(E.perfil.head_sim||/vendedor|comercial/i.test(E.perfil.cargo||""));
   ge("conteudo").innerHTML=`<div class="sg">
@@ -2769,15 +2779,42 @@ function desenhaProps(){
     :`<div class="vazio">Nenhuma proposta.</div>`;
 }
 async function mudaStatusProp(id,status){
-  try{await DB.propostaUpdate({id_proposta:id,status,fechada:status==="Aceita"?"SIM":null});}
+  // "Aceita" passa pelo mesmo portão do fechamento: confirmar o valor final
+  if(status==="Aceita"){fecharProp(id);return;}
+  try{await DB.propostaUpdate({id_proposta:id,status});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
-  const p=E._propMap[id];if(p){p.status=status;if(status==="Aceita")p.fechada="SIM";}
+  const p=E._propMap[id];if(p)p.status=status;
   toast("Status atualizado","ok");
 }
-async function fecharProp(id){
-  try{await DB.propostaUpdate({id_proposta:id,status:"Aceita",fechada:"SIM"});}
+function fecharProp(id){
+  const p=E._propMap[id];if(!p)return;
+  const situ=String((E._situMap||{})[p.id_cliente]||"").toUpperCase();
+  const jaCasa=situ==="OFICIAL";
+  modal2("&#128176; Fechar negócio — "+esc(p.cliente),esc(p.id_proposta)+" · confirme as condições finais antes de contabilizar",`
+    <div class="aviso info" style="margin-bottom:8px">${jaCasa
+      ?"&#10004; Este <b>já é cliente da casa</b> — o cadastro não muda; a proposta é contabilizada como negócio fechado."
+      :p.id_cliente?"&#128270; Este cliente é <b>prospecção</b> — ao confirmar, vira cliente oficial automaticamente."
+      :"&#9888; Proposta sem cliente vinculado — fecha sem mexer em cadastro."}</div>
+    <div class="bloco-t">Valor final combinado — o que o cliente vai pagar (R$) *</div>
+    <input class="fi" id="fp-val" value="${esc(p.valor_atual||p.valor||"")}">
+    <div class="bloco-t">Forma de pagamento final</div>
+    <input class="fi" id="fp-cond" value="${esc(p.cond_atual||p.cond_pagamento||"")}">
+    <div style="font-size:11px;color:var(--gray);margin-top:4px">Proposta original: R$ ${esc(p.valor||"—")} · ${esc(p.cond_pagamento||"—")}. Se o valor mudou na negociação, o ajuste fica registrado na linha do tempo.</div>
+    <button class="btn btg btw" style="margin-top:10px" onclick='confirmarFechamento(${JSON.stringify(id)})'>&#10003; Confirmar negócio fechado</button>`);
+}
+async function confirmarFechamento(id){
+  const p=E._propMap[id];if(!p)return;
+  const vTxt=(ge("fp-val").value||"").trim(),cond=(ge("fp-cond").value||"").trim();
+  const v=numBR(vTxt);
+  if(!v||v<=0){toast("Confirme o valor final que o cliente vai pagar.","erro");return;}
+  const hora=new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+  const linha=`${brHoje()} ${hora} — ${E.perfil.nome_sistema}: 💰 NEGÓCIO FECHADO por R$ ${vTxt}${cond?" · "+cond:""} (proposta original: R$ ${p.valor||"—"} · ${p.cond_pagamento||"—"})`;
+  try{await DB.propostaFechar({id_proposta:id,id_cliente:p.id_cliente||"",valor_txt:vTxt,valor_num:v,cond,
+    log:linha+(p.negociacao_log?"\n"+p.negociacao_log:"")});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
-  toast("Proposta fechada! Cliente movido para a base.","ok");telaPropostas();
+  const jaCasa=String((E._situMap||{})[p.id_cliente]||"").toUpperCase()==="OFICIAL";
+  toast(jaCasa?"Negócio fechado por R$ "+vTxt+" — este já era cliente da casa.":"Negócio fechado por R$ "+vTxt+"! Cliente agora é oficial.","ok");
+  fecharModal2();telaPropostas();
 }
 function abrirNegociacao(id){
   const p=E._propMap[id];if(!p)return;
