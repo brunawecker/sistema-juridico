@@ -1568,7 +1568,7 @@ async function finalizarImpulso(id){
 function abrirCorrecao(){const t=E.atual;
   modal2("&#9999; Enviar para correção",esc(t.cliente)+" — a tarefa continua sua; vai para revisão",`
     <div class="bloco-t">Enviar para *</div>
-    <select class="fsel" id="cr-head" style="width:100%">${["",...CORR_HEADS.filter(x=>x!==E.perfil.nome_sistema)].map(x=>`<option>${x}</option>`).join("")}</select>
+    <select class="fsel" id="cr-head" style="width:100%">${["",...CORR_HEADS].map(x=>`<option value="${esc(x)}">${x===E.perfil.nome_sistema?esc(x)+" (você — correção própria)":esc(x)}</option>`).join("")}</select>
     <div class="bloco-t" style="margin-top:10px">Link da pasta (SharePoint) *</div>
     <input class="fi" id="cr-link" placeholder="https://...sharepoint...">
     <div class="bloco-t">Prazo de retorno</div>
