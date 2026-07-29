@@ -2024,8 +2024,12 @@ async function telaDiario(dia){
   const por={};
   (hist||[]).forEach(r=>{const a=loginDe(r.autor);if(!a||a==="Sistema"||a==="Migração")return;
     const o=por[a]=por[a]||{upd:0,min:0,tarefas:{}};
-    const k=r.id_tarefa||"—";
+    let k=r.id_tarefa||"—",descAv=null;
+    // avulsa: usa o título que a pessoa digitou (uma linha por atividade)
+    if(k==="AVULSA"){descAv=((String(r.texto||"").match(/—\s*⏱️\s*([\s\S]+)$/)||[])[1]||"").trim();
+      if(descAv)k="AVULSA|"+descAv;}
     const trf=o.tarefas[k]=o.tarefas[k]||{cliente:"",op:"",min:0,and:[],impulso:false};
+    if(descAv)trf.cliente="⏱️ "+descAv;
     if(r.tipo==="TIMER"){const m=parseInt((String(r.texto||"").match(/(\d+)\s*min/)||[0,0])[1]);o.min+=m;trf.min+=m;}
     else if(r.tipo!=="HISTORICO"){o.upd++;if(r.texto)trf.and.push({tipo:r.tipo,texto:r.texto});}
     const mt=mapa[k],enc=mapaEnc[k];
@@ -2038,7 +2042,7 @@ async function telaDiario(dia){
       if(cli){trf.cliente=cli;trf.impulsoFinal=true;}}
     else if(String(k).includes("FIX"))trf.cliente="📌 Tarefa fixa";
     else if(k==="REUNIAO")trf.cliente="📅 Reunião";
-    else if(k==="AVULSA")trf.cliente="⏱️ Atividade";});
+    else if(String(k).startsWith("AVULSA")&&!trf.cliente)trf.cliente="⏱️ Atividade";});
   const lista=Object.entries(por).sort((a,b)=>b[1].upd-a[1].upd);
   if(!lista.length){h+=`<div class="vazio"><div style="font-size:28px">&#9200;</div><p>Sem atividade registrada ${ehHoje?"hoje ainda":"em "+brData(d)}.</p></div>`;
     ge("conteudo").innerHTML=h;return;}
@@ -3031,14 +3035,19 @@ async function telaProdutividade(){
   // do arquivo de Casos Encerrados
   const mapaEnc={};(casos||[]).forEach(c=>{const k=c.id_tarefa_origem||c.id_tarefa;if(k)mapaEnc[k]=c;});
   const tarefas={};let updates=0,min=0;
-  meu.forEach(r=>{const k=r.id_tarefa||"—";const t=tarefas[k]=tarefas[k]||{cliente:"",op:"",and:[],min:0};
+  meu.forEach(r=>{let k=r.id_tarefa||"—",descAv=null;
+    // avulsa: mostra o título digitado pela pessoa (uma linha por atividade)
+    if(k==="AVULSA"){descAv=((String(r.texto||"").match(/—\s*⏱️\s*([\s\S]+)$/)||[])[1]||"").trim();
+      if(descAv)k="AVULSA|"+descAv;}
+    const t=tarefas[k]=tarefas[k]||{cliente:"",op:"",and:[],min:0};
+    if(descAv)t.cliente="⏱️ "+descAv;
     if(r.tipo==="TIMER"){const m=parseInt((String(r.texto||"").match(/(\d+)/)||[0,0])[1]);min+=m;t.min+=m;}
     else{updates++;if(r.texto)t.and.push(r.texto);}
     const mt=mapa[k],enc=mapaEnc[k];
     if(mt){t.cliente=mt.cliente;t.op=mt.operacao||"";}
     else if(enc){t.cliente=enc.cliente||"";t.op=enc.operacao||"";t.enc=true;}
     else if(String(k).includes("FIX"))t.cliente="📌 Tarefa fixa";
-    else if(k==="AVULSA")t.cliente="⏱️ Atividade avulsa";
+    else if(String(k).startsWith("AVULSA")&&!t.cliente)t.cliente="⏱️ Atividade avulsa";
     else if(k==="REUNIAO")t.cliente="📅 Reunião";});
   const lista=Object.entries(tarefas);
   // concluídas = carimbos do próprio dia no histórico (concluir grava o status
