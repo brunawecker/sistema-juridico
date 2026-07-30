@@ -276,6 +276,17 @@ const corDe=n=>CORES_ASSESSOR[primeiroNome(n||"")]||COR_PADRAO;
 const OPERACOES=["Audiência","Análise Prescricional","Cancelar transação","Cancelar negociação","Execução Fiscal","Estadual","Emissão CPEN","Embargos à Execução","ExcPreEx - Prescrição","E-Processo","FGTS","Laudo OPF","Laudo CAPAG","Levantamento - Cliente Villela","MS","MS Migração","MS Impedimento","MS laudo CAPAG","MS CND","Monitoramento","NJP","Negociação Estadual","Outros","Petição","Parcelar","Proposta Comercial - Parecer Tributário","Protesto","PRDI","Renegociação","Risco de bloqueio","Restituição SN","Revenda","Recurso","Simulação","TAX","Transacionar","TIS","Contabilize","Contrato/Aditivo"];
 const TEMPOS_PADRAO={"Execução Fiscal":15,"Proposta Comercial - Parecer Tributário":25,"MS":35,"MS Migração":35,"MS Impedimento":35,"MS laudo CAPAG":35,"MS CND":35,"Transacionar":20,"Laudo CAPAG":25,"Laudo OPF":25,"Monitoramento":10,"Audiência":60,"NJP":20,"Renegociação":20,"Recurso":30,"Embargos à Execução":30,"Emissão CPEN":15,"PRDI":20,"Protesto":15,"Estadual":20,"E-Processo":15,"FGTS":20,"Petição":30,"Parcelar":15,"Simulação":20,"TAX":25,"TIS":20,"Contabilize":20,"Restituição SN":20,"Risco de bloqueio":15,"Revenda":15,"Cancelar transação":15,"Levantamento - Cliente Villela":30,"Outros":20,"Análise Prescricional":30,"ExcPreEx - Prescrição":25,"Negociação Estadual":20,_default:20};
 const tempoDe=op=>TEMPOS_PADRAO[op]||TEMPOS_PADRAO._default;
+// documento sempre num formato só (evita duplicar cliente por grafia):
+// repõe zeros à esquerda perdidos e aplica a pontuação padrão
+function docFormata(v){let d=String(v||"").replace(/\.0$/,"").replace(/\D/g,"");
+  if(!d)return String(v||"").trim();
+  if(d.length>=9&&d.length<=11){d=d.padStart(11,"0");
+    return d.slice(0,3)+"."+d.slice(3,6)+"."+d.slice(6,9)+"-"+d.slice(9);}
+  if(d.length>=12&&d.length<=14){d=d.padStart(14,"0");
+    return d.slice(0,2)+"."+d.slice(2,5)+"."+d.slice(5,8)+"/"+d.slice(8,12)+"-"+d.slice(12);}
+  return String(v||"").trim();}
+const nrmNome=s=>String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+  .toUpperCase().replace(/^[\d\.\s]+/,"").replace(/[^A-Z0-9 ]/g,"").replace(/\s+/g," ").trim();
 // ===== Robô de produtividade: tempos REAIS medidos por pessoa + tipo =====
 // Soma as sessões da mesma tarefa no mesmo dia (1 execução) e tira a mediana.
 async function carregarTemposReais(ops){
@@ -372,6 +383,8 @@ const L = {  // modo local (servidor de teste na máquina)
   impulsoFinalizar(id){return this.f("/api/impulso_finalizar",P({id_tarefa:id}));},
   criarTarefa(d){return this.f("/api/criar_tarefa",P(d));},
   criarCliente(d){return this.f("/api/criar_cliente",P(d));},
+  clienteCadastro(id,nome,doc){return this.f("/api/cliente_cadastro",P({id,nome,doc}));},
+  clienteFundir(fica,some){return this.f("/api/cliente_fundir",P({fica,some}));},
   criarProposta(d){return this.f("/api/criar_proposta",P(d));},
   negociacao(d){return this.f("/api/negociacao",P(d));},
   propostaUpdate(d){return this.f("/api/proposta_update",P(d));},
@@ -532,13 +545,20 @@ const S = {
     if(d.supervisao)await histS(op,d.id_cliente,"SUPERVISÃO",d.supervisao);
     return{ok:true,id:op};},
   async criarCliente(d){const cl=await novoIdS("CL");
-    okS(await supa.from("clientes").insert({id_cliente:cl,nome:d.nome,cnpj_cpf:d.cnpj||"",head:d.head||"",
+    okS(await supa.from("clientes").insert({id_cliente:cl,nome:d.nome,cnpj_cpf:docFormata(d.cnpj)||"",head:d.head||"",
       vertical:d.vertical||"A PREENCHER",regime:d.regime||"",municipio:d.municipio||"",uf:d.uf||"",
       resumo_da_venda:d.resumo||"",situacao:d.situacao||"OFICIAL"}));return{ok:true,id:cl};},
   async criarProposta(d){let idc=d.id_cliente||"";
-    if(d.novo_cliente&&d.cliente){idc=await novoIdS("CL");
-      okS(await supa.from("clientes").insert({id_cliente:idc,nome:d.cliente,cnpj_cpf:d.cnpj||"",
-        head:d.responsavel||"",vertical:"PROSPECÇÃO",situacao:"PROSPECCAO"}));}
+    if(d.novo_cliente&&d.cliente){
+      // anti-duplicado: se o documento já existe no cadastro, usa o cliente
+      // existente em vez de criar um prospect repetido
+      const dg=String(docFormata(d.cnpj)||"").replace(/\D/g,"");
+      let ja=null;
+      if(dg){try{const cls=await this.clientes("");ja=(cls||[]).find(x=>String(x.cnpj_cpf||"").replace(/\D/g,"")===dg);}catch(e){}}
+      if(ja){idc=ja.id_cliente;}
+      else{idc=await novoIdS("CL");
+      okS(await supa.from("clientes").insert({id_cliente:idc,nome:d.cliente,cnpj_cpf:docFormata(d.cnpj)||"",
+        head:d.responsavel||"",vertical:"PROSPECÇÃO",situacao:"PROSPECCAO"}));}}
     const pr=await novoIdS("PROP");
     okS(await supa.from("propostas").insert({id_proposta:pr,data_lancamento:brHoje(),
       data_proposta:brData(d.data),data_proposta_dt:d.data,executor:d.executor||"",responsavel:d.executor||"",
@@ -575,6 +595,10 @@ const S = {
     if(d.id_cliente)await rpcS("converter_cliente_oficial",{p_id_cliente:d.id_cliente});
     return{ok:true};},
   async clienteUpdate(id,campos){okS(await supa.from("clientes").update(campos).eq("id_cliente",id));return{ok:true};},
+  async clienteCadastro(id,nome,doc){const ok=await rpcS("editar_cliente_cadastro",{p_id:id,p_nome:nome,p_doc:doc||""});
+    if(!ok)throw new Error("cliente não encontrado");return{ok:true};},
+  async clienteFundir(fica,some){const ok=await rpcS("fundir_clientes",{p_fica:fica,p_some:some});
+    if(!ok)throw new Error("não foi possível mesclar");return{ok:true};},
   async definirAssessor(id,novo){const n=await rpcS("definir_assessor_cliente",{p_id_cliente:id,p_novo:novo});return{ok:true,reatribuidas:n};},
   async converterCliente(id){const ok=await rpcS("converter_cliente_oficial",{p_id_cliente:id});return{ok:!!ok};},
   async fixaAdd(d){const fx=await novoIdS("FIX");
@@ -1257,6 +1281,7 @@ function desenharCard(t,hist){
     <button class="btn bts btsm" style="margin-top:5px" onclick="salvarTempo()">Salvar tempo</button></div></div>`;
   if(t._impulso)h+=`<div class="painel" style="background:#EAF3EA;border-color:#BEDEBE">
     <div style="font-size:12px;margin-bottom:7px"><b>&#129309; Este é um impulso delegado.</b> Quando terminar de verdade, finalize para devolver com o retorno ao responsável. Se for recorrente, o Concluir só fecha a rodada do dia.</div>
+    ${t.id_cliente?`<label style="font-size:12px;display:block;margin-bottom:7px"><input type="checkbox" id="imp-grupo"> Confirmo que informei o movimento no <b>grupo de atendimento do WhatsApp</b> *</label>`:""}
     <button class="btn btp btsm" onclick="finalizarImpulso('${esc(t.id_tarefa)}')">&#128229; Finalizar impulso e devolver</button></div>`;
   if(t.supervisao)h+=`<div class="bloco"><div class="bloco-t">Orientação da head</div>
     <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:9px;padding:9px 12px;font-size:13px;color:#1E40AF;white-space:pre-line">${esc(t.supervisao)}</div></div>`;
@@ -1578,8 +1603,16 @@ async function confirmarDelegar(){
   toast("Impulso enviado para "+para+"!"+(nPac?` (+${nPac} do pacote do cliente)`:""),"ok");
   fecharModal2();fecharModal();recarregar();}
 async function finalizarImpulso(id){
+  const t=E.atual;
+  // mesma regra do Concluir: sem confirmar a mensagem no grupo, não devolve
+  if(t&&t.id_cliente){const cb=ge("imp-grupo");
+    if(!cb||!cb.checked){toast("Para devolver o impulso, marque a caixinha confirmando que informou o movimento no grupo de atendimento do WhatsApp.","erro");return;}}
   if(!confirm("Finalizar este impulso e devolver a tarefa ao responsável com o seu retorno?\n\nDica: escreva antes o último andamento com o resultado."))return;
   try{await DB.impulsoFinalizar(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  // auditoria no cartão oficial (o cartinho do impulso é removido ao devolver)
+  const orig=(String((t&&t.supervisao)||"").match(/Origem:\s*(OP-\d+)/)||[])[1];
+  if(t&&t.id_cliente&&orig)DB.nota({id_tarefa:orig,id_cliente:t.id_cliente,tipo:"HISTORICO",
+    texto:"📣 Confirmou envio de mensagem no grupo de atendimento (WhatsApp) ao devolver o impulso."}).catch(()=>{});
   toast("Impulso finalizado! Retorno enviado.","ok");fecharModal();recarregar();}
 function abrirCorrecao(){const t=E.atual;
   modal2("&#9999; Enviar para correção",esc(t.cliente)+" — a tarefa continua sua; vai para revisão",`
@@ -2680,8 +2713,40 @@ function toggleEd(id){
     <div><label style="font-size:11px">UF</label>${inp("uf",c.uf,"SP")}</div></div>
     <label style="font-size:11px">Resumo da situação</label>
     <textarea class="fta" id="ed-resumo_da_venda-${id}" style="margin-bottom:8px">${esc(c.resumo_da_venda||"")}</textarea>
-    <button class="btn btp btsm" onclick="salvarCliente('${esc(id)}')">&#128190; Salvar alterações</button></div>`;
+    <button class="btn btp btsm" onclick="salvarCliente('${esc(id)}')">&#128190; Salvar alterações</button>
+    ${E.perfil.head_sim?`
+    <div class="bloco-t" style="margin-top:12px;color:#6B4FBF">&#9999; Corrigir nome / documento (só head)</div>
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:0 10px">
+      <div><label style="font-size:11px">Nome / Razão social</label>${inp("nomecad",c.nome)}</div>
+      <div><label style="font-size:11px">CNPJ / CPF</label>${inp("doccad",c.cnpj_cpf)}</div></div>
+    <button class="btn bts btsm" style="color:#6B4FBF;border-color:#6B4FBF" onclick="salvarCadastroHead('${esc(id)}')">&#9999; Corrigir cadastro</button>
+    <div class="bloco-t" style="margin-top:12px;color:#6B4FBF">&#128279; Mesclar cadastro duplicado (só head)</div>
+    <div style="font-size:11px;color:var(--gray);margin-bottom:4px">Tudo do duplicado (tarefas, histórico, casos, documentos, propostas) migra para ESTE cliente e o duplicado é apagado. Fica registrado no histórico. Para mais de um duplicado, repita.</div>
+    <input class="fi" id="mg-q-${id}" placeholder="&#128269; Digite 2+ letras do nome do duplicado..." oninput="buscaMescla('${esc(id)}')">
+    <div id="mg-res-${id}"></div>`:""}</div>`;
 }
+async function salvarCadastroHead(id){
+  const c=E._cli[id];
+  const nome=(ge("ed-nomecad-"+id).value||"").trim();
+  const doc=docFormata(ge("ed-doccad-"+id).value);
+  if(!nome){toast("O nome não pode ficar vazio.","erro");return;}
+  try{await DB.clienteCadastro(id,nome,doc);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  c.nome=nome;if(doc)c.cnpj_cpf=doc;E._cacheT=null;
+  toast("Cadastro corrigido — registrado no histórico do cliente.","ok");desenhaClientes();}
+function buscaMescla(id){
+  const q=(ge("mg-q-"+id).value||"").trim();const box=ge("mg-res-"+id);
+  if(q.length<2){box.innerHTML="";return;}
+  const f=Object.values(E._cli||{}).filter(c=>c.id_cliente!==id&&
+    (String(c.nome||"").toLowerCase().includes(q.toLowerCase())||String(c.cnpj_cpf||"").includes(q))).slice(0,8);
+  box.innerHTML=f.map(c=>`<div class="linha-item"><span><b>${esc(c.nome)}</b> <span style="color:var(--gray);font-size:11px">${esc(c.id_cliente)} · ${esc(c.cnpj_cpf||"sem doc")}</span></span>
+    <button class="btn bts btsm" style="color:#6B4FBF;border-color:#6B4FBF" onclick='mesclarCliente(${JSON.stringify(id)},${JSON.stringify(c.id_cliente)})'>&#128279; Mesclar neste</button></div>`).join("")
+    ||`<div style="font-size:12px;color:var(--gray)">Nenhum cliente encontrado.</div>`;}
+async function mesclarCliente(fica,some){
+  const cf=E._cli[fica],cs=E._cli[some];if(!cf||!cs)return;
+  if(!confirm(`MESCLAR cadastros?\n\nFICA:  ${cf.nome} (${fica} · ${cf.cnpj_cpf||"sem doc"})\nSOME: ${cs.nome} (${some} · ${cs.cnpj_cpf||"sem doc"})\n\nTudo do segundo migra para o primeiro. Esta ação não tem desfazer automático.`))return;
+  try{await DB.clienteFundir(fica,some);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  delete E._cli[some];E._cacheT=null;
+  toast("Cadastros mesclados — registrado no histórico do cliente.","ok");telaClientes();}
 async function salvarCliente(id){
   const g=k=>{const el=ge(`ed-${k}-${id}`);return el?el.value:undefined;};
   const campos={};["vertical","regime","capag","e_cac","franqueado","contrato","municipio","uf","resumo_da_venda"].forEach(k=>{const v=g(k);if(v!==undefined)campos[k]=v;});
@@ -3220,9 +3285,19 @@ function abrirNovoCliente(){
     <button class="btn btp btw" style="margin-top:8px" onclick="criarClienteTarefa()">&#10003; Cadastrar cliente + criar tarefa</button>`);
 }
 async function criarClienteTarefa(){
-  const nome=(ge("nc-nome").value||"").trim(),cnpj=(ge("nc-cnpj").value||"").trim();
+  const nome=(ge("nc-nome").value||"").trim();
+  const cnpj=docFormata(ge("nc-cnpj").value);
   if(!nome){toast("Informe o nome.","erro");return;}
   if(!cnpj){toast("Informe o CNPJ/CPF.","erro");return;}
+  // trava anti-duplicado: mesmo documento bloqueia; mesmo nome pede confirmação
+  let todos=E._clsTodos;
+  if(!todos||!todos.length){try{todos=await DB.clientes("");}catch(e){todos=[];}}
+  const dig=s=>String(s||"").replace(/\D/g,"");
+  const dCand=dig(cnpj);
+  const jaDoc=dCand?(todos||[]).find(x=>dig(x.cnpj_cpf)===dCand):null;
+  if(jaDoc){toast(`Este documento já é do cliente "${jaDoc.nome}" (${jaDoc.id_cliente}). Use "Nova tarefa (cliente existente)" — não crie de novo.`,"erro");return;}
+  const jaNome=(todos||[]).find(x=>nrmNome(x.nome)===nrmNome(nome));
+  if(jaNome&&!confirm(`Já existe cliente com este nome:\n\n${jaNome.nome} (${jaNome.id_cliente} · ${jaNome.cnpj_cpf||"sem documento"})\n\nCriar MESMO ASSIM um cadastro novo? (Só se forem de fato pessoas/empresas diferentes.)`))return;
   const op=ge("nc-op").value;if(!op){toast("Selecione a operação da primeira tarefa.","erro");return;}
   const chk=ge("nc-chk").value;const rev=new Date();if(!["IMEDIATO","DIÁRIO"].includes(chk))rev.setDate(rev.getDate()+7);
   let revISO=rev.toISOString().slice(0,10);
