@@ -1041,6 +1041,20 @@ async function telaMinhas(){
     <b style="color:${pctCor}">${pct}%</b></div>
     <div style="font-size:11px;color:var(--gray);margin-top:4px">&#9201; ${fmtMin(planejado)} de ${fmtMin(capDisp)} disponíveis
       ${minReu?`· &#128197; ${fmtMin(minReu)} em reuniões`:""} · &#128203; ${ativas.length} no portfólio (mostrando ${plano.length})</div></div>`;
+  // quem pode delegar (e não é head) vê a fila do seu grupo — pedido do Ygor:
+  // "preciso saber quem recebe" (head já tem isso no Painel)
+  if(AUTORIZADOS_DELEGAR.includes(nome)&&!E.perfil.head_sim){
+    let cgEq=[];try{cgEq=await DB.cargaEquipe();}catch(e){}
+    const alvosEq=new Set(alvosDelegacao(nome));
+    const lsEq=(cgEq||[]).filter(r=>alvosEq.has(loginDe(r.nome)))
+      .map(r=>({n:loginDe(r.nome),dia:r.pendentes||0,tot:r.total_ativas||0,
+        folga:Math.max(0,capDe(loginDe(r.nome))-(r.minutos||0))}))
+      .sort((a,b)=>b.folga-a.folga);
+    if(lsEq.length)h+=`<div class="painel"><div class="bloco-t">&#128101; Fila do seu grupo (para decidir delegações)</div>`+
+      lsEq.map(l=>`<div class="linha-item"><span><b>${esc(l.n)}</b></span>
+        <span style="font-size:12px">${l.dia} do dia · ${l.tot} no total · <b style="color:var(--green)">${fmtMin(l.folga)} livres</b></span></div>`).join("")+
+      `<div style="font-size:11px;color:var(--gray);margin-top:4px">Mesma régua do robô de sugestões: "do dia" = vencidas + de hoje; folga = capacidade menos a fila do dia.</div></div>`;
+  }
   if(meetings.length)h+=`<div class="painel"><div class="bloco-t">&#128197; Compromissos hoje</div>`+
     meetings.map(m=>`<div class="linha-item"><span><b>${esc(m.horario||"—")}</b> ${esc(m.titulo)}${m.cliente?" · "+esc(m.cliente):""}</span>
       <span>${esc(m.duracao_min||m.duracao_min_num||30)}min <button class="btn bts btsm" onclick="removerReuniao('${esc(m.id_reuniao)}')">&#10005;</button></span></div>`).join("")+`</div>`;
@@ -1574,6 +1588,7 @@ function abrirDelegar(){const t=E.atual;
   const ops=alvosDelegacao(E.perfil.nome_sistema).map(a=>`<option>${a}</option>`).join("");
   E._pacoteExtras=pacoteDoCliente(t);
   modal2("&#129309; Delegar impulso",esc(t.cliente)+" — pedir uma ação a outro assessor",`
+    <div id="dg-carga" style="font-size:11px;color:var(--gray);margin-bottom:6px">carregando a carga do grupo…</div>
     <div class="linha-acao"><select class="fsel" id="dg-para"><option value="">Para quem?</option>${ops}</select>
     <select class="fsel" id="dg-freq"><option value="IMEDIATO">Uma vez só (imediato)</option>
       <option value="DIÁRIO">Repetir todo dia</option><option value="SEMANAL">Toda semana</option>
@@ -1583,7 +1598,21 @@ function abrirDelegar(){const t=E.atual;
     <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px">&#128206; Anexo (opcional — print, certificado, documento):</label>
     <input type="file" id="dg-file" class="fsel" style="max-width:240px"></div>
     ${htmlPacote(E._pacoteExtras,"dg-pac")}
-    <button class="btn btp btw" style="margin-top:8px" onclick="confirmarDelegar()">&#129309; Enviar impulso</button>`);}
+    <button class="btn btp btw" style="margin-top:8px" onclick="confirmarDelegar()">&#129309; Enviar impulso</button>`);
+  carregarCargaDelegar();}
+// mostra a fila de cada candidato (pedido do Ygor): do dia · total · folga —
+// só quem pode delegar chega aqui, e o banco filtra pelo grupo da pessoa
+async function carregarCargaDelegar(){
+  const box=ge("dg-carga");if(!box)return;
+  let carga=[];try{carga=await DB.cargaEquipe();}catch(e){box.innerHTML="";return;}
+  const alvos=new Set(alvosDelegacao(E.perfil.nome_sistema));
+  const linhas=(carga||[]).filter(r=>alvos.has(loginDe(r.nome)))
+    .map(r=>({n:loginDe(r.nome),dia:r.pendentes||0,tot:r.total_ativas||0,
+      folga:Math.max(0,capDe(loginDe(r.nome))-(r.minutos||0))}))
+    .sort((a,b)=>b.folga-a.folga);
+  if(!linhas.length){box.innerHTML="";return;}
+  box.innerHTML=`<b style="color:var(--navy)">Fila de cada um agora</b> (mais folgado primeiro): `+
+    linhas.map(l=>`<span style="white-space:nowrap"><b>${esc(l.n)}</b> ${l.dia} do dia · ${l.tot} no total · ${fmtMin(l.folga)} livres</span>`).join(" &nbsp;·&nbsp; ");}
 async function confirmarDelegar(){
   const t=E.atual,para=ge("dg-para").value,txt=(ge("dg-txt").value||"").trim();
   if(!para){toast("Escolha para quem delegar.","erro");return;}
