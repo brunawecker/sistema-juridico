@@ -3386,7 +3386,7 @@ async function abrirProposta(){
       <select class="fsel" id="pr-cont"><option value="">Como foi feita *</option><option>Reunião</option><option>WhatsApp</option></select>
       <select class="fsel" id="pr-par" onchange="ge('pr-sp-w').style.display=this.value==='Word'?'block':'none'"><option value="">Parecer *</option><option value="Word">Word / levantamento</option><option value="Mensagem">Mensagem / ligação</option></select></div>
     <div id="pr-sp-w" style="display:none;margin-top:5px"><input class="fi" id="pr-sp" placeholder="Link do levantamento no SharePoint *"></div>
-    <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px">Tempo (min)*:</label><input class="fsel" id="pr-tempo" type="number" min="1" style="width:80px" placeholder="60">
+    <div class="linha-acao" style="margin-top:6px">
       <label style="font-size:11px">Data:</label><input type="date" class="fsel" id="pr-data" value="${hojeISO()}"></div>
     <textarea class="fta" id="pr-obs" style="margin-top:6px" placeholder="Observações (opcional)"></textarea>
     <button class="btn btp btw" style="margin-top:8px" onclick="lancarProposta()">&#128221; Lançar proposta</button>`);
@@ -3469,7 +3469,7 @@ async function lancarProposta(){
   const par=ge("pr-par").value;if(!par){toast("Tipo de parecer?","erro");return;}
   const sp=(ge("pr-sp").value||"").trim();
   if(par==="Word"&&!sp){toast("Link do SharePoint é obrigatório para parecer em Word.","erro");return;}
-  const tempo=parseInt(ge("pr-tempo").value)||0;if(!tempo){toast("Informe o tempo gasto.","erro");return;}
+  const tempo=0; // campo aposentado em 30/07/2026 (lançavam como follow-up geral, não da proposta)
   const dups=propostasAbertasDe(cliente,idc);
   if(dups.length&&!confirm("⚠️ Já existe proposta em aberto para "+cliente+
     " (executou "+(dups[0].executor||"?")+", status "+(dups[0].status||"?")+").\n\nLançar mesmo assim?"))return;
