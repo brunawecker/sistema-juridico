@@ -111,22 +111,33 @@ def main():
             # já rodou hoje? (aceita qualquer formato de marca: '27/07/26',
             # '27/07/2026' ou o do Apps Script antigo: '2026-7 (27/07/26)')
             ja_hoje = (hoje_br in ult) or (hoje_curto in ult)
-            deve, check, oper = False, "DIÁRIO", "Cobrança Diária"
+            deve, check, oper, superv = False, "DIÁRIO", "Cobrança Diária", ""
             if freq == "DIARIA" and not ja_hoje:
                 deve = True
             elif freq == "MENSAL_1DIA_UTIL" and prim_util and mes_key not in ult:
                 deve, check, oper = True, "IMEDIATO", "Fechamento Mensal"
             elif freq in DIAS_SEMANA and hoje.weekday() == DIAS_SEMANA[freq] and not ja_hoje:
                 deve, oper = True, "Tarefa Semanal"
+            elif freq == "JANELA_FIM_MES" and not ja_hoje:
+                # um cartão por dia útil, da penúltima semana até a metade da
+                # última: do dia (último-13) ao dia (último-4) de cada mês
+                prox_mes = (hoje.replace(day=28) + timedelta(days=4)).replace(day=1)
+                ultimo = (prox_mes - timedelta(days=1)).day
+                if ultimo - 13 <= hoje.day <= ultimo - 4:
+                    deve, oper = True, "Janela Fim de Mês"
+                    superv = (f"Meta do dia: {tempo} min — ao atingir, registre o "
+                              f"andamento, conclua e siga para outra tarefa. O cartão "
+                              f"volta no próximo dia útil da janela (dia {ultimo-13} a "
+                              f"{ultimo-4}). [meta:{tempo}min]")
             if not deve:
                 continue
             oid = novo_id(cur, "OP", 4)
             cur.execute("""insert into juridico.operacional
                 (id_tarefa, advogada, data_inclusao, cliente, check_, operacao,
-                 assessor, status_tarefa, data_revisao, data_revisao_dt)
-                values (%s,%s,%s,%s,%s,%s,%s,'TAREFA FIXA',%s,%s)""",
+                 assessor, status_tarefa, data_revisao, data_revisao_dt, supervisao)
+                values (%s,%s,%s,%s,%s,%s,%s,'TAREFA FIXA',%s,%s,%s)""",
                 (oid, head_cl or "", hoje_br, "📌 " + (titulo or ""), check, oper,
-                 assessor or "", hoje_br, hoje))
+                 assessor or "", hoje_br, hoje, superv))
             marca = hoje_br if freq != "MENSAL_1DIA_UTIL" else f"{mes_key} ({hoje_br})"
             cur.execute("""update juridico.tarefas_fixas set
                 ultima_execucao = %s, ultima_execucao_dt = %s where id_fixa = %s""",
