@@ -330,6 +330,7 @@ const L = {  // modo local (servidor de teste na máquina)
   tarefas(){return this.f("/api/tarefas");},
   historico(id){return this.f("/api/historico?id="+encodeURIComponent(id));},
   historicoHoje(){return this.f("/api/historico_hoje");},
+  snapAssessores(d){return this.f("/api/snapshot_assessor?dia="+d);},
   historicoPeriodo(d){return this.f("/api/historico_periodo?dias="+d);},
   historicoTimers(d){return this.f("/api/historico_periodo?dias="+d);},
   roboStatus(){return this.f("/api/robo_status");},
@@ -441,6 +442,7 @@ const S = {
     return paginadoS(()=>supa.from("historico").select("*").eq("tipo","TIMER")
       .gte("data_dt",corte).order("linha"));},
   async roboStatus(){return okS(await supa.from("robo_status").select("*"))||[];},
+  async snapAssessores(d){return okS(await supa.from("snapshot_assessor").select("*").eq("data_dt",d))||[];},
   async equipeSet(nome,campos){const r=await supa.from("equipe").update(campos).eq("nome_sistema",nome).select();okS(r);
     if(!(r.data||[]).length)throw new Error("Sem permissão (só admin) ou membro não encontrado.");return{ok:true};},
   async equipeAdd(m){okS(await supa.from("equipe").insert(m));return{ok:true};},
@@ -1970,11 +1972,12 @@ async function telaDiario(dia){
   const hoje=hojeISO(),d=(typeof dia==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(dia))?dia:hoje,ehHoje=d===hoje;
   E.diaSel=d;
   setNav("diario","Acompanhamento Diário"); carregando();
-  let hist,ops,casos,snap;
-  try{[hist,ops,casos,snap]=await Promise.all([
+  let hist,ops,casos,snap,snapA;
+  try{[hist,ops,casos,snap,snapA]=await Promise.all([
     ehHoje?DB.historicoHoje():DB.historicoDia(d),DB.tarefas(),
     DB.casos().catch(()=>[]),   // sempre: tarefa encerrada HOJE já saiu do quadro ativo
-    DB.snapshotDia(d).catch(()=>[])]);}catch(e){return erro(e.message);}
+    DB.snapshotDia(d).catch(()=>[]),
+    ehHoje?Promise.resolve([]):DB.snapAssessores(d).catch(()=>[])]);}catch(e){return erro(e.message);}
   const ts=(ops||[]).map(classificar);E.tarefas=ts;
   const mapa={};ts.forEach(t=>{if(t.id_tarefa)mapa[t.id_tarefa]=t;});
   const mapaEnc={};(casos||[]).forEach(c=>{const k=c.id_tarefa_origem||c.id_tarefa;if(k)mapaEnc[k]=c;});
@@ -2073,6 +2076,11 @@ async function telaDiario(dia){
       if(!k)return;k=a+"|"+k;if(vf.has(k))return;vf.add(k);feitoPor[a]=(feitoPor[a]||0)+1;});
     ts.forEach(t=>{if(!t.id_tarefa||t._delegada||t._emCorrecao||t._concluida)return;
       if(t._g>=1&&t._g<=3){const a=loginDe(t.assessor);if(a)pendPor[a]=(pendPor[a]||0)+1;}});
+  }else{
+    // dia passado: usa a última fotografia por pessoa daquele dia (robô de
+    // 5 em 5 min — registro existe a partir de 30/07/2026)
+    (snapA||[]).forEach(r=>{const a=loginDe(r.assessor);if(!a)return;
+      feitoPor[a]=r.feitas||0;pendPor[a]=r.pendentes||0;});
   }
   const lista=Object.entries(por).sort((a,b)=>b[1].upd-a[1].upd);
   if(!lista.length){h+=`<div class="vazio"><div style="font-size:28px">&#9200;</div><p>Sem atividade registrada ${ehHoje?"hoje ainda":"em "+brData(d)}.</p></div>`;
@@ -2088,7 +2096,7 @@ async function telaDiario(dia){
         ${t.min?`<b>${t.min}min</b>`:""}</div>${and}`;}).join("");
     const fz=feitoPor[nome]||0,pd=pendPor[nome]||0,totDia=fz+pd;
     const corDia=totDia&&fz>=totDia?"var(--green)":pd&&fz?"var(--amber)":"var(--gray)";
-    const badgeDia=ehHoje&&totDia?` <span style="font-weight:700;color:${corDia};font-size:12px">&#9989; ${fz} de ${totDia} do dia</span>`:"";
+    const badgeDia=totDia?` <span style="font-weight:700;color:${corDia};font-size:12px">&#9989; ${fz} de ${totDia} do dia</span>`:"";
     return `<div class="painel"><div style="display:flex;justify-content:space-between;margin-bottom:6px">
       <span style="font-weight:700;color:var(--navy)">${esc(nome)}${nc?` <span style="font-weight:400;color:var(--gray);font-size:12px">(${esc(nc)})</span>`:""}${badgeDia}</span>
       <span style="font-size:12px;color:var(--gray)">${d.upd} atualizações · ${fmtMin(d.min)}</span></div>
