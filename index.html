@@ -962,16 +962,19 @@ function bannerPrazoFatal(ts){
   return `<div class="painel" style="background:var(--red-lt);border-color:var(--red)">
     <div style="font-weight:700;color:var(--red);margin-bottom:6px">&#9888; ${crit.length} tarefa(s) com prazo fatal esta semana</div>${itens}</div>`;
 }
-// Enriquecimento financeiro (badges): provisionado / pago / inadimplente
+// Enriquecimento financeiro (badges): provisionado / pago / inadimplente.
+// O casamento é por dígitos NORMALIZADOS (docFormata repõe zeros perdidos e
+// remove o ".0" do Excel) — diferença de grafia não esconde mais a cobrança.
+const docDigitos=v=>String(docFormata(v)||"").replace(/\D/g,"");
 function aplicarFinanceiro(ts){
   const m=E._bilMap; if(!m)return;
-  ts.forEach(t=>{const c=String(t.cnpj_cpf||"").replace(/\D/g,"");const b=m[c];
+  ts.forEach(t=>{const c=docDigitos(t.cnpj_cpf);const b=m[c];
     if(b){t._prov=true;t._pago=b.pago;t._inad=b.inad;}});
 }
 async function carregarFinanceiro(){
   if(E._bilMap)return;
   try{const rows=await DB.cobranca();const m={};
-    rows.forEach(r=>{const c=String(r.cnpj_cpf||"").replace(/\D/g,"");if(!c)return;
+    rows.forEach(r=>{const c=docDigitos(r.cnpj_cpf);if(!c)return;
       const o=m[c]=m[c]||{pago:false,inad:false};
       if(r.status_pgto==="PAGO")o.pago=true;if(r.status_pgto==="ATRASADO")o.inad=true;});
     E._bilMap=m;}catch(e){E._bilMap={};}
