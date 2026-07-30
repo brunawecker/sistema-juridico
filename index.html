@@ -882,7 +882,9 @@ function classificar(t){
   const pf=diasAte(t.prazo_fatal_dt); t._pfDias=pf; t._prazoAlerta=(pf!==null&&pf<=5);
   t._impedimento=/impedimento/i.test(String(t.operacao||""));
   t._quedaDias=t._impedimento?diasAte(t.queda_impedimento_dt):null;
-  t._tempo=tempoDe(t.operacao);
+  // fixas de janela: a meta diária vem gravada na orientação ([meta:70min])
+  t._meta=parseInt((String(t.supervisao||"").match(/\[meta:(\d+)min\]/)||[])[1])||null;
+  t._tempo=t._meta||tempoDe(t.operacao);
   let chk=String(t.check_||"");
   // AGUARDANDO converte pela proximidade do prazo (regra do Code.gs)
   if(chk==="AGUARDANDO"){
@@ -968,7 +970,7 @@ async function telaMinhas(){
   const minReu=meetings.reduce((s,m)=>s+(parseInt(m.duracao_min_num||m.duracao_min)||30),0);
   // capacidade (algoritmo do Code.gs + tempos reais do robô de produtividade)
   await carregarTemposReais(ts);
-  ativas.forEach(t=>{t._tempo=tempoPlanoDe(nome,t.operacao);});
+  ativas.forEach(t=>{t._tempo=t._meta||tempoPlanoDe(nome,t.operacao);});
   const cap=capDe(nome), capDisp=Math.max(60,cap-minReu);
   const imed=ativas.filter(t=>t._g===1), atr=ativas.filter(t=>t._g===2).sort((a,b)=>a._dias-b._dias),
         diar=ativas.filter(t=>t._g===3&&/DI[ÁA]RIO/.test(t._chk)),
@@ -1621,13 +1623,26 @@ async function fazerEncerrar(){
   toast("Caso encerrado!","ok");fecharModal2();fecharModal();recarregar();}
 // -------- timer + modais base
 function iniciarTimer(){E.timerIni=Date.now();clearInterval(E.timerInt);
-  E._timerPergunta=null;E._timerConfirmado=false;E._timerNegado=false;
+  E._timerPergunta=null;E._timerConfirmado=false;E._timerNegado=false;E._metaAvisada=false;
   E.timerInt=setInterval(()=>{const s=Math.floor((Date.now()-E.timerIni)/1000);const el=ge("timer-num");
     if(el)el.textContent=Math.floor(s/60)+":"+String(s%60).padStart(2,"0");
+    // fixa de janela com meta diária: ao atingir, convida a concluir e seguir
+    if(!E._metaAvisada&&E.atual&&E.atual._meta&&s/60>=E.atual._meta){
+      E._metaAvisada=true;mostrarMetaAtingida();}
     // sessão longa em horário normal: pergunta se a pessoa continua na atividade
     const h=new Date().getHours();
     if(!E._timerPergunta&&E.atual&&h>=7&&h<19&&s/60>=3*tempoDe(E.atual.operacao)){
       E._timerPergunta=Date.now();mostrarPerguntaAtividade();}},1000);}
+function mostrarMetaAtingida(){
+  let b=document.getElementById("meta-atingida");
+  if(!b){b=ce("div");b.id="meta-atingida";
+    b.style.cssText="position:fixed;inset:0;z-index:600;background:rgba(26,46,56,.85);display:flex;align-items:center;justify-content:center;padding:20px";
+    document.body.appendChild(b);}
+  b.innerHTML=`<div style="background:white;border-radius:18px;padding:32px 30px;max-width:440px;text-align:center;box-shadow:0 24px 80px rgba(0,0,0,.4)">
+    <div style="font-size:44px;margin-bottom:8px">&#127919;</div>
+    <div style="font-size:18px;font-weight:700;color:var(--navy);margin-bottom:6px">Meta do dia atingida!</div>
+    <div style="font-size:13px;color:var(--gray);margin-bottom:16px">Você já fez os ${E.atual&&E.atual._meta} minutos de hoje nesta tarefa. Registre o andamento, conclua e siga para outra tarefa — o cartão volta no próximo dia útil da janela.</div>
+    <button class="btn btp btw" style="font-size:15px;padding:12px" onclick="document.getElementById('meta-atingida').remove()">&#10003; OK, vou registrar e concluir</button></div>`;}
 function mostrarPerguntaAtividade(){
   let b=document.getElementById("pergunta-atividade");
   if(!b){b=ce("div");b.id="pergunta-atividade";
@@ -2909,6 +2924,7 @@ async function telaFixas(){
   const podeTodas=E.perfil.head_sim||E.perfil.admin_sim;
   const minhas=podeTodas?fx:(fx||[]).filter(f=>f.assessor===E.perfil.nome_sistema);
   const rot={DIARIA:"&#128197; Todo dia útil",MENSAL_1DIA_UTIL:"&#128197; 1º dia útil do mês",
+    JANELA_FIM_MES:"&#128197; Janela de fim de mês (um cartão/dia útil, ~dia 18 a 27; o tempo é a meta diária)",
     SEMANAL_SEG:"Toda segunda",SEMANAL_TER:"Toda terça",SEMANAL_QUA:"Toda quarta",SEMANAL_QUI:"Toda quinta",SEMANAL_SEX:"Toda sexta"};
   let h=`<div class="aviso info" style="margin-bottom:12px">&#128260; As tarefas fixas são criadas automaticamente às 7h pelo robô
     (ainda na planilha, durante o período de transição) — diárias todo dia útil, mensais no 1º dia útil.</div>`;
@@ -2917,7 +2933,8 @@ async function telaFixas(){
     <div class="linha-acao">
       <select class="fsel" id="fx-freq"><option value="DIARIA">Todo dia útil</option>
         ${["SEG","TER","QUA","QUI","SEX"].map((d,i)=>`<option value="SEMANAL_${d}">Toda ${["segunda","terça","quarta","quinta","sexta"][i]}</option>`).join("")}
-        <option value="MENSAL_1DIA_UTIL">1º dia útil do mês</option></select>
+        <option value="MENSAL_1DIA_UTIL">1º dia útil do mês</option>
+        <option value="JANELA_FIM_MES">Janela fim de mês (dia ~18 a 27, um por dia)</option></select>
       ${podeTodas?`<select class="fsel" id="fx-ass">${OPERACIONAIS.map(a=>`<option>${a}</option>`).join("")}</select>
         <select class="fsel" id="fx-head"><option value="">— head —</option><option>Danielly</option><option>Bruna</option><option>Eduarda</option></select>`
         :`<input class="fsel" id="fx-ass" value="${esc(E.perfil.nome_sistema)}" disabled>`}
