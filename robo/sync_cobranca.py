@@ -79,6 +79,41 @@ def bater_coracao():
             values (to_char({hoje_sp},'DD/MM/YYYY'), {hoje_sp}, %s,%s,%s,%s,%s, %s,%s,%s,%s,%s)""",
             (str(atrasadas), str(em_dia), str(total), str(imediatas), str(pct),
              atrasadas, em_dia, total, imediatas, pct))
+        # foto POR PESSOA: feitas (concluídas + impulsos devolvidos + encerradas
+        # do dia, cada uma 1x) × pendentes para hoje (mesma régua da carga).
+        # A última foto do dia vira o fechamento que o Diário mostra no passado.
+        cur.execute(f"""
+            with feitas as (
+              select autor, count(distinct k) as f from (
+                select autor, 'C|'||id_tarefa as k from juridico.historico
+                  where data_dt = {hoje_sp} and texto like 'Tarefa concluída pelo site%%'
+                union
+                select autor, 'I|'||substring(texto from 'Retorno do impulso \\((OP-\\d+)\\)')
+                  from juridico.historico
+                  where data_dt = {hoje_sp} and texto like '%%Retorno do impulso (OP-%%'
+                    and tipo <> 'HISTORICO'
+                union
+                select autor, 'E|'||id_tarefa from juridico.historico
+                  where data_dt = {hoje_sp} and tipo = 'ENCERRAMENTO') x
+              where autor not in ('Sistema','Migração') group by autor),
+            pend as (
+              select assessor, count(*) as p from juridico.operacional
+              where coalesce(status_tarefa,'') not like '%%EM DIA%%'
+                and coalesce(status_tarefa,'') not like '%%DELEGADA%%'
+                and coalesce(correcao_head,'') = ''
+                and (data_revisao_dt <= {hoje_sp}
+                     or (data_revisao_dt is null and check_ = 'IMEDIATO'))
+              group by assessor)
+            select coalesce(f.autor, p.assessor), coalesce(f.f,0), coalesce(p.p,0)
+            from feitas f full outer join pend p on p.assessor = f.autor""")
+        fotos = cur.fetchall()
+        cur.execute(f"delete from juridico.snapshot_assessor where data_dt = {hoje_sp}")
+        for nome, feitas_n, pend_n in fotos:
+            if not (nome or "").strip():
+                continue
+            cur.execute(f"""insert into juridico.snapshot_assessor
+                (data_dt, assessor, feitas, pendentes)
+                values ({hoje_sp}, %s, %s, %s)""", (nome.strip(), feitas_n, pend_n))
         conn.commit()
 
 
