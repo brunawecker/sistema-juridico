@@ -287,6 +287,9 @@ function docFormata(v){let d=String(v||"").replace(/\.0$/,"").replace(/\D/g,"");
   return String(v||"").trim();}
 const nrmNome=s=>String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"")
   .toUpperCase().replace(/^[\d\.\s]+/,"").replace(/[^A-Z0-9 ]/g,"").replace(/\s+/g," ").trim();
+// tarefas de parecer n\u00e3o exigem aviso no grupo de WhatsApp (decis\u00e3o da head,
+// 04/08/2026 \u2014 o parecer \u00e9 interno, n\u00e3o \u00e9 movimento para o cliente ver)
+const dispensaGrupo=t=>String((t&&t.operacao)||"").includes("Proposta Comercial");
 // ===== Robô de produtividade: tempos REAIS medidos por pessoa + tipo =====
 // Soma as sessões da mesma tarefa no mesmo dia (1 execução) e tira a mediana.
 async function carregarTemposReais(ops){
@@ -1298,7 +1301,7 @@ function desenharCard(t,hist){
     <button class="btn bts btsm" style="margin-top:5px" onclick="salvarTempo()">Salvar tempo</button></div></div>`;
   if(t._impulso)h+=`<div class="painel" style="background:#EAF3EA;border-color:#BEDEBE">
     <div style="font-size:12px;margin-bottom:7px"><b>&#129309; Este é um impulso delegado.</b> Quando terminar de verdade, finalize para devolver com o retorno ao responsável. Se for recorrente, o Concluir só fecha a rodada do dia.</div>
-    ${t.id_cliente?`<label style="font-size:12px;display:block;margin-bottom:7px"><input type="checkbox" id="imp-grupo"> Confirmo que informei o movimento no <b>grupo de atendimento do WhatsApp</b> *</label>`:""}
+    ${t.id_cliente&&!dispensaGrupo(t)?`<label style="font-size:12px;display:block;margin-bottom:7px"><input type="checkbox" id="imp-grupo"> Confirmo que informei o movimento no <b>grupo de atendimento do WhatsApp</b> *</label>`:""}
     <button class="btn btp btsm" onclick="finalizarImpulso('${esc(t.id_tarefa)}')">&#128229; Finalizar impulso e devolver</button></div>`;
   if(t.supervisao)h+=`<div class="bloco"><div class="bloco-t">Orientação da head</div>
     <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:9px;padding:9px 12px;font-size:13px;color:#1E40AF;white-space:pre-line">${esc(t.supervisao)}</div></div>`;
@@ -1338,7 +1341,7 @@ function desenharCard(t,hist){
     <label style="font-size:11px;color:var(--gray)">ou volta em:</label><input type="date" class="fsel" id="conc-data">
     <button class="btn bts btsm" onclick="salvarFreqData()">&#128190; Salvar</button>
     <button class="btn btg btsm" onclick="concluirTarefa()">&#10003; Concluir</button></div>
-    ${t.id_cliente?`<label style="display:flex;align-items:center;gap:7px;font-size:12px;margin-top:8px;padding:8px 10px;background:var(--green-lt);border:1px solid var(--green);border-radius:8px;cursor:pointer">
+    ${t.id_cliente&&!dispensaGrupo(t)?`<label style="display:flex;align-items:center;gap:7px;font-size:12px;margin-top:8px;padding:8px 10px;background:var(--green-lt);border:1px solid var(--green);border-radius:8px;cursor:pointer">
       <input type="checkbox" id="conc-grupo" style="width:16px;height:16px">
       <span>&#128241; Informei o movimento desta tarefa no <b>grupo de atendimento</b> do WhatsApp</span></label>`:""}
     <div style="font-size:11px;color:var(--gray);margin-top:5px">Sem data: volta pela frequência (diária +1, semanal +7, mensal +30).</div></div>`;
@@ -1515,7 +1518,7 @@ async function concluirTarefa(){
     toast("Antes de concluir, informe a data de queda do impedimento (campo no topo do cartão).","erro");
     editarQueda();return;}
   let avisoGrupo=false;
-  if(t.id_cliente){
+  if(t.id_cliente&&!dispensaGrupo(t)){
     const cb=ge("conc-grupo");
     if(!cb||!cb.checked){toast("Para concluir, marque a caixinha confirmando que informou o movimento no grupo de atendimento do WhatsApp.","erro");return;}
     avisoGrupo=true;}
@@ -1637,13 +1640,13 @@ async function confirmarDelegar(){
 async function finalizarImpulso(id){
   const t=E.atual;
   // mesma regra do Concluir: sem confirmar a mensagem no grupo, não devolve
-  if(t&&t.id_cliente){const cb=ge("imp-grupo");
+  if(t&&t.id_cliente&&!dispensaGrupo(t)){const cb=ge("imp-grupo");
     if(!cb||!cb.checked){toast("Para devolver o impulso, marque a caixinha confirmando que informou o movimento no grupo de atendimento do WhatsApp.","erro");return;}}
   if(!confirm("Finalizar este impulso e devolver a tarefa ao responsável com o seu retorno?\n\nDica: escreva antes o último andamento com o resultado."))return;
   try{await DB.impulsoFinalizar(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
   // auditoria no cartão oficial (o cartinho do impulso é removido ao devolver)
   const orig=(String((t&&t.supervisao)||"").match(/Origem:\s*(OP-\d+)/)||[])[1];
-  if(t&&t.id_cliente&&orig)DB.nota({id_tarefa:orig,id_cliente:t.id_cliente,tipo:"HISTORICO",
+  if(t&&t.id_cliente&&orig&&!dispensaGrupo(t))DB.nota({id_tarefa:orig,id_cliente:t.id_cliente,tipo:"HISTORICO",
     texto:"📣 Confirmou envio de mensagem no grupo de atendimento (WhatsApp) ao devolver o impulso."}).catch(()=>{});
   toast("Impulso finalizado! Retorno enviado.","ok");fecharModal();recarregar();}
 function abrirCorrecao(){const t=E.atual;
