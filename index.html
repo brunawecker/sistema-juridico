@@ -392,6 +392,7 @@ const L = {  // modo local (servidor de teste na máquina)
   negociacao(d){return this.f("/api/negociacao",P(d));},
   propostaUpdate(d){return this.f("/api/proposta_update",P(d));},
   propostaFechar(d){return this.f("/api/proposta_fechar",P(d));},
+  propostaRecusar(d){return this.f("/api/proposta_recusar",P(d));},
   clienteUpdate(id,campos){return this.f("/api/cliente_update",P({id_cliente:id,campos}));},
   definirAssessor(id,novo){return this.f("/api/definir_assessor",P({id_cliente:id,novo}));},
   converterCliente(id){return this.f("/api/converter_cliente",P({id_cliente:id}));},
@@ -588,6 +589,10 @@ const S = {
     if(d.fechada==="SIM"){const r=okS(await supa.from("propostas_visiveis").select("id_cliente").eq("id_proposta",d.id_proposta));
       if(r&&r[0]&&r[0].id_cliente)await rpcS("converter_cliente_oficial",{p_id_cliente:r[0].id_cliente});}
     return{ok:true};},
+  async propostaRecusar(d){
+    const u={status:"Recusada",motivo_perda:d.motivo||""};
+    if(d.log)u.negociacao_log=d.log;
+    okS(await supa.from("propostas").update(u).eq("id_proposta",d.id_proposta));return{ok:true};},
   // fechamento com valor final confirmado: grava o valor/forma que o cliente
   // vai pagar, o log do antes/depois, e converte prospect em oficial
   async propostaFechar(d){
@@ -2875,6 +2880,7 @@ async function telaPropostas(){
     <div class="sc"><div class="sl">Total</div><div class="sv" id="pp-s-tot">—</div></div>
     <div class="sc"><div class="sl">Na rua</div><div class="sv amber" id="pp-s-rua">—</div></div>
     <div class="sc"><div class="sl">Aceitas</div><div class="sv green" id="pp-s-ace">—</div></div>
+    <div class="sc"><div class="sl">Perdidas</div><div class="sv red" id="pp-s-per">—</div></div>
     <div class="sc"><div class="sl">Valor total</div><div class="sv pq" id="pp-s-val">—</div></div></div>
     <div class="flr"><input class="si" id="pp-q" placeholder="&#128269; Buscar cliente..." oninput="desenhaProps()">
       <select class="fsel" id="pp-mi" onchange="desenhaProps()">
@@ -2900,10 +2906,13 @@ function desenhaProps(){
   if(ge("pp-s-tot")){ge("pp-s-tot").textContent=base.length;
     ge("pp-s-rua").textContent=base.filter(p=>!["Aceita","Recusada"].includes(p.status)).length;
     ge("pp-s-ace").textContent=base.filter(p=>p.status==="Aceita").length;
+    if(ge("pp-s-per"))ge("pp-s-per").textContent=base.filter(p=>p.status==="Recusada").length;
     const somaVis=base.reduce((s,p)=>s+(parseFloat(p.valor_num)||0),0);
     ge("pp-s-val").textContent="R$ "+somaVis.toLocaleString("pt-BR",{minimumFractionDigits:2})+(E.perfil.head_sim?"":" (suas)");}
-  const f=base.filter(p=>(!q||String(p.cliente||"").toLowerCase().includes(q))
+  let f=base.filter(p=>(!q||String(p.cliente||"").toLowerCase().includes(q))
     &&(!st||p.status===st)&&(!or||p.origem===or));
+  // recusadas ficam baixadas: vão para o fim da lista (dados preservados)
+  f=[...f.filter(p=>p.status!=="Recusada"),...f.filter(p=>p.status==="Recusada")];
   ge("pp-lista").innerHTML=f.length?f.map(p=>{
     const cor={Aceita:"var(--green)",Recusada:"var(--red)"}[p.status]||"var(--amber)";
     const val=(parseFloat(p.valor_num)||0).toLocaleString("pt-BR",{minimumFractionDigits:2});
@@ -2926,7 +2935,8 @@ function desenhaProps(){
             <div style="font-size:11px;color:var(--gray)">em andamento por <b>${esc(p.executor||p.quem_pediu||"—")}</b> desde ${esc(p.data_proposta||"—")}</div></div>
           <div style="text-align:right"><span class="tag" style="background:${cor};color:white">${esc(p.status||"")}</span>
             <div style="font-size:10px;color:var(--gray);margin-top:3px">&#128274; detalhes restritos</div></div></div></div>`;}
-    return `<div class="painel" style="padding:12px 14px">
+    const baixada=p.status==="Recusada";
+    return `<div class="painel" style="padding:12px 14px${baixada?";opacity:.62;background:#F4F4F4":""}">
       <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
         <div style="flex:1;min-width:160px;cursor:pointer" title="Abrir negociação" onclick='abrirNegociacao(${JSON.stringify(p.id_proposta)})'><div style="font-weight:700;color:var(--navy)">${esc(p.cliente)} ${prosp}</div>
           ${cnpj?`<div style="font-size:11px;color:var(--gray);font-family:'DM Mono'">${esc(cnpj)}</div>`:""}
@@ -2939,20 +2949,49 @@ function desenhaProps(){
         ${p.link_sharepoint?` · <a href="${esc(p.link_sharepoint)}" target="_blank" style="color:var(--dani)">&#128193; Levantamento</a>`:""}</div>
       ${p.cond_atual||p.valor_atual?`<div style="font-size:11px;margin-top:5px;background:var(--amber-lt);border-radius:7px;padding:5px 8px;color:#7A5C00"><b>&#129309; Condições atuais:</b> ${p.valor_atual?"R$ "+esc(p.valor_atual)+" · ":""}${esc(p.cond_atual||"")}</div>`:""}
       ${p.proximo_passo||p.data_retorno?`<div style="font-size:11px;margin-top:4px;color:var(--navy)"><b>&#9193; Próximo passo:</b> ${esc(p.proximo_passo||"—")}${p.data_retorno?" · retorno "+esc(p.data_retorno):""}</div>`:""}
+      ${baixada&&p.motivo_perda?`<div style="font-size:11px;margin-top:5px;background:#FBEBEA;border-radius:7px;padding:5px 8px;color:#7B1D1D"><b>&#10007; Motivo da recusa:</b> ${esc(p.motivo_perda)}</div>`:""}
       ${podeMexer?`<div class="linha-acao">
         <button class="btn btp btsm" onclick='abrirNegociacao(${JSON.stringify(p.id_proposta)})'>&#128172; Negociação${nLog?` (${nLog})`:""}</button>
         <select class="fsel" onchange='mudaStatusProp(${JSON.stringify(p.id_proposta)},this.value)'>
           ${["Em análise","Enviada","Em negociação","Aguardando cliente","Aceita","Recusada"].map(s=>`<option ${s===p.status?"selected":""}>${s}</option>`).join("")}</select>
-        ${p.fechada!=="SIM"?`<button class="btn btg btsm" onclick='fecharProp(${JSON.stringify(p.id_proposta)})'>&#10003; Fechada (vira cliente)</button>`:'<span class="tag tek">&#10003; Fechada</span>'}</div>`:""}</div>`;}).join("")
+        ${baixada?`<span class="tag" style="background:#8A8F94;color:white">&#10007; Baixada — reabra mudando a etapa</span>`
+          :p.fechada!=="SIM"?`<button class="btn btg btsm" onclick='fecharProp(${JSON.stringify(p.id_proposta)})'>&#10003; Fechada (vira cliente)</button>`:'<span class="tag tek">&#10003; Fechada</span>'}</div>`:""}</div>`;}).join("")
     :`<div class="vazio">Nenhuma proposta.</div>`;
 }
 async function mudaStatusProp(id,status){
   // "Aceita" passa pelo mesmo portão do fechamento: confirmar o valor final
   if(status==="Aceita"){fecharProp(id);return;}
+  // "Recusada" passa pelo portão da baixa: motivo obrigatório (é o dado que
+  // permite analisar POR QUE se perde venda)
+  if(status==="Recusada"){abrirRecusa(id);return;}
   try{await DB.propostaUpdate({id_proposta:id,status});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   const p=E._propMap[id];if(p)p.status=status;
   toast("Status atualizado","ok");
+}
+const MOTIVOS_PERDA=["Achou caro / sem verba","Fechou com concorrente","Sem retorno (sumiu)",
+  "Vai deixar para depois","Resolveu internamente","Outro"];
+function abrirRecusa(id){
+  const p=E._propMap[id];if(!p)return;
+  modal2("&#10007; Registrar recusa — "+esc(p.cliente),esc(p.id_proposta)+" · a proposta é baixada, mas os dados ficam para análise",`
+    <div class="bloco-t">Por que o cliente recusou? *</div>
+    <select class="fsel" id="rc-mot" style="width:100%">${["",...MOTIVOS_PERDA].map(m=>`<option>${m}</option>`).join("")}</select>
+    <div class="bloco-t" style="margin-top:8px">Detalhe (opcional — ajuda a head a entender)</div>
+    <textarea class="fta" id="rc-obs" placeholder="Ex: achou caro perto da proposta do contador dele..."></textarea>
+    <div style="font-size:11px;color:var(--gray);margin-top:4px">A proposta sai da lista ativa (vai para o fim, acinzentada) e conta no medidor "Perdidas". Nada é apagado — se o cliente voltar, é só mudar a etapa de novo.</div>
+    <button class="btn btx btw" style="margin-top:10px" onclick='confirmarRecusa(${JSON.stringify(id)})'>&#10007; Confirmar recusa</button>`);
+}
+async function confirmarRecusa(id){
+  const p=E._propMap[id];if(!p)return;
+  const mot=ge("rc-mot").value,obs=(ge("rc-obs").value||"").trim();
+  if(!mot){toast("Escolha o motivo da recusa.","erro");return;}
+  const hora=new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+  const linha=`${brHoje()} ${hora} — ${E.perfil.nome_sistema}: ✗ RECUSADA — motivo: ${mot}${obs?" ("+obs+")":""}`;
+  try{await DB.propostaRecusar({id_proposta:id,motivo:mot+(obs?" — "+obs:""),
+    log:linha+(p.negociacao_log?"\n"+p.negociacao_log:"")});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Recusa registrada — proposta baixada (dados preservados).","ok");
+  fecharModal2();telaPropostas();
 }
 function fecharProp(id){
   const p=E._propMap[id];if(!p)return;
@@ -3057,6 +3096,7 @@ async function salvarNegociacao(id){
   const etapa=ge("ng-etapa").value,val=(ge("ng-val").value||"").trim(),cond=(ge("ng-cond").value||"").trim();
   const passo=(ge("ng-passo").value||"").trim();let ret=ge("ng-ret").value||"";if(ret)ret=brData(ret);
   const perda=(ge("ng-perda")?.value||"").trim();
+  if(etapa==="Recusada"&&!perda){toast("Informe o motivo da perda — é o dado que permite melhorar as próximas propostas.","erro");return;}
   const agora=new Date();
   let ln=`${brHoje()} ${String(agora.getHours()).padStart(2,"0")}:${String(agora.getMinutes()).padStart(2,"0")} — ${E.perfil.nome_sistema}${etapa?" ["+etapa+"]":""}: ${txt}`;
   if(val)ln+=" | 💰 Novo valor: R$ "+val;if(cond)ln+=" | 💳 Novas condições: "+cond;
