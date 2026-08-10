@@ -323,6 +323,8 @@ const CORR_HEADS=["Danielly","Bruna","Eduarda","Ygor","Madu","Malu"];
 const AUTORIZADOS_DELEGAR=["Malu","Ygor","Madu","Bruna","Danielly","Eduarda"];
 // para quem cada autorizado pode delegar (Configurações; vazio = todos)
 const DELEGA_PARA={};
+// janela de prospecção por pessoa (min/dia; Configurações — 0 = sem janela)
+const PROSPEC={};
 const alvosDelegacao=nome=>{const l=DELEGA_PARA[nome]||[];
   return (E.perfil&&E.perfil.head_sim&&nome===E.perfil.nome_sistema)||!l.length
     ?OPERACIONAIS.filter(a=>a!==nome):l.filter(a=>a!==nome);};
@@ -751,7 +753,8 @@ async function carregarConfig(){
     (cf.tmp||[]).forEach(r=>{TEMPOS_PADRAO[r.operacao==="_PADRAO"?"_default":r.operacao]=r.minutos;});
     if((cf.per||[]).length){CORR_HEADS.length=0;AUTORIZADOS_DELEGAR.length=0;
       cf.per.forEach(r=>{if(r.pode_corrigir)CORR_HEADS.push(r.nome);if(r.pode_delegar)AUTORIZADOS_DELEGAR.push(r.nome);
-        DELEGA_PARA[r.nome]=String(r.delega_para||"").split(",").map(s=>s.trim()).filter(Boolean);});}
+        DELEGA_PARA[r.nome]=String(r.delega_para||"").split(",").map(s=>s.trim()).filter(Boolean);
+        PROSPEC[r.nome]=parseInt(r.prospeccao_min)||0;});}
   }catch(e){/* segue com os padrões do código */}
 }
 function nomeCompletoDe(sis){const m=E.equipe.find(x=>x.nome_sistema===sis);return m?m.nome_completo:"";}
@@ -844,7 +847,8 @@ async function telaConfig(){setNav("cfg","Configurações");carregando();
     ${nomes.map(n=>{const p=perDe(n);const dp=String(p.delega_para||"").split(",").map(s=>s.trim()).filter(Boolean);
       return `<div style="border-bottom:1px solid var(--gray-lt);padding:6px 0"><div class="linha-item" style="border:0;padding:2px 0"><span><b>${esc(n)}</b></span><span>
       <label style="font-size:12px"><input type="checkbox" id="cfg-cor-${esc(n)}" ${p.pode_corrigir?"checked":""}> corrige</label>
-      <label style="font-size:12px;margin-left:10px"><input type="checkbox" id="cfg-del-${esc(n)}" ${p.pode_delegar?"checked":""}> delega</label></span></div>
+      <label style="font-size:12px;margin-left:10px"><input type="checkbox" id="cfg-del-${esc(n)}" ${p.pode_delegar?"checked":""}> delega</label>
+      <label style="font-size:12px;margin-left:10px" title="Janela de Prospecção: com 0 atrasadas e 0 imediatas, o planejador reserva estes minutos do dia">&#127919; <input type="number" min="0" max="240" step="15" class="fsel" style="width:64px" id="cfg-pros-${esc(n)}" value="${parseInt(p.prospeccao_min)||0}"> min/dia</label></span></div>
       <div style="font-size:11px;color:var(--gray);display:flex;gap:9px;flex-wrap:wrap;padding-left:6px">delega para:
         ${OPERACIONAIS.filter(a=>a!==n).map(a=>`<label><input type="checkbox" id="cfg-dp-${esc(n)}-${esc(a)}" ${dp.includes(a)?"checked":""}> ${esc(a)}</label>`).join("")}</div></div>`;}).join("")}
     <div class="linha-acao"><button class="btn btp btsm" onclick="salvarConfigPer()">&#128190; Salvar permissões</button></div></div>
@@ -914,9 +918,11 @@ async function salvarConfigPer(){const cf=E._cfgAtual;let n=0;
   for(const nome of (E.equipe||[]).map(m=>m.nome_sistema)){
     const c=ge("cfg-cor-"+nome),d=ge("cfg-del-"+nome);if(!c||!d)continue;
     const dp=OPERACIONAIS.filter(a=>a!==nome&&(ge("cfg-dp-"+nome+"-"+a)||{}).checked).join(",");
-    const atual=(cf.per||[]).find(x=>x.nome===nome)||{pode_corrigir:false,pode_delegar:false,delega_para:""};
-    if(atual.pode_corrigir===c.checked&&atual.pode_delegar===d.checked&&String(atual.delega_para||"")===dp)continue;
-    try{await DB.configSet("config_permissoes","nome",nome,{pode_corrigir:c.checked,pode_delegar:d.checked,delega_para:dp});n++;}
+    const pr=Math.max(0,Math.min(240,parseInt((ge("cfg-pros-"+nome)||{}).value)||0));
+    const atual=(cf.per||[]).find(x=>x.nome===nome)||{pode_corrigir:false,pode_delegar:false,delega_para:"",prospeccao_min:0};
+    if(atual.pode_corrigir===c.checked&&atual.pode_delegar===d.checked&&String(atual.delega_para||"")===dp
+       &&(parseInt(atual.prospeccao_min)||0)===pr)continue;
+    try{await DB.configSet("config_permissoes","nome",nome,{pode_corrigir:c.checked,pode_delegar:d.checked,delega_para:dp,prospeccao_min:pr});n++;}
     catch(e){toast("Erro em "+nome+": "+e.message,"erro");return;}}
   await carregarConfig();toast(n?n+" permissão(ões) salva(s)!":"Nada mudou.","ok");telaConfig();}
 async function salvarConfigTmp(){const cf=E._cfgAtual;let n=0;
@@ -1056,8 +1062,17 @@ async function telaMinhas(){
   for(const t of atr){if(jaAdd[t.id_tarefa])continue;
     if(rem<=0&&nAtr>=3){fila.push(t);continue;}if(push1(t,2)){rem-=t._tempo;nAtr++;}}
   rem=Math.max(0,rem);
-  for(const t of hoje0.concat(semanal).concat(mensal)){if(jaAdd[t.id_tarefa])continue;
-    if(rem<=0){fila.push(t);continue;}if(push1(t,t._dias===0?3:4))rem-=t._tempo;}
+  for(const t of hoje0){if(jaAdd[t.id_tarefa])continue;
+    if(rem<=0){fila.push(t);continue;}if(push1(t,3))rem-=t._tempo;}
+  // 🎯 Janela de Prospecção: dia dominado (0 atrasadas, 0 imediatas) reserva
+  // o bloco da pessoa — as ANTECIPAÇÕES (semanais/mensais futuras) só entram
+  // no que sobrar além dele. Nenhuma tarefa muda de data.
+  const janelaPros=PROSPEC[nome]||0;
+  let reservaPros=0;
+  if(janelaPros>0&&imed.length===0&&atr.length===0){
+    reservaPros=Math.min(rem,janelaPros);rem-=reservaPros;}
+  for(const t of semanal.concat(mensal)){if(jaAdd[t.id_tarefa])continue;
+    if(rem<=0){fila.push(t);continue;}if(push1(t,4))rem-=t._tempo;}
   plano.sort((a,b)=>a._urg-b._urg||a._dias-b._dias);
   const planejado=plano.reduce((s,t)=>s+t._tempo,0);
   const filaMin=fila.reduce((s,t)=>s+t._tempo,0);
@@ -1075,6 +1090,10 @@ async function telaMinhas(){
     <b style="color:${pctCor}">${pct}%</b></div>
     <div style="font-size:11px;color:var(--gray);margin-top:4px">&#9201; ${fmtMin(planejado)} de ${fmtMin(capDisp)} disponíveis
       ${minReu?`· &#128197; ${fmtMin(minReu)} em reuniões`:""} · &#128203; ${ativas.length} no portfólio (mostrando ${plano.length})</div></div>`;
+  if(reservaPros>0)h+=`<div class="painel" style="background:#EAF7EA;border-color:var(--green)">
+    <div class="bloco-t" style="color:var(--green)">&#127919; Dia dominado — ${fmtMin(reservaPros)} reservadas para prospecção</div>
+    <div style="font-size:12px;color:var(--gray);margin-bottom:6px">Zero atrasadas e zero imediatas: este bloco é seu para buscar negócios novos — o planejador não antecipa tarefas dentro dele. O tempo conta no Diário e na sua produtividade.</div>
+    <button class="btn btg btsm" onclick="iniciarProspeccao()">&#127919; Prospectar agora (liga o relógio)</button></div>`;
   // quem pode delegar (e não é head) vê a fila do seu grupo — pedido do Ygor:
   // "preciso saber quem recebe" (head já tem isso no Painel)
   if(AUTORIZADOS_DELEGAR.includes(nome)&&!E.perfil.head_sim){
@@ -2002,6 +2021,24 @@ async function telaPainel(){
       ${comFolga.length?"":`<div style="font-size:12px;color:var(--red);margin-top:4px">Atenção: ninguém com folga hoje — considere reagendar em vez de delegar.</div>`}
       <div style="font-size:11px;color:var(--gray);margin-top:5px">O robô sugere as menos urgentes de quem estourou e o receptor com mais folga — mas <b>nada acontece sem a sua aprovação</b>. Ao aprovar, vira um impulso normal: o dono fica como DELEGADA aguardando o retorno.</div></div>`;}
   else{E._sugestoesTodas=[];}
+  // 🎯 prospecção da semana: horas medidas no relógio + propostas lançadas
+  let histP=[];try{histP=await DB.historicoPeriodo(7);}catch(e){}
+  const prospPor={};(histP||[]).forEach(r=>{if(r.tipo!=="TIMER")return;
+    if(String(r.texto||"").indexOf("🎯 Prospecção")===-1)return;
+    const a=loginDe(r.autor);if(!a)return;
+    const mp=parseInt((String(r.texto).match(/(\d+)\s*min/)||[0,0])[1]);prospPor[a]=(prospPor[a]||0)+mp;});
+  let props7=[];try{props7=await DB.propostas();}catch(e){}
+  const corteP=new Date(Date.now()-7*86400000).toISOString().slice(0,10);
+  const propPor={};(props7||[]).forEach(p=>{
+    if(String(p.data_lancamento_dt||p.data_proposta_dt||"").slice(0,10)<corteP)return;
+    const a=loginDe(p.executor);if(a)propPor[a]=(propPor[a]||0)+1;});
+  const nomesPros=[...new Set([...Object.keys(prospPor),...Object.keys(propPor)])]
+    .filter(np=>OPERACIONAIS.includes(np)).sort((a,b)=>(prospPor[b]||0)-(prospPor[a]||0));
+  if(nomesPros.length)h+=`<div class="painel" style="background:#EAF7EA;border-color:var(--green)">
+    <div class="bloco-t" style="color:var(--green)">&#127919; Prospecção da semana</div>`+
+    nomesPros.map(np=>`<div class="linha-item"><span><b>${esc(np)}</b></span>
+      <span style="font-size:12px">${fmtMin(prospPor[np]||0)} prospectando · ${propPor[np]||0} proposta(s) na semana</span></div>`).join("")+
+    `<div style="font-size:11px;color:var(--gray);margin-top:4px">Horas medidas pelo botão &#127919; Prospectar; propostas lançadas nos últimos 7 dias.</div></div>`;
   h+=`<div class="sg">
     <div class="sc"><div class="sl">Total</div><div class="sv">${total}</div></div>
     <div class="sc"><div class="sl">Em dia</div><div class="sv green">${total-atr}</div></div>
@@ -3590,6 +3627,14 @@ async function abrirAvulsa(){
   catch(e){toast("Erro: "+e.message,"erro");return;}
   ligaChipAvulsa(d,Date.now());
   toast("Atividade iniciada! O tempo está contando no topo.","ok");
+}
+// 🎯 prospecção: relógio avulso já nomeado (conta no Diário/produtividade e
+// alimenta o quadro "Prospecção da semana" das heads)
+async function iniciarProspeccao(){
+  try{await DB.sessaoIniciar({id_tarefa:"AVULSA",cliente:"⏱️ 🎯 Prospecção",operacao:"🎯 Prospecção"});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  ligaChipAvulsa("🎯 Prospecção",Date.now());
+  toast("Prospecção valendo — o relógio está contando no topo.","ok");
 }
 function ligaChipAvulsa(desc,iniMs){
   E._avulsa={desc,ini:iniMs};
