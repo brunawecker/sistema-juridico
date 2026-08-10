@@ -511,8 +511,12 @@ const S = {
       data_revisao_dt:x.proximo,data_revisao:brData(x.proximo)}).eq("id_tarefa",t.id_tarefa).eq("linha",t.linha));
     await histS(t.id_tarefa,t.id_cliente,"ASSESSOR","Tarefa concluída pelo site — próxima revisão "+brData(x.proximo)+".");return{ok:true};},
   async encerrar(t,x){const enc=await novoIdS("ENC"),hid=await novoIdS("HIS");
-    const ok=await rpcS("encerrar_caso",{p_id_tarefa:t.id_tarefa,p_linha:t.linha,p_id_enc:enc,
-      p_motivo:x.motivo,p_resultado:x.resultado||"",p_nota:x.nota||"",p_id_hist:hid});
+    // impulso: encerra o CASO OFICIAL (origem + cartinho juntos)
+    const ok=String(t.supervisao||"").includes("IMPULSO de")
+      ?await rpcS("encerrar_impulso_caso",{p_sub_id:t.id_tarefa,p_id_enc:enc,
+        p_motivo:x.motivo,p_resultado:x.resultado||"",p_nota:x.nota||"",p_id_hist:hid})
+      :await rpcS("encerrar_caso",{p_id_tarefa:t.id_tarefa,p_linha:t.linha,p_id_enc:enc,
+        p_motivo:x.motivo,p_resultado:x.resultado||"",p_nota:x.nota||"",p_id_hist:hid});
     if(!ok)throw new Error("não foi possível encerrar");return{ok:true};},
   async reabrir(x){const nova=await novoIdS("OP");
     const ok=await rpcS("reabrir_caso",{p_id_enc:x.id_encerrado,p_linha:x.linha,p_nova_tarefa:nova,p_check:x.check,p_proximo:x.proximo});
@@ -1327,9 +1331,13 @@ function desenharCard(t,hist){
     <div style="font-size:11px;color:var(--gray)">${tot?"Total: "+fmtMin(tot):"Primeira sessão"}</div>
     <button class="btn bts btsm" style="margin-top:5px" onclick="salvarTempo()">Salvar tempo</button></div></div>`;
   if(t._impulso)h+=`<div class="painel" style="background:#EAF3EA;border-color:#BEDEBE">
-    <div style="font-size:12px;margin-bottom:7px"><b>&#129309; Este é um impulso delegado.</b> Quando terminar de verdade, finalize para devolver com o retorno ao responsável. Se for recorrente, o Concluir só fecha a rodada do dia.</div>
+    <div style="font-size:12px;margin-bottom:7px"><b>&#129309; Este é um impulso delegado — três saídas:</b><br>
+      &#128229; <b>Devolver</b>: fez o movimento? Finalize e o retorno vai ao responsável;<br>
+      &#128193; <b>Arquivar de vez</b>: a tarefa acabou? Encerre — fecha o CASO oficial inteiro (reabrível pela head);<br>
+      &#128257; <b>Continuar com você</b>: vai cobrar algo aos poucos (ex.: documentos de um laudo)? Mude a <b>Frequência</b> abaixo para SEMANAL e conclua a rodada — o cartão volta para você até ter tudo e devolver.</div>
     ${t.id_cliente&&!dispensaGrupo(t)?`<label style="font-size:12px;display:block;margin-bottom:7px"><input type="checkbox" id="imp-grupo"> Confirmo que informei o movimento no <b>grupo de atendimento do WhatsApp</b> *</label>`:""}
-    <button class="btn btp btsm" onclick="finalizarImpulso('${esc(t.id_tarefa)}')">&#128229; Finalizar impulso e devolver</button></div>`;
+    <div class="linha-acao"><button class="btn btp btsm" onclick="finalizarImpulso('${esc(t.id_tarefa)}')">&#128229; Finalizar impulso e devolver</button>
+    <button class="btn btx btsm" onclick="abrirEncerrar()">&#128193; Encerrar o caso de vez</button></div></div>`;
   if(t.supervisao)h+=`<div class="bloco"><div class="bloco-t">Orientação da head</div>
     <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:9px;padding:9px 12px;font-size:13px;color:#1E40AF;white-space:pre-line">${esc(t.supervisao)}</div></div>`;
   // andamento
@@ -1372,12 +1380,9 @@ function desenharCard(t,hist){
       <input type="checkbox" id="conc-grupo" style="width:16px;height:16px">
       <span>&#128241; Informei o movimento desta tarefa no <b>grupo de atendimento</b> do WhatsApp</span></label>`:""}
     <div style="font-size:11px;color:var(--gray);margin-top:5px">Sem data: volta pela frequência (diária +1, semanal +7, mensal +30).</div></div>`;
-  // impulso não se encerra: devolve-se — o dono decide o destino do caso
-  // (caso POLYTEX: encerrar o impulso engolia o retorno e criava re-delegação em loop)
-  if(t._impulso)h+=`<div class="bloco" style="text-align:center;font-size:11px;color:var(--gray)">
-    Impulso não tem "Encerrar": quando terminar, use <b>&#128229; Finalizar impulso e devolver</b> lá em cima —
-    seu retorno vai para o cartão oficial e o dono decide se encerra o caso.</div>`;
-  else h+=`<div class="bloco"><button class="btn btx btw" onclick="abrirEncerrar()">&#128193; Encerrar caso definitivamente</button>
+  // no impulso, o Encerrar fica no painel verde lá de cima (fecha o CASO
+  // oficial via encerrar_impulso_caso — nunca só o cartinho)
+  if(!t._impulso)h+=`<div class="bloco"><button class="btn btx btw" onclick="abrirEncerrar()">&#128193; Encerrar caso definitivamente</button>
     <div style="font-size:11px;color:var(--gray);text-align:center;margin-top:4px">Vai para Casos Encerrados (reabrível pela head)</div></div>`;
   // histórico com edição
   h+=`<div class="bloco"><div class="bloco-t">Histórico (${vis.length})</div>`;
