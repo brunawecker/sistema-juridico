@@ -2738,8 +2738,9 @@ function prepCliente(id){
       <div style="font-size:12px">Advogada responsável: <b style="color:var(--navy)">${esc(c.head||"—")}</b></div>
       <div class="linha-acao" style="margin-top:6px">
         <label style="font-size:11px">Assessor responsável:</label>
-        <select class="fsel" id="ra-${esc(id)}"><option value="">— sem responsável —</option>${opsAss}</select>
-        ${isHead?`<button class="btn btp btsm" onclick="salvarRespCliente('${esc(id)}')">&#128190; Salvar responsável</button>`:""}</div>
+        ${isHead?`<select class="fsel" id="ra-${esc(id)}"><option value="">— sem responsável —</option>${opsAss}</select>
+        <button class="btn btp btsm" onclick="salvarRespCliente('${esc(id)}')">&#128190; Salvar responsável</button>`
+        :`<b style="font-size:12px;color:var(--navy)">${esc(c.assessor_responsavel||"— sem responsável —")}</b> <span style="font-size:10px;color:var(--gray)">(troca é ação de head)</span>`}</div>
       ${isHead?`<div style="font-size:10px;color:var(--gray);margin-top:4px">Ao salvar, todas as tarefas ativas do cliente passam para o novo responsável.</div>`:""}</div>
     <div class="linha-acao">
       <button class="btn bts btsm" onclick="verTarefasCliente('${esc(id)}')">&#128203; Ver tarefas</button>
@@ -2837,12 +2838,13 @@ function toggleEd(id){
     <label style="font-size:11px">Resumo da situação</label>
     <textarea class="fta" id="ed-resumo_da_venda-${id}" style="margin-bottom:8px">${esc(c.resumo_da_venda||"")}</textarea>
     <button class="btn btp btsm" onclick="salvarCliente('${esc(id)}')">&#128190; Salvar alterações</button>
-    ${E.perfil.head_sim?`
-    <div class="bloco-t" style="margin-top:12px;color:#6B4FBF">&#9999; Corrigir nome / documento (só head)</div>
+    <div class="bloco-t" style="margin-top:12px;color:#6B4FBF">&#9999; Corrigir nome / documento</div>
+    <div style="font-size:11px;color:var(--gray);margin-bottom:4px">A correção fica registrada no histórico do cliente (quem corrigiu e o antes/depois) e sincroniza as tarefas.</div>
     <div style="display:grid;grid-template-columns:2fr 1fr;gap:0 10px">
       <div><label style="font-size:11px">Nome / Razão social</label>${inp("nomecad",c.nome)}</div>
       <div><label style="font-size:11px">CNPJ / CPF</label>${inp("doccad",c.cnpj_cpf)}</div></div>
     <button class="btn bts btsm" style="color:#6B4FBF;border-color:#6B4FBF" onclick="salvarCadastroHead('${esc(id)}')">&#9999; Corrigir cadastro</button>
+    ${E.perfil.head_sim?`
     <div class="bloco-t" style="margin-top:12px;color:#6B4FBF">&#128279; Mesclar cadastro duplicado (só head)</div>
     <div style="font-size:11px;color:var(--gray);margin-bottom:4px">Tudo do duplicado (tarefas, histórico, casos, documentos, propostas) migra para ESTE cliente e o duplicado é apagado. Fica registrado no histórico. Para mais de um duplicado, repita.</div>
     <input class="fi" id="mg-q-${id}" placeholder="&#128269; Digite 2+ letras do nome do duplicado..." oninput="buscaMescla('${esc(id)}')">
