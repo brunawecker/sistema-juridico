@@ -2793,6 +2793,8 @@ async function enviarDoc(){
 async function verTarefasCliente(id){
   const box=ge("ct-"+id);box.innerHTML=`<div class="carregando"><div class="spin"></div></div>`;
   let r;try{r=await DB.clienteTarefas(id);}catch(e){box.innerHTML=`<div class="vazio">${esc(e.message)}</div>`;return;}
+  // propostas do cliente (a visão mascarada aplica o sigilo sozinha)
+  let propsCli=[];try{propsCli=((await DB.propostas())||[]).filter(p=>p.id_cliente===id);}catch(e){}
   const at=(r.ativas||[]).map(classificar);
   at.forEach(t=>{if(!E.tarefas.find(x=>x.id_tarefa===t.id_tarefa))E.tarefas.push(t);});
   let h=at.length?`<div class="bloco-t" style="color:var(--dani)">&#10003; ${at.length} ativa(s)</div>`+at.map(t=>cardTarefa(t,true)).join("")
@@ -2802,6 +2804,14 @@ async function verTarefasCliente(id){
       ${c.nota_final?`<br><i style="color:var(--gray);font-size:11px">"${esc(c.nota_final)}"</i>`:""}</span>
       <span><span class="tag tm">${esc(c.motivo||"")}</span>
       ${E.perfil.head_sim?` <button class="btn bts btsm" onclick='abrirReabrir(${JSON.stringify(c.id_encerrado)},${c.linha})'>&#128260;</button>`:""}</span></div>`).join("");}
+  if(propsCli.length){
+    h+=`<div class="bloco-t" style="margin-top:10px;color:#7F5200">&#128221; ${propsCli.length} proposta(s) comercial(is)</div>`+
+      propsCli.map(p=>{const cor={Aceita:"var(--green)",Recusada:"var(--red)"}[p.status]||"var(--amber)";
+        const det=p.detalhes_visiveis!==false;
+        return `<div class="linha-item"><span>${esc(p.produtos||"—")} · quem toca: <b>${esc(p.executor||p.quem_pediu||"—")}</b>
+          ${det&&p.valor?` · R$ ${esc(p.valor)}`:""}${det&&p.data_proposta?` · ${esc(p.data_proposta)}`:""}
+          ${det?"":' <span style="font-size:10px;color:var(--gray)">&#128274; detalhes restritos — fale com quem toca antes de propor algo</span>'}</span>
+          <span><span class="tag" style="background:${cor};color:white">${esc(p.status||"")}</span>${p.fechada==="SIM"?' <span class="tag tek">&#10003; Fechada</span>':""}</span></div>`;}).join("");}
   box.innerHTML=h;
 }
 function toggleEd(id){
