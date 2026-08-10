@@ -3391,6 +3391,24 @@ function abrirNovoCliente(){
       <input type="file" id="nc-doc" class="fsel" multiple style="max-width:240px"></div>
     <button class="btn btp btw" style="margin-top:8px" onclick="criarClienteTarefa()">&#10003; Cadastrar cliente + criar tarefa</button>`);
 }
+// cliente já existe? migra o que foi preenchido no "Novo cliente" e cria só
+// a tarefa nele (operação, frequência, assessor, orientação e anexos)
+async function criarTarefaParaExistente(cli){
+  const op=ge("nc-op").value;if(!op){toast("Selecione a operação da primeira tarefa.","erro");return;}
+  const chk=ge("nc-chk").value;
+  const rev=new Date();if(!["IMEDIATO","DIÁRIO"].includes(chk))rev.setDate(rev.getDate()+7);
+  let revISO=rev.toISOString().slice(0,10);
+  if(chk==="IMEDIATO"&&ge("nc-ass").value!==E.perfil.nome_sistema){
+    const q=perguntarQuandoDelegar("IMEDIATO");if(q)revISO=q;}
+  let rt;
+  try{rt=await DB.criarTarefa({id_cliente:cli.id_cliente,cliente:cli.nome,cnpj:cli.cnpj_cpf||"",
+    head:cli.head||ge("nc-head").value,operacao:op,check:chk,assessor:ge("nc-ass").value,
+    supervisao:ge("nc-sup").value||"",revisao:revISO});
+    toast(`✓ Tarefa ${rt.id} criada no cliente existente "${cli.nome}".`,"ok");}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  await enviarDocsCriacao("nc-doc",cli.id_cliente,rt.id);
+  fecharModal2();recarregar();
+}
 async function criarClienteTarefa(){
   const nome=(ge("nc-nome").value||"").trim();
   const cnpj=docFormata(ge("nc-cnpj").value);
@@ -3402,9 +3420,16 @@ async function criarClienteTarefa(){
   const dig=s=>String(s||"").replace(/\D/g,"");
   const dCand=dig(cnpj);
   const jaDoc=dCand?(todos||[]).find(x=>dig(x.cnpj_cpf)===dCand):null;
-  if(jaDoc){toast(`Este documento já é do cliente "${jaDoc.nome}" (${jaDoc.id_cliente}). Use "Nova tarefa (cliente existente)" — não crie de novo.`,"erro");return;}
+  if(jaDoc){
+    // pedido da Eduarda: aproveita o que já foi preenchido e cria SÓ a tarefa
+    if(confirm(`Este documento já é do cliente:\n\n${jaDoc.nome} (${jaDoc.id_cliente})\n\nCriar a TAREFA direto nesse cliente, aproveitando o que você preencheu?\n\nOK = criar só a tarefa · Cancelar = voltar ao formulário`))
+      await criarTarefaParaExistente(jaDoc);
+    return;}
   const jaNome=(todos||[]).find(x=>nrmNome(x.nome)===nrmNome(nome));
-  if(jaNome&&!confirm(`Já existe cliente com este nome:\n\n${jaNome.nome} (${jaNome.id_cliente} · ${jaNome.cnpj_cpf||"sem documento"})\n\nCriar MESMO ASSIM um cadastro novo? (Só se forem de fato pessoas/empresas diferentes.)`))return;
+  if(jaNome&&!confirm(`Já existe cliente com este nome:\n\n${jaNome.nome} (${jaNome.id_cliente} · ${jaNome.cnpj_cpf||"sem documento"})\n\nCriar MESMO ASSIM um cadastro novo? (Só se forem de fato pessoas/empresas diferentes.)`)){
+    if(confirm(`Então criar só a TAREFA no cliente existente "${jaNome.nome}", com o que você preencheu?`))
+      await criarTarefaParaExistente(jaNome);
+    return;}
   const op=ge("nc-op").value;if(!op){toast("Selecione a operação da primeira tarefa.","erro");return;}
   const chk=ge("nc-chk").value;const rev=new Date();if(!["IMEDIATO","DIÁRIO"].includes(chk))rev.setDate(rev.getDate()+7);
   let revISO=rev.toISOString().slice(0,10);
