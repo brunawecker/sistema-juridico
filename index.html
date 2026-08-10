@@ -1266,7 +1266,7 @@ async function abrirTarefa(id){
     DB.sessaoConcluir(c.min).catch(()=>{});
     if(c.min>=1)DB.tempo({id_tarefa:ant.id_tarefa,id_cliente:ant.id_cliente,minutos:c.min}).catch(()=>{});
     if(c.nota)DB.nota({id_tarefa:ant.id_tarefa,id_cliente:ant.id_cliente,tipo:"HISTORICO",texto:c.nota}).catch(()=>{});}
-  E.atual=t;
+  E.atual=t;E._propGateOk=false;
   t._consulta=!podeAgirNa(t);
   ge("m-titulo").textContent=t.cliente||"";
   ge("m-sub").innerHTML=`<span style="cursor:pointer" title="Clique para corrigir o tipo" onclick="editarOperacao()">${esc(t.operacao||"")} &#9998;</span> · ${esc(t.advogada||"")} · ${esc(t.check_||"")} · ${esc(t.assessor||"")}`;
@@ -1582,9 +1582,10 @@ async function concluirTarefa(){
     const cb=ge("conc-grupo");
     if(!cb||!cb.checked){toast("Para concluir, marque a caixinha confirmando que informou o movimento no grupo de atendimento do WhatsApp.","erro");return;}
     avisoGrupo=true;}
-  if(String(t.operacao||"").includes("Proposta Comercial")&&
-     !confirm("✔️ Confirmação obrigatória\n\nVocê já incluiu esta proposta na aba de Propostas?\n\nOK só se já foi lançada."))
-    {toast("Lance a proposta antes de concluir.","erro");return;}
+  // parecer/proposta comercial: portão com verificação REAL no banco —
+  // ou existe proposta do cliente, ou lança agora, ou justifica por escrito
+  if(String(t.operacao||"").includes("Proposta Comercial")&&!E._propGateOk){
+    abrirGateProposta();return;}
   let prox;if(dm)prox=dm;else{const d=new Date();d.setDate(d.getDate()+(/SEMANAL/.test(check)?7:/MENSAL/.test(check)?30:1));prox=d.toISOString().slice(0,10);}
   if(!confirm(dm?`Concluir? A tarefa volta em ${brData(dm)}.`:`Concluir? Volta sozinha pela frequência (${check}).`))return;
   try{const contaC=minutosDaSessao(t);await DB.concluir(t,{check,proximo:prox});await DB.sessaoConcluir(contaC.min);
@@ -1600,6 +1601,45 @@ async function concluirTarefa(){
         hist_texto:`✅ Prazo fatal de ${brData(t.prazo_fatal_dt)} marcado como cumprido (na conclusão).`,hist_tipo:"HISTORICO"});}}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Concluída!","ok");fecharModal();recarregar();}
+// portão da proposta ao concluir parecer (sugestão do Ygor, 10/08/2026):
+// confere no banco se há proposta do cliente; sem proposta, só conclui
+// lançando na hora ou justificando por escrito (fica no histórico)
+async function abrirGateProposta(){
+  const t=E.atual;
+  let props=[];
+  try{props=((await DB.propostas())||[]).filter(p=>p.id_cliente===t.id_cliente
+    &&p.status!=="Recusada");}catch(e){}
+  if(props.length){
+    modal2("&#128221; Parecer entregue — proposta conferida",esc(t.cliente),`
+      <div class="aviso info">&#10003; Encontrei proposta deste cliente na aba de Propostas:
+        <b>${props.map(p=>esc(p.id_proposta)+" · "+esc(p.status||"")).join(" · ")}</b></div>
+      <button class="btn btg btw" style="margin-top:8px" onclick="gatePropOk()">&#10003; Tudo certo — concluir a tarefa</button>`);
+    return;}
+  modal2("&#128221; Parecer entregue — e a proposta?",esc(t.cliente)+" — não encontrei nenhuma proposta deste cliente",`
+    <div style="font-size:13px;margin-bottom:8px">Parecer/proposta comercial entregue deve virar uma <b>proposta lançada</b> — é o que alimenta os números de venda. Escolha:</div>
+    <button class="btn btp btw" onclick="gatePropLancar()">&#128221; Lançar a proposta agora (cliente já vem selecionado)</button>
+    <div class="bloco-t" style="margin-top:12px">ou explique por que NÃO será lançada *</div>
+    <textarea class="fta" id="gate-just" placeholder="Ex: cliente desistiu antes do envio; parecer negativo — sem viabilidade; proposta será feita pela head..."></textarea>
+    <button class="btn bts btw" style="margin-top:6px" onclick="gatePropJustificar()">Concluir sem proposta (a justificativa fica no histórico)</button>`);
+}
+function gatePropOk(){E._propGateOk=true;fecharModal2();concluirTarefa();}
+async function gatePropLancar(){
+  const t=E.atual;fecharModal2();
+  await abrirProposta();
+  if(t&&t.id_cliente){
+    E._prCli={id_cliente:t.id_cliente,nome:t.cliente,cnpj_cpf:t.cnpj_cpf||""};
+    if(ge("pr-q"))ge("pr-q").value=t.cliente||"";
+    if(ge("pr-sel"))ge("pr-sel").textContent="✓ "+(t.cliente||"")+" selecionado";}
+  toast("Lance a proposta; depois volte ao cartão e conclua a tarefa.","ok");
+}
+async function gatePropJustificar(){
+  const t=E.atual,j=(ge("gate-just").value||"").trim();
+  if(!j){toast("Escreva a justificativa — é ela que explica o parecer sem proposta.","erro");return;}
+  try{await DB.nota({id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,tipo:"HISTORICO",
+    texto:"🚫 Parecer/proposta comercial concluído SEM lançar proposta — justificativa: "+j});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  E._propGateOk=true;fecharModal2();concluirTarefa();
+}
 async function colocarAguardando(){
   const t=E.atual,freq=parseInt(ge("ag2-freq").value)||7,fatal=ge("ag2-fatal").value;
   const prox=new Date();prox.setDate(prox.getDate()+freq);const pISO=prox.toISOString().slice(0,10);
@@ -1818,7 +1858,7 @@ function fecharModal(){
     if(conta.min>=1&&E.atual)DB.tempo({id_tarefa:E.atual.id_tarefa,id_cliente:E.atual.id_cliente,minutos:conta.min}).catch(()=>{});
     if(conta.nota&&E.atual)DB.nota({id_tarefa:E.atual.id_tarefa,id_cliente:E.atual.id_cliente,tipo:"HISTORICO",texto:conta.nota}).catch(()=>{});}
   const pa=document.getElementById("pergunta-atividade");if(pa)pa.remove();
-  ge("modal").classList.remove("aberto");E.atual=null;E.timerIni=null;}
+  ge("modal").classList.remove("aberto");E.atual=null;E.timerIni=null;E._propGateOk=false;}
 function modal2(titulo,sub,corpo){ge("m2-titulo").innerHTML=titulo;ge("m2-sub").innerHTML=sub;
   ge("m2-corpo").innerHTML=corpo;ge("modal2").classList.add("aberto");}
 function fecharModal2(){ge("modal2").classList.remove("aberto");}
