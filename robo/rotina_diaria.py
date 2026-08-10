@@ -131,13 +131,24 @@ def main():
                               f"{ultimo-4}). [meta:{tempo}min]")
             if not deve:
                 continue
-            oid = novo_id(cur, "OP", 4)
-            cur.execute("""insert into juridico.operacional
-                (id_tarefa, advogada, data_inclusao, cliente, check_, operacao,
-                 assessor, status_tarefa, data_revisao, data_revisao_dt, supervisao)
-                values (%s,%s,%s,%s,%s,%s,%s,'TAREFA FIXA',%s,%s,%s)""",
-                (oid, head_cl or "", hoje_br, "📌 " + (titulo or ""), check, oper,
-                 assessor or "", hoje_br, hoje, superv))
+            # cartão pendente da MESMA fixa? reaproveita (puxa a data para
+            # hoje) — nunca duplica; a Malu chegou a acumular 7 cópias
+            cur.execute("""select id_tarefa from juridico.operacional
+                where cliente = %s and assessor = %s and status_tarefa = 'TAREFA FIXA'
+                limit 1""", ("📌 " + (titulo or ""), assessor or ""))
+            aberto = cur.fetchone()
+            if aberto:
+                cur.execute("""update juridico.operacional set check_ = %s,
+                    data_revisao = %s, data_revisao_dt = %s where id_tarefa = %s""",
+                    (check, hoje_br, hoje, aberto[0]))
+            else:
+                oid = novo_id(cur, "OP", 4)
+                cur.execute("""insert into juridico.operacional
+                    (id_tarefa, advogada, data_inclusao, cliente, check_, operacao,
+                     assessor, status_tarefa, data_revisao, data_revisao_dt, supervisao)
+                    values (%s,%s,%s,%s,%s,%s,%s,'TAREFA FIXA',%s,%s,%s)""",
+                    (oid, head_cl or "", hoje_br, "📌 " + (titulo or ""), check, oper,
+                     assessor or "", hoje_br, hoje, superv))
             marca = hoje_br if freq != "MENSAL_1DIA_UTIL" else f"{mes_key} ({hoje_br})"
             cur.execute("""update juridico.tarefas_fixas set
                 ultima_execucao = %s, ultima_execucao_dt = %s where id_fixa = %s""",
