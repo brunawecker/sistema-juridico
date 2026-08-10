@@ -63,11 +63,18 @@ def bater_coracao():
         cur.execute("""insert into juridico.robo_status (nome, ultima)
                        values ('cobranca', now())
                        on conflict (nome) do update set ultima = excluded.ultima""")
+        # atrasadas/imediatas contam só o que está ACIONÁVEL pelo assessor:
+        # em correção (com a head) e delegadas (com o receptor — que já conta
+        # o impulso dele) ficam de fora (pedido da Danielly, 10/08/2026)
         cur.execute(f"""select count(*)::int,
             count(*) filter (where coalesce(status_tarefa,'') not like '%%EM DIA%%'
+                               and coalesce(status_tarefa,'') not like '%%DELEGADA%%'
+                               and coalesce(correcao_head,'') = ''
                                and data_revisao_dt < {hoje_sp})::int,
             count(*) filter (where check_ = 'IMEDIATO'
-                               and coalesce(status_tarefa,'') not like '%%EM DIA%%')::int
+                               and coalesce(status_tarefa,'') not like '%%EM DIA%%'
+                               and coalesce(status_tarefa,'') not like '%%DELEGADA%%'
+                               and coalesce(correcao_head,'') = '')::int
             from juridico.operacional""")
         total, atrasadas, imediatas = cur.fetchone()
         em_dia = total - atrasadas
