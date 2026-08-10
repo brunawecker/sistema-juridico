@@ -145,6 +145,46 @@ def main():
             criadas += 1
         print(f"4. tarefas fixas criadas: {criadas}")
 
+        # 5) membro INATIVO não fica com nada: fixas dele são desligadas e os
+        # cartões-fantasma somem; o resto vai para o operacional ATIVO com
+        # menor carga (com nota de auditoria em cada tarefa movida)
+        cur.execute("""update juridico.tarefas_fixas f set ativo='NAO'
+            from juridico.equipe e
+            where e.nome_sistema=f.assessor and upper(coalesce(e.status,''))<>'ATIVO'
+              and upper(coalesce(f.ativo,''))='SIM'""")
+        fixas_off = cur.rowcount
+        cur.execute("""delete from juridico.operacional o
+            using juridico.equipe e
+            where e.nome_sistema=o.assessor and upper(coalesce(e.status,''))<>'ATIVO'
+              and (o.cliente like '📌%%' or o.status_tarefa='TAREFA FIXA')""")
+        fantasmas = cur.rowcount
+        cur.execute("""select o.id_tarefa, o.id_cliente, o.assessor from juridico.operacional o
+            join juridico.equipe e on e.nome_sistema=o.assessor
+            where upper(coalesce(e.status,''))<>'ATIVO'""")
+        orfaos = cur.fetchall()
+        movidas = 0
+        for oid, idc, antigo in orfaos:
+            cur.execute("""select e.nome_sistema from juridico.equipe e
+                where upper(coalesce(e.status,''))='ATIVO'
+                  and e.cargo not ilike '%%head%%' and e.cargo not ilike '%%vendedor%%'
+                  and e.cargo not ilike '%%outro time%%'
+                order by (select count(*) from juridico.operacional x
+                          where x.assessor=e.nome_sistema) asc limit 1""")
+            r = cur.fetchone()
+            if not r:
+                break
+            novo = r[0]
+            cur.execute("update juridico.operacional set assessor=%s where id_tarefa=%s", (novo, oid))
+            hid = novo_id(cur, "HIS", 5)
+            cur.execute("""insert into juridico.historico
+                (id_historico,id_tarefa,id_cliente,data,data_dt,autor,tipo,texto,origem)
+                values (%s,%s,%s,%s,%s,'Sistema','HISTORICO',%s,'SITE')""",
+                (hid, oid, idc, hoje_br, hoje,
+                 f"🔁 Reatribuída automaticamente de {antigo} (desligado da equipe) para {novo} — regra: operacional ativo com menor carga."))
+            movidas += 1
+        print(f"5. saída de membro: {fixas_off} fixa(s) desligada(s), "
+              f"{fantasmas} cartão(ões)-fantasma removido(s), {movidas} tarefa(s) reatribuída(s)")
+
         # batimento (o Painel vigia)
         cur.execute("""insert into juridico.robo_status (nome, ultima) values ('rotina7h', now())
                        on conflict (nome) do update set ultima = excluded.ultima""")
