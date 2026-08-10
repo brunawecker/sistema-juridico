@@ -395,6 +395,7 @@ const L = {  // modo local (servidor de teste na máquina)
   propostaUpdate(d){return this.f("/api/proposta_update",P(d));},
   propostaFechar(d){return this.f("/api/proposta_fechar",P(d));},
   propostaRecusar(d){return this.f("/api/proposta_recusar",P(d));},
+  propostaApagar(id){return this.f("/api/proposta_apagar",P({id_proposta:id}));},
   clienteUpdate(id,campos){return this.f("/api/cliente_update",P({id_cliente:id,campos}));},
   definirAssessor(id,novo){return this.f("/api/definir_assessor",P({id_cliente:id,novo}));},
   converterCliente(id){return this.f("/api/converter_cliente",P({id_cliente:id}));},
@@ -595,6 +596,9 @@ const S = {
     if(d.fechada==="SIM"){const r=okS(await supa.from("propostas_visiveis").select("id_cliente").eq("id_proposta",d.id_proposta));
       if(r&&r[0]&&r[0].id_cliente)await rpcS("converter_cliente_oficial",{p_id_cliente:r[0].id_cliente});}
     return{ok:true};},
+  async propostaApagar(id){const hid=await novoIdS("HIS");
+    const ok=await rpcS("apagar_proposta",{p_id:id,p_hist_id:hid});
+    if(!ok)throw new Error("proposta não encontrada");return{ok:true};},
   async propostaRecusar(d){
     const u={status:"Recusada",motivo_perda:d.motivo||""};
     if(d.log)u.negociacao_log=d.log;
@@ -3012,8 +3016,15 @@ function desenhaProps(){
         <select class="fsel" onchange='mudaStatusProp(${JSON.stringify(p.id_proposta)},this.value)'>
           ${["Em análise","Enviada","Em negociação","Aguardando cliente","Aceita","Recusada"].map(s=>`<option ${s===p.status?"selected":""}>${s}</option>`).join("")}</select>
         ${baixada?`<span class="tag" style="background:#8A8F94;color:white">&#10007; Baixada — reabra mudando a etapa</span>`
-          :p.fechada!=="SIM"?`<button class="btn btg btsm" onclick='fecharProp(${JSON.stringify(p.id_proposta)})'>&#10003; Fechada (vira cliente)</button>`:'<span class="tag tek">&#10003; Fechada</span>'}</div>`:""}</div>`;}).join("")
+          :p.fechada!=="SIM"?`<button class="btn btg btsm" onclick='fecharProp(${JSON.stringify(p.id_proposta)})'>&#10003; Fechada (vira cliente)</button>`:'<span class="tag tek">&#10003; Fechada</span>'}
+        <button class="btn bts btsm" style="color:var(--red);border-color:var(--red)" title="Apagar proposta (lançada errada/duplicada) — fica um retrato no histórico do cliente" onclick='apagarProposta(${JSON.stringify(p.id_proposta)})'>&#128465;</button></div>`:""}</div>`;}).join("")
     :`<div class="vazio">Nenhuma proposta.</div>`;
+}
+async function apagarProposta(id){
+  const p=E._propMap[id];if(!p)return;
+  if(!confirm(`🗑 APAGAR a proposta ${id}?\n\n${p.cliente} · ${p.produtos||"—"} · etapa ${p.status||"—"}\n\nUse só para lançamento errado ou duplicado. A proposta some das telas e dos números; um retrato dela (valor, etapa e linha do tempo) fica gravado no histórico do cliente.\n\nEsta ação NÃO tem desfazer.`))return;
+  try{await DB.propostaApagar(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Proposta apagada — retrato registrado no histórico do cliente.","ok");telaPropostas();
 }
 async function mudaStatusProp(id,status){
   // "Aceita" passa pelo mesmo portão do fechamento: confirmar o valor final
