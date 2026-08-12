@@ -3708,13 +3708,51 @@ function ligaChipAvulsa(desc,iniMs){
   ge("chip-timer").style.display="inline-flex";
   ge("chip-timer-desc").textContent=desc.slice(0,26);
   clearInterval(E._avulsaInt);
+  E._prosLimite=null;
+  if(desc.indexOf("🎯 Prospecção")>-1)armarLimiteProspeccao();
   E._avulsaInt=setInterval(()=>{const s=Math.floor((Date.now()-E._avulsa.ini)/1000);
-    ge("chip-timer-num").textContent=Math.floor(s/60)+":"+String(s%60).padStart(2,"0");},1000);
+    ge("chip-timer-num").textContent=Math.floor(s/60)+":"+String(s%60).padStart(2,"0");
+    // janela de prospecção esgotada: chama a pessoa de volta às pendentes
+    const L=E._prosLimite;
+    if(L&&!L.avisado&&Date.now()>=L.fimMs){L.avisado=true;mostrarFimProspeccao();}},1000);
 }
+// soma o que a pessoa JÁ prospectou hoje (sessões anteriores contam — parar e
+// religar o relógio não zera a janela) e arma o despertador para o que resta
+async function armarLimiteProspeccao(){
+  const janela=PROSPEC[E.perfil.nome_sistema]||0;if(!janela||!E._avulsa)return;
+  let usados=0;
+  try{const hist=await DB.historicoPeriodo(1),hj=hojeISO();
+    (hist||[]).forEach(r=>{if(String(r.data_dt||"").slice(0,10)!==hj)return;
+      if(!ehMeuNome(r.autor))return;const tx=String(r.texto||"");
+      if(tx.indexOf("🎯 Prospecção")===-1)return;
+      const m=tx.match(/Tempo registrado:\s*(\d+)\s*min/);if(m)usados+=parseInt(m[1]);});}
+  catch(e){/* sem leitura do histórico, vale a janela cheia da sessão */}
+  if(!E._avulsa)return;   // pessoa parou o relógio enquanto o histórico carregava
+  const resta=Math.max(1,janela-usados);
+  E._prosLimite={fimMs:E._avulsa.ini+resta*60000,avisado:false,janela};
+}
+function mostrarFimProspeccao(){
+  let b=document.getElementById("fim-pros");
+  if(!b){b=ce("div");b.id="fim-pros";
+    b.style.cssText="position:fixed;inset:0;z-index:600;background:rgba(26,46,56,.85);display:flex;align-items:center;justify-content:center;padding:20px";
+    document.body.appendChild(b);}
+  const L=E._prosLimite||{janela:0};
+  b.innerHTML=`<div style="background:white;border-radius:18px;padding:32px 30px;max-width:440px;text-align:center;box-shadow:0 24px 80px rgba(0,0,0,.4)">
+    <div style="font-size:44px;margin-bottom:8px">&#127919;</div>
+    <div style="font-size:18px;font-weight:700;color:var(--navy);margin-bottom:6px">Tempo de prospecção do dia completo!</div>
+    <div style="font-size:13px;color:var(--gray);margin-bottom:16px">Você usou os ${fmtMin(L.janela)} da sua janela de hoje. O tempo fica registrado na sua produtividade — agora é hora de voltar para as tarefas pendentes.</div>
+    <button class="btn btp btw" style="font-size:15px;padding:12px" onclick="fimProspeccaoOk()">&#10003; Encerrar prospecção e voltar às tarefas</button>
+    <div style="margin-top:10px"><a href="javascript:adiarFimProspeccao()" style="font-size:12px;color:var(--gray)">Estou finalizando um contato — me lembre em 10 min</a></div></div>`;}
+async function fimProspeccaoOk(){
+  const b=document.getElementById("fim-pros");if(b)b.remove();
+  await pararAvulsa();telaMinhas();}
+function adiarFimProspeccao(){
+  const b=document.getElementById("fim-pros");if(b)b.remove();
+  if(E._prosLimite){E._prosLimite.avisado=false;E._prosLimite.fimMs=Date.now()+10*60000;}}
 async function pararAvulsa(){
   if(!E._avulsa)return;
   const min=Math.round((Date.now()-E._avulsa.ini)/60000);
-  clearInterval(E._avulsaInt);ge("chip-timer").style.display="none";
+  clearInterval(E._avulsaInt);E._prosLimite=null;ge("chip-timer").style.display="none";
   try{await DB.sessaoConcluir(min,"AVULSA");
     if(min>=1)await DB.nota({id_tarefa:"AVULSA",id_cliente:null,tipo:"TIMER",texto:`Tempo registrado: ${min} min — ⏱️ ${E._avulsa.desc}`});}
   catch(e){toast("Erro: "+e.message,"erro");}
