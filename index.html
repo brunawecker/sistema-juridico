@@ -3402,12 +3402,36 @@ function montarFab(vend){
   area.style.display="flex";
   const it=(rot,fn)=>`<button class="btn bts" style="box-shadow:0 4px 14px rgba(0,0,0,.15);border-radius:20px" onclick="fecharFab();${fn}()">${rot}</button>`;
   ge("fab-menu").innerHTML=vend
-    ?it("&#128203; Lançar proposta","abrirProposta")+it("&#9201; Iniciar atividade (tempo)","abrirAvulsa")
+    ?it("&#128100; Novo cliente + tarefa","abrirNovoCliente")
+    +it("&#128203; Nova tarefa (cliente existente)","abrirNovaTarefa")
+    +it("&#128221; Lançar proposta","abrirProposta")+it("&#9201; Iniciar atividade (tempo)","abrirAvulsa")
     :it("&#128100; Novo cliente + tarefa","abrirNovoCliente")
     +it("&#128203; Nova tarefa (cliente existente)","abrirNovaTarefa")
     +it("&#128221; Lançar proposta","abrirProposta")
     +it("&#128197; Reunião / compromisso","abrirReuniao")
     +it("&#9201; Iniciar atividade (tempo)","abrirAvulsa");
+}
+// vendedor cria e direciona tarefas SÓ para o grupo configurado em
+// "delega para" (pedido da Bruna, 12/08/2026: João, Laura e Thiago —
+// nunca Malu, Ygor e Madu); demais perfis seguem com todos os operacionais
+function alvosCriacao(){
+  const p=E.perfil||{};
+  if(!/vendedor|comercial/i.test(p.cargo||""))return OPERACIONAIS;
+  const l=DELEGA_PARA[p.nome_sistema]||[];
+  return l.length?l.filter(n=>OPERACIONAIS.includes(n)):["João","Laura","Thiago"].filter(n=>OPERACIONAIS.includes(n));
+}
+// para o vendedor, reordena o seletor: quem está mais livre primeiro (folga =
+// capacidade - fila do dia - janela de prospecção, a mesma conta de todos)
+async function ordenarPorFolga(selId){
+  const p=E.perfil||{};if(!/vendedor|comercial/i.test(p.cargo||""))return;
+  const sel=ge(selId);if(!sel)return;
+  let cg=[];try{cg=await DB.cargaEquipe();}catch(e){}
+  const folgaDe=n=>{const c=(cg||[]).find(r=>loginDe(r.nome)===n);
+    return c?Math.max(0,capDe(n)-(c.minutos||0)-(c.pros_min||0)):null;};
+  const ord=alvosCriacao().map(n=>({n,f:folgaDe(n)}))
+    .sort((a,b)=>(b.f??-1)-(a.f??-1));
+  if(!ord.length)return;
+  sel.innerHTML=ord.map((o,i)=>`<option value="${esc(o.n)}">${esc(o.n)}${o.f!==null?` — ${fmtMin(o.f)} livres`:""}${i===0&&o.f!==null?" (mais livre)":""}</option>`).join("");
 }
 function toggleFab(){const m=ge("fab-menu");m.style.display=m.style.display==="flex"?"none":"flex";}
 function fecharFab(){ge("fab-menu").style.display="none";}
@@ -3428,13 +3452,14 @@ function buscaNT(){
 }
 function formNT(id){
   const c=E._cli[id];E._ntCli=c;ge("nt-res").innerHTML="";ge("nt-q").value=c.nome;
-  const resp=c.assessor_responsavel||"";
+  const alvosNT=alvosCriacao();
+  const resp=alvosNT.includes(c.assessor_responsavel||"")?c.assessor_responsavel:"";
   ge("nt-form").innerHTML=`
     ${resp?`<div class="aviso info" style="margin:6px 0">&#128100; Responsável deste cliente: <b>${esc(resp)}</b> (já selecionado)</div>`:""}
     <div class="linha-acao" style="margin-top:6px">
       <select class="fsel" id="nt-op"><option value="">Tipo de operação *</option>${OPERACOES.map(o=>`<option>${esc(o)}</option>`).join("")}</select>
       <select class="fsel" id="nt-chk">${["IMEDIATO","DIÁRIO","SEMANAL","MENSAL"].map(x=>`<option>${x}</option>`).join("")}</select></div>
-    <div class="linha-acao"><select class="fsel" id="nt-ass">${OPERACIONAIS.map(a=>`<option ${a===resp?"selected":""}>${a}</option>`).join("")}</select>
+    <div class="linha-acao"><select class="fsel" id="nt-ass">${alvosNT.map(a=>`<option ${a===resp?"selected":""}>${a}</option>`).join("")}</select>
       <label style="font-size:11px">Prazo fatal:</label><input type="date" class="fsel" id="nt-pf"></div>
     <div class="linha-acao"><input class="fsel" id="nt-proc" placeholder="Nº processual (opcional)" style="flex:1">
       <input class="fsel" id="nt-uf" placeholder="UF" style="width:64px"></div>
@@ -3442,6 +3467,7 @@ function formNT(id){
     <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px">&#128206; Documentos iniciais (opcional — pode selecionar v&aacute;rios):</label>
       <input type="file" id="nt-doc" class="fsel" multiple style="max-width:240px"></div>
     <button class="btn btp btw" style="margin-top:8px" onclick="criarTarefaNova()">&#10003; Criar tarefa</button>`;
+  ordenarPorFolga("nt-ass");
 }
 // envia os anexos escolhidos na criação (um a um; avisa o que subiu e o que não)
 async function enviarDocsCriacao(inputId,idCli,idTar){
@@ -3457,6 +3483,7 @@ async function enviarDocsCriacao(inputId,idCli,idTar){
 }
 async function criarTarefaNova(){
   const c=E._ntCli;if(!c){toast("Selecione um cliente.","erro");return;}
+  if(!alvosCriacao().includes(ge("nt-ass").value)){toast("Você direciona tarefas só para: "+alvosCriacao().join(", ")+".","erro");return;}
   const op=ge("nt-op").value;if(!op){toast("Selecione a operação.","erro");return;}
   const chk=ge("nt-chk").value;
   const rev=new Date();if(!["IMEDIATO","DIÁRIO"].includes(chk))rev.setDate(rev.getDate()+7);
@@ -3489,15 +3516,17 @@ function abrirNovoCliente(){
     <div class="bloco-t" style="margin-top:10px">Primeira tarefa</div>
     <div class="linha-acao"><select class="fsel" id="nc-op"><option value="">Tipo de operação *</option>${OPERACOES.map(o=>`<option>${esc(o)}</option>`).join("")}</select>
       <select class="fsel" id="nc-chk">${["IMEDIATO","DIÁRIO","SEMANAL","MENSAL"].map(x=>`<option>${x}</option>`).join("")}</select>
-      <select class="fsel" id="nc-ass">${OPERACIONAIS.map(a=>`<option>${a}</option>`).join("")}</select></div>
+      <select class="fsel" id="nc-ass">${alvosCriacao().map(a=>`<option>${a}</option>`).join("")}</select></div>
     <textarea class="fta" id="nc-sup" style="margin-top:6px" placeholder="Orientação inicial (opcional)"></textarea>
     <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px">&#128206; Documentos iniciais (opcional — pode selecionar v&aacute;rios):</label>
       <input type="file" id="nc-doc" class="fsel" multiple style="max-width:240px"></div>
     <button class="btn btp btw" style="margin-top:8px" onclick="criarClienteTarefa()">&#10003; Cadastrar cliente + criar tarefa</button>`);
+  ordenarPorFolga("nc-ass");
 }
 // cliente já existe? migra o que foi preenchido no "Novo cliente" e cria só
 // a tarefa nele (operação, frequência, assessor, orientação e anexos)
 async function criarTarefaParaExistente(cli){
+  if(!alvosCriacao().includes(ge("nc-ass").value)){toast("Você direciona tarefas só para: "+alvosCriacao().join(", ")+".","erro");return;}
   const op=ge("nc-op").value;if(!op){toast("Selecione a operação da primeira tarefa.","erro");return;}
   const chk=ge("nc-chk").value;
   const rev=new Date();if(!["IMEDIATO","DIÁRIO"].includes(chk))rev.setDate(rev.getDate()+7);
@@ -3535,6 +3564,7 @@ async function criarClienteTarefa(){
       await criarTarefaParaExistente(jaNome);
     return;}
   const op=ge("nc-op").value;if(!op){toast("Selecione a operação da primeira tarefa.","erro");return;}
+  if(!alvosCriacao().includes(ge("nc-ass").value)){toast("Você direciona tarefas só para: "+alvosCriacao().join(", ")+".","erro");return;}
   const chk=ge("nc-chk").value;const rev=new Date();if(!["IMEDIATO","DIÁRIO"].includes(chk))rev.setDate(rev.getDate()+7);
   let revISO=rev.toISOString().slice(0,10);
   if(chk==="IMEDIATO"&&ge("nc-ass").value!==E.perfil.nome_sistema){
