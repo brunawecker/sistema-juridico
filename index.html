@@ -852,7 +852,7 @@ async function telaConfig(){setNav("cfg","Configurações");carregando();
       return `<div style="border-bottom:1px solid var(--gray-lt);padding:6px 0"><div class="linha-item" style="border:0;padding:2px 0"><span><b>${esc(n)}</b></span><span>
       <label style="font-size:12px"><input type="checkbox" id="cfg-cor-${esc(n)}" ${p.pode_corrigir?"checked":""}> corrige</label>
       <label style="font-size:12px;margin-left:10px"><input type="checkbox" id="cfg-del-${esc(n)}" ${p.pode_delegar?"checked":""}> delega</label>
-      <label style="font-size:12px;margin-left:10px" title="Janela de Prospecção: com 0 atrasadas e 0 imediatas, o planejador reserva estes minutos do dia">&#127919; <input type="number" min="0" max="240" step="15" class="fsel" style="width:64px" id="cfg-pros-${esc(n)}" value="${parseInt(p.prospeccao_min)||0}"> min/dia</label></span></div>
+      <label style="font-size:12px;margin-left:10px" title="Janela de Prospecção: sem nada vencido (imediatas do próprio dia não travam), o planejador programa estes minutos no dia — quem delega vê o tempo como ocupado">&#127919; <input type="number" min="0" max="240" step="15" class="fsel" style="width:64px" id="cfg-pros-${esc(n)}" value="${parseInt(p.prospeccao_min)||0}"> min/dia</label></span></div>
       <div style="font-size:11px;color:var(--gray);display:flex;gap:9px;flex-wrap:wrap;padding-left:6px">delega para:
         ${OPERACIONAIS.filter(a=>a!==n).map(a=>`<label><input type="checkbox" id="cfg-dp-${esc(n)}-${esc(a)}" ${dp.includes(a)?"checked":""}> ${esc(a)}</label>`).join("")}</div></div>`;}).join("")}
     <div class="linha-acao"><button class="btn btp btsm" onclick="salvarConfigPer()">&#128190; Salvar permissões</button></div></div>
@@ -1068,19 +1068,22 @@ async function telaMinhas(){
   rem=Math.max(0,rem);
   for(const t of hoje0){if(jaAdd[t.id_tarefa])continue;
     if(rem<=0){fila.push(t);continue;}if(push1(t,3))rem-=t._tempo;}
-  // 🎯 Janela de Prospecção: dia dominado (0 atrasadas, 0 imediatas) reserva
-  // o bloco da pessoa — as ANTECIPAÇÕES (semanais/mensais futuras) só entram
-  // no que sobrar além dele. Nenhuma tarefa muda de data.
+  // 🎯 Janela de Prospecção: sem nada VENCIDO (atrasadas ou imediatas de dias
+  // anteriores) o bloco fica programado no dia — imediatas DO PRÓPRIO DIA
+  // convivem com a janela (pedido da Bruna, 12/08/2026). As ANTECIPAÇÕES
+  // (semanais/mensais futuras) só entram no que sobrar. Nada muda de data.
   const janelaPros=PROSPEC[nome]||0;
   let reservaPros=0;
-  if(janelaPros>0&&imed.length===0&&atr.length===0){
+  const imedVencidas=imed.filter(t=>typeof t._dias==="number"&&t._dias<0);
+  if(janelaPros>0&&imedVencidas.length===0&&atr.length===0){
     reservaPros=Math.min(rem,janelaPros);rem-=reservaPros;}
   for(const t of semanal.concat(mensal)){if(jaAdd[t.id_tarefa])continue;
     if(rem<=0){fila.push(t);continue;}if(push1(t,4))rem-=t._tempo;}
   plano.sort((a,b)=>a._urg-b._urg||a._dias-b._dias);
   const planejado=plano.reduce((s,t)=>s+t._tempo,0);
   const filaMin=fila.reduce((s,t)=>s+t._tempo,0);
-  const pct=Math.min(100,Math.round(planejado/capDisp*100));
+  // a janela de prospecção OCUPA a barra do dia (quem delega vê o mesmo)
+  const pct=Math.min(100,Math.round((planejado+reservaPros)/capDisp*100));
   E._plano=plano;E._minhasTodas=minhas;
   // ------- monta html
   let h=bannerPrazoFatal(ativas);
@@ -1093,10 +1096,11 @@ async function telaMinhas(){
     <div style="display:flex;align-items:center;gap:8px"><div class="cap" style="flex:1"><div style="width:${pct}%;background:${pctCor}"></div></div>
     <b style="color:${pctCor}">${pct}%</b></div>
     <div style="font-size:11px;color:var(--gray);margin-top:4px">&#9201; ${fmtMin(planejado)} de ${fmtMin(capDisp)} disponíveis
+      ${reservaPros?`· &#127919; ${fmtMin(reservaPros)} de prospecção`:""}
       ${minReu?`· &#128197; ${fmtMin(minReu)} em reuniões`:""} · &#128203; ${ativas.length} no portfólio (mostrando ${plano.length})</div></div>`;
   if(reservaPros>0)h+=`<div class="painel" style="background:#EAF7EA;border-color:var(--green)">
     <div class="bloco-t" style="color:var(--green)">&#127919; Dia dominado — ${fmtMin(reservaPros)} reservadas para prospecção</div>
-    <div style="font-size:12px;color:var(--gray);margin-bottom:6px">Zero atrasadas e zero imediatas: este bloco é seu para buscar negócios novos — o planejador não antecipa tarefas dentro dele. O tempo conta no Diário e na sua produtividade.</div>
+    <div style="font-size:12px;color:var(--gray);margin-bottom:6px">Nada vencido na sua fila: este bloco já está programado no seu dia para buscar negócios novos — quem delega também o vê como tempo ocupado. ${imed.length?"Dê conta das imediatas de hoje e use o bloco no melhor horário. ":""}O planejador não antecipa tarefas dentro dele, e o tempo conta no Diário e na sua produtividade.</div>
     <button class="btn btg btsm" onclick="iniciarProspeccao()">&#127919; Prospectar agora (liga o relógio)</button></div>`;
   // quem pode delegar (e não é head) vê a fila do seu grupo — pedido do Ygor:
   // "preciso saber quem recebe" (head já tem isso no Painel)
@@ -1104,13 +1108,13 @@ async function telaMinhas(){
     let cgEq=[];try{cgEq=await DB.cargaEquipe();}catch(e){}
     const alvosEq=new Set(alvosDelegacao(nome));
     const lsEq=(cgEq||[]).filter(r=>alvosEq.has(loginDe(r.nome)))
-      .map(r=>({n:loginDe(r.nome),dia:r.pendentes||0,tot:r.total_ativas||0,
-        folga:Math.max(0,capDe(loginDe(r.nome))-(r.minutos||0))}))
+      .map(r=>({n:loginDe(r.nome),dia:r.pendentes||0,tot:r.total_ativas||0,pros:r.pros_min||0,
+        folga:Math.max(0,capDe(loginDe(r.nome))-(r.minutos||0)-(r.pros_min||0))}))
       .sort((a,b)=>b.folga-a.folga);
     if(lsEq.length)h+=`<div class="painel"><div class="bloco-t">&#128101; Fila do seu grupo (para decidir delegações)</div>`+
       lsEq.map(l=>`<div class="linha-item"><span><b>${esc(l.n)}</b></span>
-        <span style="font-size:12px">${l.dia} do dia · ${l.tot} no total · <b style="color:var(--green)">${fmtMin(l.folga)} livres</b></span></div>`).join("")+
-      `<div style="font-size:11px;color:var(--gray);margin-top:4px">Mesma régua do robô de sugestões: "do dia" = vencidas + de hoje; folga = capacidade menos a fila do dia.</div></div>`;
+        <span style="font-size:12px">${l.dia} do dia · ${l.tot} no total${l.pros?` · &#127919; ${fmtMin(l.pros)} prospectando`:""} · <b style="color:var(--green)">${fmtMin(l.folga)} livres</b></span></div>`).join("")+
+      `<div style="font-size:11px;color:var(--gray);margin-top:4px">Mesma régua do robô de sugestões: "do dia" = vencidas + de hoje; folga = capacidade menos a fila do dia e menos a janela de prospecção (&#127919;) de quem está com tudo em dia.</div></div>`;
   }
   if(meetings.length)h+=`<div class="painel"><div class="bloco-t">&#128197; Compromissos hoje</div>`+
     meetings.map(m=>`<div class="linha-item"><span><b>${esc(m.horario||"—")}</b> ${esc(m.titulo)}${m.cliente?" · "+esc(m.cliente):""}</span>
@@ -1138,7 +1142,7 @@ async function telaMinhas(){
     const folgas=alvosDelegacao(nome).map(x=>{
       const c=(cargasEq||[]).find(r=>loginDe(r.nome)===x);
       if(!c)return null;   // sem medição visível = fora da lista (não chuta "livre")
-      return{n:x,folga:capDe(x)-c.minutos};}).filter(o=>o&&o.folga>=30).sort((a,b)=>b.folga-a.folga);
+      return{n:x,folga:capDe(x)-c.minutos-(c.pros_min||0)};}).filter(o=>o&&o.folga>=30).sort((a,b)=>b.folga-a.folga);
     if(nSug>0)h+=`<div class="painel" style="background:#FFF7E6;border-color:var(--amber)">
       <div class="bloco-t" style="color:#7F5200">&#9878; Sugestão do robô: delegar ${nSug} tarefa(s) hoje</div>
       <div style="font-size:12px">Seu dia soma <b>${fmtMin(planejado)}</b> para <b>${fmtMin(capDisp)}</b> de capacidade — delegando ${nSug}, a agenda fecha.
@@ -1710,12 +1714,12 @@ async function carregarCargaDelegar(){
   let carga=[];try{carga=await DB.cargaEquipe();}catch(e){box.innerHTML="";return;}
   const alvos=new Set(alvosDelegacao(E.perfil.nome_sistema));
   const linhas=(carga||[]).filter(r=>alvos.has(loginDe(r.nome)))
-    .map(r=>({n:loginDe(r.nome),dia:r.pendentes||0,tot:r.total_ativas||0,
-      folga:Math.max(0,capDe(loginDe(r.nome))-(r.minutos||0))}))
+    .map(r=>({n:loginDe(r.nome),dia:r.pendentes||0,tot:r.total_ativas||0,pros:r.pros_min||0,
+      folga:Math.max(0,capDe(loginDe(r.nome))-(r.minutos||0)-(r.pros_min||0))}))
     .sort((a,b)=>b.folga-a.folga);
   if(!linhas.length){box.innerHTML="";return;}
   box.innerHTML=`<b style="color:var(--navy)">Fila de cada um agora</b> (mais folgado primeiro): `+
-    linhas.map(l=>`<span style="white-space:nowrap"><b>${esc(l.n)}</b> ${l.dia} do dia · ${l.tot} no total · ${fmtMin(l.folga)} livres</span>`).join(" &nbsp;·&nbsp; ");}
+    linhas.map(l=>`<span style="white-space:nowrap"><b>${esc(l.n)}</b> ${l.dia} do dia · ${l.tot} no total${l.pros?` · &#127919; ${fmtMin(l.pros)} prospectando`:""} · ${fmtMin(l.folga)} livres</span>`).join(" &nbsp;·&nbsp; ");}
 async function confirmarDelegar(){
   const t=E.atual,para=ge("dg-para").value,txt=(ge("dg-txt").value||"").trim();
   if(!para){toast("Escolha para quem delegar.","erro");return;}
@@ -2042,7 +2046,7 @@ async function telaPainel(){
     // folga vem do medidor agregado do banco — a MESMA conta que os
     // delegadores não-heads veem na tela deles
     const cg=(cargasEqP||[]).find(r=>loginDe(r.nome)===n);
-    const folga=c-(cg?cg.minutos:d.min);
+    const folga=c-(cg?cg.minutos+(cg.pros_min||0):d.min);
     if(folga>=30)comFolga.push({n,folga});});
   if(sobrec.length){comFolga.sort((a,b)=>b.folga-a.folga);
     // candidatas concretas: as MENOS urgentes do dia de quem estourou, até a
