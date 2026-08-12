@@ -273,7 +273,7 @@ const CORES_ASSESSOR={
 const COR_PADRAO={bg:"#EEF2F5",border:"#90A4AE",text:"#455A64",dot:"#90A4AE"};
 const corDe=n=>CORES_ASSESSOR[primeiroNome(n||"")]||COR_PADRAO;
 // Listas do sistema antigo (Code.gs / Index.html)
-const OPERACOES=["Audiência","Análise Prescricional","Cancelar transação","Cancelar negociação","Execução Fiscal","Estadual","Emissão CPEN","Embargos à Execução","ExcPreEx - Prescrição","E-Processo","FGTS","Laudo OPF","Laudo CAPAG","Levantamento - Cliente Villela","MS","MS Migração","MS Impedimento","MS laudo CAPAG","MS CND","Monitoramento","NJP","Negociação Estadual","Outros","Petição","Parcelar","Proposta Comercial - Parecer Tributário","Protesto","PRDI","Renegociação","Risco de bloqueio","Restituição SN","Revenda","Recurso","Simulação","TAX","Transacionar","TIS","Contabilize","Contrato/Aditivo"];
+const OPERACOES=["Audiência","Análise Prescricional","Cancelar transação","Cancelar negociação","Execução Fiscal","Estadual","Emissão CPEN","Embargos à Execução","ExcPreEx - Prescrição","E-Processo","FGTS","Laudo OPF","Laudo CAPAG","Levantamento - Cliente Villela","MS","MS Migração","MS Impedimento","MS laudo CAPAG","MS CND","Monitoramento","NJP","Negociação Estadual","Outros","Petição","Parcelar","Proposta Comercial - Parecer Tributário","Protesto","PRDI","Renegociação","Risco de bloqueio","Restituição SN","Revenda","Recurso","Simulação","TAX","TI - Transação Individual","Transacionar","TIS","Contabilize","Contrato/Aditivo"];
 const TEMPOS_PADRAO={"Execução Fiscal":15,"Proposta Comercial - Parecer Tributário":25,"MS":35,"MS Migração":35,"MS Impedimento":35,"MS laudo CAPAG":35,"MS CND":35,"Transacionar":20,"Laudo CAPAG":25,"Laudo OPF":25,"Monitoramento":10,"Audiência":60,"NJP":20,"Renegociação":20,"Recurso":30,"Embargos à Execução":30,"Emissão CPEN":15,"PRDI":20,"Protesto":15,"Estadual":20,"E-Processo":15,"FGTS":20,"Petição":30,"Parcelar":15,"Simulação":20,"TAX":25,"TIS":20,"Contabilize":20,"Restituição SN":20,"Risco de bloqueio":15,"Revenda":15,"Cancelar transação":15,"Levantamento - Cliente Villela":30,"Outros":20,"Análise Prescricional":30,"ExcPreEx - Prescrição":25,"Negociação Estadual":20,_default:20};
 const tempoDe=op=>TEMPOS_PADRAO[op]||TEMPOS_PADRAO._default;
 // documento sempre num formato só (evita duplicar cliente por grafia):
@@ -290,6 +290,9 @@ const nrmNome=s=>String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"")
 // tarefas de parecer n\u00e3o exigem aviso no grupo de WhatsApp (decis\u00e3o da head,
 // 04/08/2026 \u2014 o parecer \u00e9 interno, n\u00e3o \u00e9 movimento para o cliente ver)
 const dispensaGrupo=t=>String((t&&t.operacao)||"").includes("Proposta Comercial");
+// levantamentos podem ir DIRETO ao advogado (sem aviso no grupo) — o assessor
+// marca uma das duas caixinhas para finalizar (pedido da Bruna, 12/08/2026)
+const ehLevantamento=t=>String((t&&t.operacao)||"").toUpperCase().includes("LEVANTAMENTO");
 // ===== Robô de produtividade: tempos REAIS medidos por pessoa + tipo =====
 // Soma as sessões da mesma tarefa no mesmo dia (1 execução) e tira a mediana.
 async function carregarTemposReais(ops){
@@ -1362,7 +1365,8 @@ function desenharCard(t,hist){
       &#128229; <b>Devolver</b>: fez o movimento? Finalize e o retorno vai ao responsável;<br>
       &#128193; <b>Arquivar de vez</b>: a tarefa acabou? Encerre — fecha o CASO oficial inteiro (reabrível pela head);<br>
       &#128257; <b>Continuar com você</b>: vai cobrar algo aos poucos (ex.: documentos de um laudo)? Mude a <b>Frequência</b> abaixo para SEMANAL e conclua a rodada — o cartão volta para você até ter tudo e devolver.</div>
-    ${t.id_cliente&&!dispensaGrupo(t)?`<label style="font-size:12px;display:block;margin-bottom:7px"><input type="checkbox" id="imp-grupo"> Confirmo que informei o movimento no <b>grupo de atendimento do WhatsApp</b> *</label>`:""}
+    ${t.id_cliente&&!dispensaGrupo(t)?`<label style="font-size:12px;display:block;margin-bottom:7px"><input type="checkbox" id="imp-grupo" onclick="const a=ge('imp-adv');if(this.checked&&a)a.checked=false"> Confirmo que informei o movimento no <b>grupo de atendimento do WhatsApp</b> *</label>
+    ${ehLevantamento(t)?`<label style="font-size:12px;display:block;margin-bottom:7px"><input type="checkbox" id="imp-adv" onclick="const g=ge('imp-grupo');if(this.checked&&g)g.checked=false"> OU: enviei o levantamento <b>direto ao advogado</b> (sem aviso no grupo)</label>`:""}`:""}
     <div class="linha-acao"><button class="btn btp btsm" onclick="finalizarImpulso('${esc(t.id_tarefa)}')">&#128229; Finalizar impulso e devolver</button>
     <button class="btn btx btsm" onclick="abrirEncerrar()">&#128193; Encerrar o caso de vez</button></div></div>`;
   if(t.supervisao)h+=`<div class="bloco"><div class="bloco-t">Orientação da head</div>
@@ -1404,8 +1408,11 @@ function desenharCard(t,hist){
     <button class="btn bts btsm" onclick="salvarFreqData()">&#128190; Salvar</button>
     <button class="btn btg btsm" onclick="concluirTarefa()">&#10003; Concluir</button></div>
     ${t.id_cliente&&!dispensaGrupo(t)?`<label style="display:flex;align-items:center;gap:7px;font-size:12px;margin-top:8px;padding:8px 10px;background:var(--green-lt);border:1px solid var(--green);border-radius:8px;cursor:pointer">
-      <input type="checkbox" id="conc-grupo" style="width:16px;height:16px">
-      <span>&#128241; Informei o movimento desta tarefa no <b>grupo de atendimento</b> do WhatsApp</span></label>`:""}
+      <input type="checkbox" id="conc-grupo" style="width:16px;height:16px" onclick="const a=ge('conc-adv');if(this.checked&&a)a.checked=false">
+      <span>&#128241; Informei o movimento desta tarefa no <b>grupo de atendimento</b> do WhatsApp</span></label>
+    ${ehLevantamento(t)?`<label style="display:flex;align-items:center;gap:7px;font-size:12px;margin-top:6px;padding:8px 10px;background:#EEF3F9;border:1px solid #C9D8EA;border-radius:8px;cursor:pointer">
+      <input type="checkbox" id="conc-adv" style="width:16px;height:16px" onclick="const g=ge('conc-grupo');if(this.checked&&g)g.checked=false">
+      <span>&#128228; Enviei o levantamento <b>direto ao advogado</b> (sem aviso no grupo)</span></label>`:""}`:""}
     <div style="font-size:11px;color:var(--gray);margin-top:5px">Sem data: volta pela frequência (diária +1, semanal +7, mensal +30).</div></div>`;
   // no impulso, o Encerrar fica no painel verde lá de cima (fecha o CASO
   // oficial via encerrar_impulso_caso — nunca só o cartinho)
@@ -1581,11 +1588,14 @@ async function concluirTarefa(){
   if(t._impedimento&&!t.queda_impedimento_dt){
     toast("Antes de concluir, informe a data de queda do impedimento (campo no topo do cartão).","erro");
     editarQueda();return;}
-  let avisoGrupo=false;
+  let avisoGrupo=false,avisoAdv=false;
   if(t.id_cliente&&!dispensaGrupo(t)){
-    const cb=ge("conc-grupo");
-    if(!cb||!cb.checked){toast("Para concluir, marque a caixinha confirmando que informou o movimento no grupo de atendimento do WhatsApp.","erro");return;}
-    avisoGrupo=true;}
+    const cb=ge("conc-grupo"),ca=ge("conc-adv");
+    avisoGrupo=!!(cb&&cb.checked);avisoAdv=!!(ca&&ca.checked);
+    if(!avisoGrupo&&!avisoAdv){
+      toast(ehLevantamento(t)
+        ?"Para concluir, marque uma das caixinhas: informou no grupo do WhatsApp OU enviou o levantamento direto ao advogado."
+        :"Para concluir, marque a caixinha confirmando que informou o movimento no grupo de atendimento do WhatsApp.","erro");return;}}
   // parecer/proposta comercial: portão com verificação REAL no banco —
   // ou existe proposta do cliente, ou lança agora, ou justifica por escrito
   if(String(t.operacao||"").includes("Proposta Comercial")&&!E._propGateOk){
@@ -1596,6 +1606,8 @@ async function concluirTarefa(){
     if(contaC.nota)await DB.nota({id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,tipo:"HISTORICO",texto:contaC.nota});
     if(avisoGrupo)await DB.nota({id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,tipo:"HISTORICO",
       texto:"📣 Confirmou envio de mensagem no grupo de atendimento (WhatsApp) ao concluir."});
+    else if(avisoAdv)await DB.nota({id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,tipo:"HISTORICO",
+      texto:"📤 Levantamento enviado direto ao advogado (sem aviso no grupo) ao concluir."});
     // prazo fatal já vencido + tarefa concluída = provavelmente cumprido: oferece
     // limpar (dias calculados na hora, direto da data — nada pré-calculado)
     const pfDiasAgora=diasAte(t.prazo_fatal_dt);
@@ -1744,14 +1756,20 @@ async function confirmarDelegar(){
 async function finalizarImpulso(id){
   const t=E.atual;
   // mesma regra do Concluir: sem confirmar a mensagem no grupo, não devolve
-  if(t&&t.id_cliente&&!dispensaGrupo(t)){const cb=ge("imp-grupo");
-    if(!cb||!cb.checked){toast("Para devolver o impulso, marque a caixinha confirmando que informou o movimento no grupo de atendimento do WhatsApp.","erro");return;}}
+  let impGrupo=false,impAdv=false;
+  if(t&&t.id_cliente&&!dispensaGrupo(t)){const cb=ge("imp-grupo"),ca=ge("imp-adv");
+    impGrupo=!!(cb&&cb.checked);impAdv=!!(ca&&ca.checked);
+    if(!impGrupo&&!impAdv){
+      toast(ehLevantamento(t)
+        ?"Para devolver o impulso, marque uma das caixinhas: informou no grupo do WhatsApp OU enviou o levantamento direto ao advogado."
+        :"Para devolver o impulso, marque a caixinha confirmando que informou o movimento no grupo de atendimento do WhatsApp.","erro");return;}}
   if(!confirm("Finalizar este impulso e devolver a tarefa ao responsável com o seu retorno?\n\nDica: escreva antes o último andamento com o resultado."))return;
   try{await DB.impulsoFinalizar(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
   // auditoria no cartão oficial (o cartinho do impulso é removido ao devolver)
   const orig=(String((t&&t.supervisao)||"").match(/Origem:\s*(OP-\d+)/)||[])[1];
-  if(t&&t.id_cliente&&orig&&!dispensaGrupo(t))DB.nota({id_tarefa:orig,id_cliente:t.id_cliente,tipo:"HISTORICO",
-    texto:"📣 Confirmou envio de mensagem no grupo de atendimento (WhatsApp) ao devolver o impulso."}).catch(()=>{});
+  if(t&&t.id_cliente&&orig&&(impGrupo||impAdv))DB.nota({id_tarefa:orig,id_cliente:t.id_cliente,tipo:"HISTORICO",
+    texto:impGrupo?"📣 Confirmou envio de mensagem no grupo de atendimento (WhatsApp) ao devolver o impulso."
+      :"📤 Levantamento enviado direto ao advogado (sem aviso no grupo) ao devolver o impulso."}).catch(()=>{});
   toast("Impulso finalizado! Retorno enviado.","ok");fecharModal();recarregar();}
 function abrirCorrecao(){const t=E.atual;
   modal2("&#9999; Enviar para correção",esc(t.cliente)+" — a tarefa continua sua; vai para revisão",`
