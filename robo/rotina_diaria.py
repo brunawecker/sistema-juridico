@@ -11,6 +11,7 @@ A fotografia diária (snapshot) fica com o robô de cobrança, que roda a cada 5
 Credenciais por variáveis de ambiente (segredos do GitHub): PG*.
 """
 import os
+import re
 import sys
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -169,22 +170,45 @@ def main():
             where e.nome_sistema=o.assessor and upper(coalesce(e.status,''))<>'ATIVO'
               and (o.cliente like '📌%%' or o.status_tarefa='TAREFA FIXA')""")
         fantasmas = cur.rowcount
-        cur.execute("""select o.id_tarefa, o.id_cliente, o.assessor from juridico.operacional o
+        cur.execute("""select o.id_tarefa, o.id_cliente, o.assessor, o.supervisao
+            from juridico.operacional o
             join juridico.equipe e on e.nome_sistema=o.assessor
             where upper(coalesce(e.status,''))<>'ATIVO'""")
         orfaos = cur.fetchall()
-        movidas = 0
-        for oid, idc, antigo in orfaos:
+
+        def menos_carregado(excluir):
             cur.execute("""select e.nome_sistema from juridico.equipe e
                 where upper(coalesce(e.status,''))='ATIVO'
                   and e.cargo not ilike '%%head%%' and e.cargo not ilike '%%vendedor%%'
                   and e.cargo not ilike '%%outro time%%'
+                  and e.nome_sistema <> all(%s)
                 order by (select count(*) from juridico.operacional x
-                          where x.assessor=e.nome_sistema) asc limit 1""")
+                          where x.assessor=e.nome_sistema) asc limit 1""",
+                (list(excluir),))
             r = cur.fetchone()
-            if not r:
+            return r[0] if r else None
+
+        movidas = 0
+        for oid, idc, antigo, superv in orfaos:
+            superv = superv or ""
+            # impulso não pode voltar para quem pediu nem para o dono da origem
+            evitar = {antigo}
+            origem_id = None
+            if "IMPULSO de" in superv:
+                m = re.search(r"IMPULSO de (\S+)", superv)
+                if m:
+                    evitar.add(m.group(1))
+                m = re.search(r"Origem: (OP-\d+)", superv)
+                if m:
+                    origem_id = m.group(1)
+                    cur.execute("select assessor from juridico.operacional where id_tarefa=%s",
+                                (origem_id,))
+                    r = cur.fetchone()
+                    if r and r[0]:
+                        evitar.add(r[0])
+            novo = menos_carregado(evitar) or menos_carregado({antigo})
+            if not novo:
                 break
-            novo = r[0]
             cur.execute("update juridico.operacional set assessor=%s where id_tarefa=%s", (novo, oid))
             hid = novo_id(cur, "HIS", 5)
             cur.execute("""insert into juridico.historico
@@ -192,9 +216,43 @@ def main():
                 values (%s,%s,%s,%s,%s,'Sistema','HISTORICO',%s,'SITE')""",
                 (hid, oid, idc, hoje_br, hoje,
                  f"🔁 Reatribuída automaticamente de {antigo} (desligado da equipe) para {novo} — regra: operacional ativo com menor carga."))
+            if origem_id:
+                cur.execute("""update juridico.operacional set status_tarefa=%s
+                    where id_tarefa=%s and status_tarefa like 'DELEGADA%%'""",
+                    (f"DELEGADA 🤝 → {novo}", origem_id))
             movidas += 1
+
+        # origens que ainda apontam 'DELEGADA → <desligado>': religa ao dono
+        # atual do impulso; se o impulso sumiu, a tarefa volta ao titular
+        cur.execute("""select o.id_tarefa, o.id_cliente, e.nome_sistema
+            from juridico.operacional o
+            join juridico.equipe e on o.status_tarefa like 'DELEGADA%%→ '||e.nome_sistema
+            where upper(coalesce(e.status,''))<>'ATIVO'""")
+        religadas = 0
+        for oid, idc, antigo in cur.fetchall():
+            cur.execute("""select id_tarefa, assessor from juridico.operacional
+                where supervisao like %s and supervisao like '🤝 IMPULSO%%' limit 1""",
+                (f"%Origem: {oid}%",))
+            sub = cur.fetchone()
+            if sub and sub[1]:
+                cur.execute("update juridico.operacional set status_tarefa=%s where id_tarefa=%s",
+                            (f"DELEGADA 🤝 → {sub[1]}", oid))
+                texto = (f"🔁 Delegação atualizada: o impulso {sub[0]} estava com {antigo} "
+                         f"(desligado) e agora está com {sub[1]}.")
+            else:
+                cur.execute("""update juridico.operacional set status_tarefa='AGUARDANDO'
+                    where id_tarefa=%s""", (oid,))
+                texto = (f"🔁 A delegação para {antigo} (desligado) foi desfeita — o impulso "
+                         f"não existe mais; a tarefa volta à agenda do titular.")
+            hid = novo_id(cur, "HIS", 5)
+            cur.execute("""insert into juridico.historico
+                (id_historico,id_tarefa,id_cliente,data,data_dt,autor,tipo,texto,origem)
+                values (%s,%s,%s,%s,%s,'Sistema','HISTORICO',%s,'SITE')""",
+                (hid, oid, idc, hoje_br, hoje, texto))
+            religadas += 1
         print(f"5. saída de membro: {fixas_off} fixa(s) desligada(s), "
-              f"{fantasmas} cartão(ões)-fantasma removido(s), {movidas} tarefa(s) reatribuída(s)")
+              f"{fantasmas} cartão(ões)-fantasma removido(s), {movidas} tarefa(s) reatribuída(s), "
+              f"{religadas} delegação(ões) religada(s)")
 
         # batimento (o Painel vigia)
         cur.execute("""insert into juridico.robo_status (nome, ultima) values ('rotina7h', now())
