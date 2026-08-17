@@ -328,6 +328,8 @@ const AUTORIZADOS_DELEGAR=["Malu","Ygor","Madu","Bruna","Danielly","Eduarda"];
 const DELEGA_PARA={};
 // janela de prospecção por pessoa (min/dia; Configurações — 0 = sem janela)
 const PROSPEC={};
+// quem tem o bloco FIXO: reserva vale TODOS os dias, mesmo com atrasadas
+const PROSPEC_SEMPRE={};
 const alvosDelegacao=nome=>{const l=DELEGA_PARA[nome]||[];
   return (E.perfil&&E.perfil.head_sim&&nome===E.perfil.nome_sistema)||!l.length
     ?OPERACIONAIS.filter(a=>a!==nome):l.filter(a=>a!==nome);};
@@ -761,7 +763,8 @@ async function carregarConfig(){
     if((cf.per||[]).length){CORR_HEADS.length=0;AUTORIZADOS_DELEGAR.length=0;
       cf.per.forEach(r=>{if(r.pode_corrigir)CORR_HEADS.push(r.nome);if(r.pode_delegar)AUTORIZADOS_DELEGAR.push(r.nome);
         DELEGA_PARA[r.nome]=String(r.delega_para||"").split(",").map(s=>s.trim()).filter(Boolean);
-        PROSPEC[r.nome]=parseInt(r.prospeccao_min)||0;});}
+        PROSPEC[r.nome]=parseInt(r.prospeccao_min)||0;
+        PROSPEC_SEMPRE[r.nome]=!!r.prospeccao_sempre;});}
   }catch(e){/* segue com os padrões do código */}
 }
 function nomeCompletoDe(sis){const m=E.equipe.find(x=>x.nome_sistema===sis);return m?m.nome_completo:"";}
@@ -855,7 +858,8 @@ async function telaConfig(){setNav("cfg","Configurações");carregando();
       return `<div style="border-bottom:1px solid var(--gray-lt);padding:6px 0"><div class="linha-item" style="border:0;padding:2px 0"><span><b>${esc(n)}</b></span><span>
       <label style="font-size:12px"><input type="checkbox" id="cfg-cor-${esc(n)}" ${p.pode_corrigir?"checked":""}> corrige</label>
       <label style="font-size:12px;margin-left:10px"><input type="checkbox" id="cfg-del-${esc(n)}" ${p.pode_delegar?"checked":""}> delega</label>
-      <label style="font-size:12px;margin-left:10px" title="Janela de Prospecção: sem nada vencido (imediatas do próprio dia não travam), o planejador programa estes minutos no dia — quem delega vê o tempo como ocupado">&#127919; <input type="number" min="0" max="240" step="15" class="fsel" style="width:64px" id="cfg-pros-${esc(n)}" value="${parseInt(p.prospeccao_min)||0}"> min/dia</label></span></div>
+      <label style="font-size:12px;margin-left:10px" title="Janela de Prospecção: sem nada vencido (imediatas do próprio dia não travam), o planejador programa estes minutos no dia — quem delega vê o tempo como ocupado">&#127919; <input type="number" min="0" max="240" step="15" class="fsel" style="width:64px" id="cfg-pros-${esc(n)}" value="${parseInt(p.prospeccao_min)||0}"> min/dia</label>
+      <label style="font-size:12px;margin-left:6px" title="Marcado: o bloco vale TODOS os dias, mesmo com atrasadas — reservado antes das demais tarefas (só as imediatas passam na frente)"><input type="checkbox" id="cfg-prossemp-${esc(n)}" ${p.prospeccao_sempre?"checked":""}> todo dia</label></span></div>
       <div style="font-size:11px;color:var(--gray);display:flex;gap:9px;flex-wrap:wrap;padding-left:6px">delega para:
         ${OPERACIONAIS.filter(a=>a!==n).map(a=>`<label><input type="checkbox" id="cfg-dp-${esc(n)}-${esc(a)}" ${dp.includes(a)?"checked":""}> ${esc(a)}</label>`).join("")}</div></div>`;}).join("")}
     <div class="linha-acao"><button class="btn btp btsm" onclick="salvarConfigPer()">&#128190; Salvar permissões</button></div></div>
@@ -926,10 +930,11 @@ async function salvarConfigPer(){const cf=E._cfgAtual;let n=0;
     const c=ge("cfg-cor-"+nome),d=ge("cfg-del-"+nome);if(!c||!d)continue;
     const dp=OPERACIONAIS.filter(a=>a!==nome&&(ge("cfg-dp-"+nome+"-"+a)||{}).checked).join(",");
     const pr=Math.max(0,Math.min(240,parseInt((ge("cfg-pros-"+nome)||{}).value)||0));
-    const atual=(cf.per||[]).find(x=>x.nome===nome)||{pode_corrigir:false,pode_delegar:false,delega_para:"",prospeccao_min:0};
+    const ps=!!((ge("cfg-prossemp-"+nome)||{}).checked);
+    const atual=(cf.per||[]).find(x=>x.nome===nome)||{pode_corrigir:false,pode_delegar:false,delega_para:"",prospeccao_min:0,prospeccao_sempre:false};
     if(atual.pode_corrigir===c.checked&&atual.pode_delegar===d.checked&&String(atual.delega_para||"")===dp
-       &&(parseInt(atual.prospeccao_min)||0)===pr)continue;
-    try{await DB.configSet("config_permissoes","nome",nome,{pode_corrigir:c.checked,pode_delegar:d.checked,delega_para:dp,prospeccao_min:pr});n++;}
+       &&(parseInt(atual.prospeccao_min)||0)===pr&&!!atual.prospeccao_sempre===ps)continue;
+    try{await DB.configSet("config_permissoes","nome",nome,{pode_corrigir:c.checked,pode_delegar:d.checked,delega_para:dp,prospeccao_min:pr,prospeccao_sempre:ps});n++;}
     catch(e){toast("Erro em "+nome+": "+e.message,"erro");return;}}
   await carregarConfig();toast(n?n+" permissão(ões) salva(s)!":"Nada mudou.","ok");telaConfig();}
 async function salvarConfigTmp(){const cf=E._cfgAtual;let n=0;
@@ -1063,6 +1068,12 @@ async function telaMinhas(){
   // IMEDIATO entra sempre; o resto só até a capacidade — excedente vai à fila
   imed.forEach(t=>push1(t,1));
   let rem=Math.max(0,capDisp-imed.reduce((s,t)=>s+t._tempo,0));
+  // 🎯 bloco FIXO de prospecção (ex.: Madu 4h): reservado TODOS os dias,
+  // antes das demais tarefas — só as imediatas passam na frente. O que não
+  // couber no restante do dia vai para a fila normalmente.
+  const janelaPros=PROSPEC[nome]||0;
+  let reservaPros=0;
+  if(janelaPros>0&&PROSPEC_SEMPRE[nome]){reservaPros=Math.min(rem,janelaPros);rem-=reservaPros;}
   for(const t of diar){if(jaAdd[t.id_tarefa])continue;
     if(rem-t._tempo<0){fila.push(t);continue;}if(push1(t,t._dias<0?2:3))rem-=t._tempo;}
   let nAtr=0;
@@ -1071,14 +1082,12 @@ async function telaMinhas(){
   rem=Math.max(0,rem);
   for(const t of hoje0){if(jaAdd[t.id_tarefa])continue;
     if(rem<=0){fila.push(t);continue;}if(push1(t,3))rem-=t._tempo;}
-  // 🎯 Janela de Prospecção: sem nada VENCIDO (atrasadas ou imediatas de dias
-  // anteriores) o bloco fica programado no dia — imediatas DO PRÓPRIO DIA
-  // convivem com a janela (pedido da Bruna, 12/08/2026). As ANTECIPAÇÕES
-  // (semanais/mensais futuras) só entram no que sobrar. Nada muda de data.
-  const janelaPros=PROSPEC[nome]||0;
-  let reservaPros=0;
+  // 🎯 Janela de Prospecção por mérito: sem nada VENCIDO (atrasadas ou
+  // imediatas de dias anteriores) o bloco fica programado no dia — imediatas
+  // DO PRÓPRIO DIA convivem com a janela (pedido da Bruna, 12/08/2026). As
+  // ANTECIPAÇÕES (semanais/mensais futuras) só entram no que sobrar.
   const imedVencidas=imed.filter(t=>typeof t._dias==="number"&&t._dias<0);
-  if(janelaPros>0&&imedVencidas.length===0&&atr.length===0){
+  if(janelaPros>0&&!reservaPros&&imedVencidas.length===0&&atr.length===0){
     reservaPros=Math.min(rem,janelaPros);rem-=reservaPros;}
   for(const t of semanal.concat(mensal)){if(jaAdd[t.id_tarefa])continue;
     if(rem<=0){fila.push(t);continue;}if(push1(t,4))rem-=t._tempo;}
@@ -1102,8 +1111,10 @@ async function telaMinhas(){
       ${reservaPros?`· &#127919; ${fmtMin(reservaPros)} de prospecção`:""}
       ${minReu?`· &#128197; ${fmtMin(minReu)} em reuniões`:""} · &#128203; ${ativas.length} no portfólio (mostrando ${plano.length})</div></div>`;
   if(reservaPros>0)h+=`<div class="painel" style="background:#EAF7EA;border-color:var(--green)">
-    <div class="bloco-t" style="color:var(--green)">&#127919; Dia dominado — ${fmtMin(reservaPros)} reservadas para prospecção</div>
-    <div style="font-size:12px;color:var(--gray);margin-bottom:6px">Nada vencido na sua fila: este bloco já está programado no seu dia para buscar negócios novos — quem delega também o vê como tempo ocupado. ${imed.length?"Dê conta das imediatas de hoje e use o bloco no melhor horário. ":""}O planejador não antecipa tarefas dentro dele, e o tempo conta no Diário e na sua produtividade.</div>
+    <div class="bloco-t" style="color:var(--green)">&#127919; ${PROSPEC_SEMPRE[nome]?"Bloco fixo do dia":"Dia dominado"} — ${fmtMin(reservaPros)} reservadas para prospecção</div>
+    <div style="font-size:12px;color:var(--gray);margin-bottom:6px">${PROSPEC_SEMPRE[nome]
+      ?"Este bloco é reservado todos os dias por definição da banca — quem delega também o vê como tempo ocupado. As demais tarefas se organizam no restante do dia."
+      :"Nada vencido na sua fila: este bloco já está programado no seu dia para buscar negócios novos — quem delega também o vê como tempo ocupado. "+(imed.length?"Dê conta das imediatas de hoje e use o bloco no melhor horário. ":"")+"O planejador não antecipa tarefas dentro dele, e o tempo conta no Diário e na sua produtividade."}</div>
     <button class="btn btg btsm" onclick="iniciarProspeccao()">&#127919; Prospectar agora (liga o relógio)</button></div>`;
   // quem pode delegar (e não é head) vê a fila do seu grupo — pedido do Ygor:
   // "preciso saber quem recebe" (head já tem isso no Painel)
