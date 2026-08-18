@@ -3213,7 +3213,10 @@ async function telaPropostas(){
     <div class="flr"><input class="si" id="pp-q" placeholder="&#128269; Buscar cliente..." oninput="desenhaProps()">
       <select class="fsel" id="pp-mi" onchange="desenhaProps()">
         <option value=""${soMinhas?"":" selected"}>Todas as propostas</option>
-        <option value="m"${soMinhas?" selected":""}>Minhas propostas</option></select>
+        <option value="m"${soMinhas?" selected":""}>Minhas propostas</option>
+        ${(E.equipe||[]).filter(m=>String(m.status||"").toUpperCase()==="ATIVO")
+          .map(m=>m.nome_sistema).sort((a,b)=>a.localeCompare(b))
+          .map(n=>`<option value="p:${esc(n)}">&#128203; ${esc(n)}</option>`).join("")}</select>
       <select class="fsel" id="pp-st" onchange="desenhaProps()"><option value="">Todos status</option>
         ${[...ETAPAS_PROP,"Aceita","Recusada"].map(s=>`<option>${s}</option>`).join("")}</select>
       <select class="fsel" id="pp-or" onchange="desenhaProps()"><option value="">Todas origens</option>
@@ -3229,8 +3232,15 @@ function desenhaProps(){
   // head/vendedor mexem em todas; executor e solicitante, nas próprias
   const podeMexerEm=p=>E.perfil.head_sim
     ||String(p.executor||"").trim().toLowerCase()===meu||String(p.quem_pediu||"").trim().toLowerCase()===meu;
-  const base=E._props.filter(p=>!mi||String(p.executor||"").trim().toLowerCase()===meu
-    ||String(p.quem_pediu||"").trim().toLowerCase()===meu);
+  // filtro por pessoa (pedido da Bruna, 18/08/2026): vale quem é responsável
+  // pela negociação OU quem pediu a proposta
+  const daPessoa=(p,alvo)=>String(p.responsavel||p.executor||"").trim().toLowerCase()===alvo
+    ||String(p.quem_pediu||"").trim().toLowerCase()===alvo;
+  const base=E._props.filter(p=>{
+    if(!mi)return true;
+    if(mi==="m")return daPessoa(p,meu);
+    if(mi.indexOf("p:")===0)return daPessoa(p,mi.slice(2).trim().toLowerCase());
+    return true;});
   if(ge("pp-s-tot")){ge("pp-s-tot").textContent=base.length;
     ge("pp-s-rua").textContent=base.filter(p=>!["Aceita","Recusada"].includes(p.status)).length;
     ge("pp-s-ace").textContent=base.filter(p=>p.status==="Aceita").length;
