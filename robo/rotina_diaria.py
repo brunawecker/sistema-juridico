@@ -254,6 +254,55 @@ def main():
               f"{fantasmas} cartão(ões)-fantasma removido(s), {movidas} tarefa(s) reatribuída(s), "
               f"{religadas} delegação(ões) religada(s)")
 
+        # 6) higiene de vínculo cartão×cadastro (caso VIALIM×VIACON, 18/08/2026):
+        # nome/CNPJ do cartão seguem o cadastro vinculado; se o NOME do cartão
+        # bater com OUTRO cadastro, é suspeita de vínculo errado — o robô NÃO
+        # religa sozinho: grava um alerta no cartão para as heads decidirem.
+        import unicodedata
+
+        def nrm_nome(s):
+            s = unicodedata.normalize("NFD", str(s or "").upper())
+            s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+            s = re.sub(r"\b(LTDA|EIRELI|ME|EPP|SA|S/A|CIA|&)\b", " ", s)
+            s = re.sub(r"^\s*\d{1,2}\s+", "", s)   # prefixo de ordenação "01 "
+            return re.sub(r"[^A-Z0-9]", "", s)
+
+        cur.execute("select id_cliente, nome, cnpj_cpf from juridico.clientes")
+        cad = {r[0]: (r[1], r[2]) for r in cur.fetchall()}
+        por_nome = {}
+        for cid, (nm, _) in cad.items():
+            por_nome.setdefault(nrm_nome(nm), []).append(cid)
+        cur.execute("""select id_tarefa, id_cliente, cliente from juridico.operacional
+            where coalesce(id_cliente,'')<>'' and not cliente like '📌%%'""")
+        sincronizados, suspeitos = 0, 0
+        for tid, cid, cli in cur.fetchall():
+            if cid not in cad:
+                continue
+            nome_cad, doc_cad = cad[cid]
+            if nrm_nome(cli) == nrm_nome(nome_cad):
+                if cli != nome_cad:
+                    cur.execute("""update juridico.operacional set cliente=%s, cnpj_cpf=%s
+                        where id_tarefa=%s""", (nome_cad, doc_cad, tid))
+                    sincronizados += 1
+                continue
+            outros = [x for x in por_nome.get(nrm_nome(cli), []) if x != cid]
+            if len(outros) == 1:
+                cur.execute("""select 1 from juridico.historico where id_tarefa=%s
+                    and texto like '⚠️ Possível vínculo errado%%' limit 1""", (tid,))
+                if cur.fetchone():
+                    continue
+                hid = novo_id(cur, "HIS", 5)
+                cur.execute("""insert into juridico.historico
+                    (id_historico,id_tarefa,id_cliente,data,data_dt,autor,tipo,texto,origem)
+                    values (%s,%s,%s,%s,%s,'Sistema','HISTORICO',%s,'SITE')""",
+                    (hid, tid, cid, hoje_curto, hoje,
+                     f"⚠️ Possível vínculo errado: o nome deste cartão ({cli}) bate com o "
+                     f"cadastro {outros[0]}, mas o cartão está ligado a {cid} ({nome_cad}). "
+                     f"Head: confira e corrija o vínculo (o robô não religa sozinho)."))
+                suspeitos += 1
+        print(f"6. vínculo cartão×cadastro: {sincronizados} nome(s)/CNPJ sincronizado(s), "
+              f"{suspeitos} suspeita(s) sinalizada(s)")
+
         # batimento (o Painel vigia)
         cur.execute("""insert into juridico.robo_status (nome, ultima) values ('rotina7h', now())
                        on conflict (nome) do update set ultima = excluded.ultima""")
