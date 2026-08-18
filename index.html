@@ -3482,11 +3482,10 @@ async function telaComercial(){
       emNeg,nNeg,nProps:mProps.length,falta:Math.max(0,meta-pago),
       cob:meta>0?Math.round((pago+emNeg)/meta*100):null};
   };
-  // BLOCO 2 no formato exato da planilha da reunião de segunda
   const linB2=(rot,val,forte)=>`<tr style="border-top:1px solid var(--gray-lt)">
     <td style="padding:5px 8px">${rot}</td>
-    <td style="text-align:right;padding:5px 8px;font-family:'DM Mono'${forte?";font-weight:700;color:var(--navy)":""}">${val}</td></tr>`;
-  const cardReg=(c,liberadaOk)=>`<div class="bloco-t" style="margin-top:4px">Bloco 2 — Acompanhamento do mês em curso</div>
+    <td style="text-align:right;padding:5px 8px;font-family:\'DM Mono\'${forte?";font-weight:700;color:var(--navy)":""}">${val}</td></tr>`;
+  const blocoB2=(c,liberadaOk)=>`<div class="bloco-t" style="margin-top:4px">Bloco 2 — Acompanhamento do mês em curso</div>
     <div style="overflow-x:auto"><table style="min-width:360px;width:100%;max-width:560px;border-collapse:collapse;font-size:12.5px">
     ${linB2("Valor da meta alvo",liberadaOk?fmtR$(c.meta):"&#128274; aguardando liberação")}
     ${linB2("Valor da projeção (pago + boletos na rua)",fmtR$(c.pago+c.proj))}
@@ -3497,96 +3496,112 @@ async function telaComercial(){
     ${linB2("Valor total em negociação (pagamento no mês em curso)",fmtR$(c.emNeg))}
     ${linB2("Cobertura da meta alvo (pago + negociação)",liberadaOk&&c.cob!==null?c.cob+"%":"—",1)}
     </table></div>
-    <div style="font-size:11px;color:var(--gray);margin:4px 0 8px">Tudo automático: pago em R$ líquido da planilha (${c.nNovos} novo(s) ${fmtR$(c.novos)} · ${c.nRec} recorrência ${fmtR$(c.rec)}); projeção = aceito com boleto na rua; negociação = suas propostas com previsão de pagamento neste mês (${c.nNeg} de ${c.nProps} na rua).</div>`;
-  let h=`<div class="painel"><div class="bloco-t">&#128188; Comercial — ${esc(mesNome)}</div>`;
-  if(!ehHead){
-    const c=calc(eu);
-    if(!c.liberada)h+=`<div class="aviso info" style="margin-bottom:8px">&#128274; A meta deste mês ainda não foi liberada pelas heads — os demais números já são ao vivo.</div>`;
-    h+=cardReg(c,c.liberada)+`</div>`;
-  }else{
-    const pessoas=[...new Set([...metas.map(m=>m.pessoa),...pags.map(p=>p.credito).filter(Boolean)])];
-    const linhas=pessoas.map(n=>({n,c:calc(n)})).sort((a,b)=>b.c.meta-a.c.meta);
-    const tot=linhas.reduce((t,l)=>{["meta","pago","novos","rec","proj","emNeg"].forEach(k=>t[k]=(t[k]||0)+l.c[k]);return t;},{});
-    tot.cob=tot.meta>0?Math.round((tot.pago+tot.emNeg)/tot.meta*100):null;
-    h+=cardReg({...tot,falta:Math.max(0,tot.meta-tot.pago),nNovos:linhas.reduce((s,l)=>s+l.c.nNovos,0),
-      nRec:linhas.reduce((s,l)=>s+l.c.nRec,0),nNeg:linhas.reduce((s,l)=>s+l.c.nNeg,0),
-      nProps:linhas.reduce((s,l)=>s+l.c.nProps,0)},true);
-    const foraProj=pags.filter(p=>p.fora_projecao).reduce((s,p)=>s+(+p.valor_bruto||0),0);
-    h+=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
-      <tr style="color:var(--gray);text-align:right"><th style="text-align:left">Pessoa</th><th>Meta</th><th>Pago</th><th>Novos</th><th>Recorr.</th><th>Projeção</th><th>Em neg. (mês)</th><th>Cobertura</th></tr>`+
-      linhas.map(l=>`<tr style="border-top:1px solid var(--gray-lt);text-align:right">
-        <td style="text-align:left;padding:5px 0"><b>${esc(l.n)}</b>${l.c.liberada?"":' <span title="meta ainda não liberada">&#128274;</span>'}</td>
-        <td>${fmtR$(l.c.meta)}</td><td style="color:var(--green)"><b>${fmtR$(l.c.pago)}</b></td>
-        <td>${fmtR$(l.c.novos)}</td><td>${fmtR$(l.c.rec)}</td><td>${fmtR$(l.c.proj)}</td>
-        <td>${fmtR$(l.c.emNeg)}</td><td><b>${l.c.cob!==null?l.c.cob+"%":"—"}</b></td></tr>`).join("")+
-      `</table></div>
-      <div style="font-size:11px;color:var(--gray);margin-top:6px">&#128683; Fora da projeção (inadimplentes crônicos — valor em texto na planilha): <b>${fmtR$(foraProj)}</b></div>
-      <div class="linha-acao" style="margin-top:8px"><button class="btn btp btsm" onclick="telaConfig()">&#9881;&#65039; Ajustar / liberar metas do mês</button></div></div>`;
-  }
-  // BLOCO 1 — análise dos meses anteriores, no formato exato da planilha
-  // (visão da própria pessoa; heads têm o consolidado logo abaixo)
-  if(!ehHead){
-    // TODOS os meses anteriores, acumulando (pedido da Bruna, 18/08/2026):
-    // em setembro mostra junho+julho+agosto; a tabela rola para o lado
-    const mine=fechs.filter(f=>f.pessoa===eu)
+    <div style="font-size:11px;color:var(--gray);margin:4px 0 8px">Tudo automático: pago em R$ líquido da planilha (${c.nNovos} novo(s) ${fmtR$(c.novos)} · ${c.nRec} recorrência ${fmtR$(c.rec)}); projeção = aceito com boleto na rua; negociação = propostas com previsão de pagamento neste mês (${c.nNeg} de ${c.nProps} na rua).</div>`;
+  const blocoB1=nome=>{
+    const mine=fechs.filter(f=>f.pessoa===nome)
       .sort((a,b)=>String(a.mes).localeCompare(String(b.mes)));
-    if(mine.length){
-      const mLbl=f=>new Date(String(f.mes).slice(0,10)+"T12:00:00")
-        .toLocaleDateString("pt-BR",{month:"long"}).replace(/^./,x=>x.toUpperCase());
-      const tk=(v,n)=>(+n>0)?fmtR$((+v||0)/+n):"—";
-      const temN=f=>f.n_rec!==null&&f.n_rec!==undefined;
-      const rowsB1=[
-        ["Valor da meta",f=>f.meta!==null&&f.meta!==undefined?fmtR$(f.meta):"—"],
-        ["Valor da projeção",f=>fmtR$(f.projecao)],
-        ["Valor atingido",f=>fmtR$(f.atingido),1],
-        ["Valor da recorrência",f=>f.recorrencia!=null?fmtR$(f.recorrencia):"—"],
-        ["Número de negócios recorrentes",f=>temN(f)?f.n_rec:"—"],
-        ["Ticket médio dos negócios recorrentes",f=>temN(f)?tk(f.recorrencia,f.n_rec):"—"],
-        ["Valor de novos negócios",f=>f.novos!=null?fmtR$(f.novos):"—"],
-        ["Número de novos negócios",f=>f.n_novos!=null?f.n_novos:"—"],
-        ["Ticket médio dos novos negócios",f=>f.n_novos!=null?tk(f.novos,f.n_novos):"—"],
-        ["Número total de negócios pagos (recorrentes + novos)",f=>temN(f)?(+f.n_rec||0)+(+f.n_novos||0):"—"],
-        ["Ticket médio do valor atingido",f=>temN(f)?tk(f.atingido,(+f.n_rec||0)+(+f.n_novos||0)):"—"]];
-      h+=`<div class="painel"><div class="bloco-t">Bloco 1 — Análise dos meses anteriores</div>
-        <div style="overflow-x:auto"><table style="min-width:360px;width:100%;max-width:640px;border-collapse:collapse;font-size:12.5px">
-        <tr style="color:var(--gray)"><th style="text-align:left;padding:4px 8px">Indicador</th>${mine.map(f=>`<th style="text-align:right;padding:4px 8px">${mLbl(f)}</th>`).join("")}</tr>
-        ${rowsB1.map(([rot,fn,forte])=>`<tr style="border-top:1px solid var(--gray-lt)">
-          <td style="padding:4px 8px">${rot}</td>${mine.map(f=>`<td style="text-align:right;padding:4px 8px;font-family:'DM Mono'${forte?";font-weight:700;color:var(--navy)":""}">${fn(f)}</td>`).join("")}</tr>`).join("")}
-        </table></div>
-        <div style="font-size:11px;color:var(--gray);margin-top:4px">A tabela acumula todos os meses, com recorrência × novos, contagens e tickets calculados dos pagamentos reais da planilha. O robô congela o fechamento de cada mês sozinho no 1º dia útil do mês seguinte.</div></div>`;
-    }
-  }
-  // retrovisor consolidado (heads: fechamentos mensais da banca)
-  const meusF=(ehHead?fechs:[])
-    .sort((a,b)=>String(b.mes).localeCompare(String(a.mes)));
-  if(meusF.length){
-    const porMes={};meusF.forEach(f=>{(porMes[String(f.mes).slice(0,7)]=porMes[String(f.mes).slice(0,7)]||[]).push(f);});
-    h+=`<div class="painel"><div class="bloco-t">&#128200; Retrovisor — fechamentos mensais</div>
-      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
-      <tr style="color:var(--gray);text-align:right"><th style="text-align:left">Mês${ehHead?" / pessoa":""}</th><th>Meta</th><th>Projeção</th><th>Atingido</th><th>%</th></tr>`+
-      Object.entries(porMes).map(([m,fs])=>{
-        const tt=fs.reduce((t,f)=>{["meta","projecao","atingido"].forEach(k=>t[k]=(t[k]||0)+(+f[k]||0));return t;},{});
-        const linhaMes=`<tr style="border-top:2px solid var(--border);text-align:right;background:var(--gray-lt)">
-          <td style="text-align:left;padding:4px 0"><b>${m.split("-").reverse().join("/")}</b></td>
-          <td>${fmtR$(tt.meta)}</td><td>${fmtR$(tt.projecao)}</td><td><b>${fmtR$(tt.atingido)}</b></td>
-          <td><b>${tt.meta>0?Math.round(tt.atingido/tt.meta*100)+"%":"—"}</b></td></tr>`;
-        const linhasP=ehHead?fs.sort((a,b)=>(+b.atingido||0)-(+a.atingido||0)).map(f=>`<tr style="border-top:1px solid var(--gray-lt);text-align:right">
-          <td style="text-align:left;padding:3px 0 3px 14px">${esc(f.pessoa)}</td>
-          <td>${f.meta!==null?fmtR$(f.meta):"—"}</td><td>${fmtR$(f.projecao)}</td><td>${fmtR$(f.atingido)}</td>
-          <td>${+f.meta>0?Math.round(+f.atingido/+f.meta*100)+"%":"—"}</td></tr>`).join("")
-          :fs.map(f=>``).join("");
-        return linhaMes+linhasP;}).join("")+
-      `</table></div></div>`;
-  }
-  // origem das propostas na rua (quadro automático do PDF)
-  const naRua=ehHead?(props||[]).filter(propNaRua):minhasNaRua(props,eu);
-  if(naRua.length){
+    if(!mine.length)return "";
+    const mLbl=f=>new Date(String(f.mes).slice(0,10)+"T12:00:00")
+      .toLocaleDateString("pt-BR",{month:"long"}).replace(/^./,x=>x.toUpperCase());
+    const tk=(v,n)=>(+n>0)?fmtR$((+v||0)/+n):"—";
+    const temN=f=>f.n_rec!==null&&f.n_rec!==undefined;
+    const rowsB1=[
+      ["Valor da meta",f=>f.meta!==null&&f.meta!==undefined?fmtR$(f.meta):"—"],
+      ["Valor da projeção",f=>fmtR$(f.projecao)],
+      ["Valor atingido",f=>fmtR$(f.atingido),1],
+      ["Valor da recorrência",f=>f.recorrencia!=null?fmtR$(f.recorrencia):"—"],
+      ["Número de negócios recorrentes",f=>temN(f)?f.n_rec:"—"],
+      ["Ticket médio dos negócios recorrentes",f=>temN(f)?tk(f.recorrencia,f.n_rec):"—"],
+      ["Valor de novos negócios",f=>f.novos!=null?fmtR$(f.novos):"—"],
+      ["Número de novos negócios",f=>f.n_novos!=null?f.n_novos:"—"],
+      ["Ticket médio dos novos negócios",f=>f.n_novos!=null?tk(f.novos,f.n_novos):"—"],
+      ["Número total de negócios pagos (recorrentes + novos)",f=>temN(f)?(+f.n_rec||0)+(+f.n_novos||0):"—"],
+      ["Ticket médio do valor atingido",f=>temN(f)?tk(f.atingido,(+f.n_rec||0)+(+f.n_novos||0)):"—"]];
+    return `<div class="painel"><div class="bloco-t">Bloco 1 — Análise dos meses anteriores</div>
+      <div style="overflow-x:auto"><table style="min-width:360px;width:100%;max-width:720px;border-collapse:collapse;font-size:12.5px">
+      <tr style="color:var(--gray)"><th style="text-align:left;padding:4px 8px">Indicador</th>${mine.map(f=>`<th style="text-align:right;padding:4px 8px">${mLbl(f)}</th>`).join("")}</tr>
+      ${rowsB1.map(([rot,fn,forte])=>`<tr style="border-top:1px solid var(--gray-lt)">
+        <td style="padding:4px 8px">${rot}</td>${mine.map(f=>`<td style="text-align:right;padding:4px 8px;font-family:\'DM Mono\'${forte?";font-weight:700;color:var(--navy)":""}">${fn(f)}</td>`).join("")}</tr>`).join("")}
+      </table></div>
+      <div style="font-size:11px;color:var(--gray);margin-top:4px">A tabela acumula todos os meses, com recorrência × novos, contagens e tickets calculados dos pagamentos reais da planilha. O robô congela o fechamento de cada mês sozinho no 1º dia útil do mês seguinte.</div></div>`;
+  };
+  const blocoOrigem=(naRua,sufixo)=>{
+    if(!naRua.length)return "";
     const porOrig={};naRua.forEach(p=>{const o=p.origem||"(sem origem)";
       (porOrig[o]=porOrig[o]||{n:0,v:0});porOrig[o].n++;porOrig[o].v+=(+p.valor_num||0);});
     const totV=Object.values(porOrig).reduce((s,x)=>s+x.v,0);
-    h+=`<div class="painel"><div class="bloco-t">&#128506; Origem das propostas na rua${ehHead?" (banca)":""}</div>`+
+    return `<div class="painel"><div class="bloco-t">&#128506; Origem das propostas na rua${sufixo}</div>`+
       Object.entries(porOrig).sort((a,b)=>b[1].v-a[1].v).map(([o,x])=>`<div class="linha-item">
         <span>${esc(o)}</span><span style="font-size:12px">${x.n} proposta(s) · ${fmtR$(x.v)}${totV?` · ${Math.round(x.v/totV*100)}%`:""}</span></div>`).join("")+`</div>`;
+  };
+  const visaoPessoal=(nome,liberadaOk)=>{
+    let hh=blocoB2(calc(nome),liberadaOk)+`</div>`;
+    hh+=blocoB1(nome);
+    hh+=blocoOrigem(minhasNaRua(props,nome),nome===eu?"":" — "+esc(nome));
+    return hh;
+  };
+  let h;
+  if(!ehHead){
+    const c=calc(eu);
+    h=`<div class="painel"><div class="bloco-t">&#128188; Comercial — ${esc(mesNome)}</div>`;
+    if(!c.liberada)h+=`<div class="aviso info" style="margin-bottom:8px">&#128274; A meta deste mês ainda não foi liberada pelas heads — os demais números já são ao vivo.</div>`;
+    h+=visaoPessoal(eu,c.liberada);
+  }else{
+    // heads: Equipe (geral) · Meu Comercial · cada pessoa em tempo real
+    const alvo=E._comAlvo||"__EQUIPE__";
+    const pessoas=[...new Set([...metas.map(m=>m.pessoa),...pags.map(p=>p.credito).filter(Boolean),
+      ...fechs.map(f=>f.pessoa)])].filter(Boolean).sort((a,b)=>a.localeCompare(b));
+    const rotAlvo=alvo==="__EQUIPE__"?"Equipe":(alvo===eu?"Meu Comercial":esc(alvo));
+    h=`<div class="painel"><div class="bloco-t">&#128188; Comercial — ${rotAlvo} — ${esc(mesNome)}</div>
+      <div class="linha-acao" style="margin-bottom:8px;align-items:center">
+        <select class="fsel" id="com-alvo" onchange="E._comAlvo=this.value;telaComercial()">
+          <option value="__EQUIPE__" ${alvo==="__EQUIPE__"?"selected":""}>&#128101; Equipe (geral)</option>
+          <option value="${esc(eu)}" ${alvo===eu?"selected":""}>&#128188; Meu Comercial (${esc(eu)})</option>
+          ${pessoas.filter(p=>p!==eu).map(p=>`<option ${alvo===p?"selected":""}>${esc(p)}</option>`).join("")}</select>
+        <span style="font-size:11px;color:var(--gray)">escolha alguém para ver, em tempo real, exatamente os quadros que a pessoa vê</span></div>`;
+    if(alvo!=="__EQUIPE__"){
+      const c=calc(alvo);
+      if(alvo!==eu)h+=`<div class="aviso info" style="margin-bottom:6px">Visão espelho de <b>${esc(alvo)}</b>${c.liberada?"":" — a meta ainda está &#128274; para a pessoa (você vê por ser head)"}.</div>`;
+      h+=visaoPessoal(alvo,true);
+    }else{
+      const linhas=pessoas.map(n=>({n,c:calc(n)})).sort((a,b)=>b.c.meta-a.c.meta||b.c.pago-a.c.pago);
+      const tot=linhas.reduce((t,l)=>{["meta","pago","novos","rec","proj","emNeg"].forEach(k=>t[k]=(t[k]||0)+l.c[k]);return t;},{});
+      tot.cob=tot.meta>0?Math.round((tot.pago+tot.emNeg)/tot.meta*100):null;
+      h+=blocoB2({...tot,falta:Math.max(0,tot.meta-tot.pago),nNovos:linhas.reduce((s,l)=>s+l.c.nNovos,0),
+        nRec:linhas.reduce((s,l)=>s+l.c.nRec,0),nNeg:linhas.reduce((s,l)=>s+l.c.nNeg,0),
+        nProps:linhas.reduce((s,l)=>s+l.c.nProps,0),liberada:true,cob:tot.cob},true);
+      const foraProj=pags.filter(p=>p.fora_projecao).reduce((s,p)=>s+(+p.valor_bruto||0),0);
+      h+=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+        <tr style="color:var(--gray);text-align:right"><th style="text-align:left">Pessoa</th><th>Meta</th><th>Pago</th><th>Novos</th><th>Recorr.</th><th>Projeção</th><th>Em neg. (mês)</th><th>Cobertura</th></tr>`+
+        linhas.map(l=>`<tr style="border-top:1px solid var(--gray-lt);text-align:right">
+          <td style="text-align:left;padding:5px 0"><a href="javascript:void(0)" onclick="E._comAlvo=${JSON.stringify(l.n)};telaComercial()" style="color:var(--navy);font-weight:700">${esc(l.n)}</a>${l.c.liberada?"":' <span title="meta ainda não liberada">&#128274;</span>'}</td>
+          <td>${fmtR$(l.c.meta)}</td><td style="color:var(--green)"><b>${fmtR$(l.c.pago)}</b></td>
+          <td>${fmtR$(l.c.novos)}</td><td>${fmtR$(l.c.rec)}</td><td>${fmtR$(l.c.proj)}</td>
+          <td>${fmtR$(l.c.emNeg)}</td><td><b>${l.c.cob!==null?l.c.cob+"%":"—"}</b></td></tr>`).join("")+
+        `</table></div>
+        <div style="font-size:11px;color:var(--gray);margin-top:6px">Clique no nome para abrir a visão da pessoa · &#128683; Fora da projeção (crônicos): <b>${fmtR$(foraProj)}</b></div>
+        <div class="linha-acao" style="margin-top:8px"><button class="btn btp btsm" onclick="telaConfig()">&#9881;&#65039; Ajustar / liberar metas do mês</button></div></div>`;
+      // retrovisor consolidado da banca
+      const porMes={};fechs.forEach(f=>{(porMes[String(f.mes).slice(0,7)]=porMes[String(f.mes).slice(0,7)]||[]).push(f);});
+      const mesesOrd=Object.keys(porMes).sort((a,b)=>b.localeCompare(a));
+      if(mesesOrd.length){
+        h+=`<div class="painel"><div class="bloco-t">&#128200; Retrovisor — fechamentos mensais da banca</div>
+          <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+          <tr style="color:var(--gray);text-align:right"><th style="text-align:left">Mês / pessoa</th><th>Meta</th><th>Projeção</th><th>Atingido</th><th>%</th></tr>`+
+          mesesOrd.map(m=>{const fs=porMes[m];
+            const tt=fs.reduce((t,f)=>{["meta","projecao","atingido"].forEach(k=>t[k]=(t[k]||0)+(+f[k]||0));return t;},{});
+            return `<tr style="border-top:2px solid var(--border);text-align:right;background:var(--gray-lt)">
+              <td style="text-align:left;padding:4px 0"><b>${m.split("-").reverse().join("/")}</b></td>
+              <td>${fmtR$(tt.meta)}</td><td>${fmtR$(tt.projecao)}</td><td><b>${fmtR$(tt.atingido)}</b></td>
+              <td><b>${tt.meta>0?Math.round(tt.atingido/tt.meta*100)+"%":"—"}</b></td></tr>`+
+              fs.sort((a,b)=>(+b.atingido||0)-(+a.atingido||0)).map(f=>`<tr style="border-top:1px solid var(--gray-lt);text-align:right">
+              <td style="text-align:left;padding:3px 0 3px 14px">${esc(f.pessoa)}</td>
+              <td>${f.meta!==null?fmtR$(f.meta):"—"}</td><td>${fmtR$(f.projecao)}</td><td>${fmtR$(f.atingido)}</td>
+              <td>${+f.meta>0?Math.round(+f.atingido/+f.meta*100)+"%":"—"}</td></tr>`).join("");}).join("")+
+          `</table></div></div>`;
+      }
+      h+=blocoOrigem((props||[]).filter(propNaRua)," (banca)");
+    }
   }
   ge("conteudo").innerHTML=h;
 }
