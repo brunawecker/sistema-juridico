@@ -3475,14 +3475,22 @@ async function telaComercial(){
       emNeg,nNeg,nProps:mProps.length,falta:Math.max(0,meta-pago),
       cob:meta>0?Math.round((pago+emNeg)/meta*100):null};
   };
-  const cardReg=(c,liberadaOk)=>`<div class="sg">
-    <div class="sc"><div class="sl">Meta do mês</div><div class="sv" style="font-size:15px">${liberadaOk?fmtR$(c.meta):"&#128274;"}</div></div>
-    <div class="sc"><div class="sl">Pago (líquido)</div><div class="sv green" style="font-size:15px">${fmtR$(c.pago)}</div></div>
-    <div class="sc"><div class="sl">Projeção (boleto na rua)</div><div class="sv" style="font-size:15px">${fmtR$(c.proj)}</div></div>
-    <div class="sc"><div class="sl">Em negociação p/ o mês</div><div class="sv" style="font-size:15px">${fmtR$(c.emNeg)}</div></div>
-    <div class="sc"><div class="sl">Falta p/ meta</div><div class="sv ${c.falta>0?"amber":"green"}" style="font-size:15px">${liberadaOk?fmtR$(c.falta):"&#128274;"}</div></div>
-    <div class="sc"><div class="sl">Cobertura</div><div class="sv ${c.cob===null?"":c.cob>=100?"green":c.cob>=60?"amber":"red"}">${liberadaOk&&c.cob!==null?c.cob+"%":"—"}</div></div></div>
-    <div style="font-size:11px;color:var(--gray);margin:2px 0 8px">Pago: R$ líquido da planilha (${c.nNovos} novo(s) ${fmtR$(c.novos)} · ${c.nRec} recorrência ${fmtR$(c.rec)}) · Projeção: aceito com boleto enviado, ainda não pago · Em negociação: suas propostas com previsão de pagamento neste mês (${c.nNeg} de ${c.nProps} na rua) · Cobertura = (pago + negociação) ÷ meta.</div>`;
+  // BLOCO 2 no formato exato da planilha da reunião de segunda
+  const linB2=(rot,val,forte)=>`<tr style="border-top:1px solid var(--gray-lt)">
+    <td style="padding:5px 8px">${rot}</td>
+    <td style="text-align:right;padding:5px 8px;font-family:'DM Mono'${forte?";font-weight:700;color:var(--navy)":""}">${val}</td></tr>`;
+  const cardReg=(c,liberadaOk)=>`<div class="bloco-t" style="margin-top:4px">Bloco 2 — Acompanhamento do mês em curso</div>
+    <div style="overflow-x:auto"><table style="min-width:360px;width:100%;max-width:560px;border-collapse:collapse;font-size:12.5px">
+    ${linB2("Valor da meta alvo",liberadaOk?fmtR$(c.meta):"&#128274; aguardando liberação")}
+    ${linB2("Valor da projeção (pago + boletos na rua)",fmtR$(c.pago+c.proj))}
+    ${linB2("Valor já pago no mês",fmtR$(c.pago),1)}
+    ${linB2("Valor da projeção excluindo os pagos",fmtR$(c.proj))}
+    ${linB2("Valor que falta para atingir a meta alvo",liberadaOk?fmtR$(c.falta):"&#128274;")}
+    ${linB2("Número de propostas em negociação",c.nNeg)}
+    ${linB2("Valor total em negociação (pagamento no mês em curso)",fmtR$(c.emNeg))}
+    ${linB2("Cobertura da meta alvo (pago + negociação)",liberadaOk&&c.cob!==null?c.cob+"%":"—",1)}
+    </table></div>
+    <div style="font-size:11px;color:var(--gray);margin:4px 0 8px">Tudo automático: pago em R$ líquido da planilha (${c.nNovos} novo(s) ${fmtR$(c.novos)} · ${c.nRec} recorrência ${fmtR$(c.rec)}); projeção = aceito com boleto na rua; negociação = suas propostas com previsão de pagamento neste mês (${c.nNeg} de ${c.nProps} na rua).</div>`;
   let h=`<div class="painel"><div class="bloco-t">&#128188; Comercial — ${esc(mesNome)}</div>`;
   if(!ehHead){
     const c=calc(eu);
@@ -3505,10 +3513,42 @@ async function telaComercial(){
         <td>${fmtR$(l.c.novos)}</td><td>${fmtR$(l.c.rec)}</td><td>${fmtR$(l.c.proj)}</td>
         <td>${fmtR$(l.c.emNeg)}</td><td><b>${l.c.cob!==null?l.c.cob+"%":"—"}</b></td></tr>`).join("")+
       `</table></div>
-      <div style="font-size:11px;color:var(--gray);margin-top:6px">&#128683; Fora da projeção (inadimplentes crônicos — valor em texto na planilha): <b>${fmtR$(foraProj)}</b> · Metas: Configurações → &#127919; Metas do mês.</div></div>`;
+      <div style="font-size:11px;color:var(--gray);margin-top:6px">&#128683; Fora da projeção (inadimplentes crônicos — valor em texto na planilha): <b>${fmtR$(foraProj)}</b></div>
+      <div class="linha-acao" style="margin-top:8px"><button class="btn btp btsm" onclick="telaConfig()">&#9881;&#65039; Ajustar / liberar metas do mês</button></div></div>`;
   }
-  // retrovisor (fechamentos mensais: sementes do PDF + fotos futuras do robô)
-  const meusF=(ehHead?fechs:fechs.filter(f=>f.pessoa===eu))
+  // BLOCO 1 — análise dos meses anteriores, no formato exato da planilha
+  // (visão da própria pessoa; heads têm o consolidado logo abaixo)
+  if(!ehHead){
+    const mine=fechs.filter(f=>f.pessoa===eu)
+      .sort((a,b)=>String(a.mes).localeCompare(String(b.mes))).slice(-3);
+    if(mine.length){
+      const mLbl=f=>new Date(String(f.mes).slice(0,10)+"T12:00:00")
+        .toLocaleDateString("pt-BR",{month:"long"}).replace(/^./,x=>x.toUpperCase());
+      const tk=(v,n)=>(+n>0)?fmtR$((+v||0)/+n):"—";
+      const temN=f=>f.n_rec!==null&&f.n_rec!==undefined;
+      const rowsB1=[
+        ["Valor da meta",f=>f.meta!==null&&f.meta!==undefined?fmtR$(f.meta):"—"],
+        ["Valor da projeção",f=>fmtR$(f.projecao)],
+        ["Valor atingido",f=>fmtR$(f.atingido),1],
+        ["Valor da recorrência",f=>f.recorrencia!=null?fmtR$(f.recorrencia):"—"],
+        ["Número de negócios recorrentes",f=>temN(f)?f.n_rec:"—"],
+        ["Ticket médio dos negócios recorrentes",f=>temN(f)?tk(f.recorrencia,f.n_rec):"—"],
+        ["Valor de novos negócios",f=>f.novos!=null?fmtR$(f.novos):"—"],
+        ["Número de novos negócios",f=>f.n_novos!=null?f.n_novos:"—"],
+        ["Ticket médio dos novos negócios",f=>f.n_novos!=null?tk(f.novos,f.n_novos):"—"],
+        ["Número total de negócios pagos (recorrentes + novos)",f=>temN(f)?(+f.n_rec||0)+(+f.n_novos||0):"—"],
+        ["Ticket médio do valor atingido",f=>temN(f)?tk(f.atingido,(+f.n_rec||0)+(+f.n_novos||0)):"—"]];
+      h+=`<div class="painel"><div class="bloco-t">Bloco 1 — Análise dos meses anteriores</div>
+        <div style="overflow-x:auto"><table style="min-width:360px;width:100%;max-width:640px;border-collapse:collapse;font-size:12.5px">
+        <tr style="color:var(--gray)"><th style="text-align:left;padding:4px 8px">Indicador</th>${mine.map(f=>`<th style="text-align:right;padding:4px 8px">${mLbl(f)}</th>`).join("")}</tr>
+        ${rowsB1.map(([rot,fn,forte])=>`<tr style="border-top:1px solid var(--gray-lt)">
+          <td style="padding:4px 8px">${rot}</td>${mine.map(f=>`<td style="text-align:right;padding:4px 8px;font-family:'DM Mono'${forte?";font-weight:700;color:var(--navy)":""}">${fn(f)}</td>`).join("")}</tr>`).join("")}
+        </table></div>
+        <div style="font-size:11px;color:var(--gray);margin-top:4px">Junho e julho vieram da planilha da reunião (sem as contagens); de agosto em diante o robô congela o fechamento completo sozinho no 1º dia útil do mês.</div></div>`;
+    }
+  }
+  // retrovisor consolidado (heads: fechamentos mensais da banca)
+  const meusF=(ehHead?fechs:[])
     .sort((a,b)=>String(b.mes).localeCompare(String(a.mes)));
   if(meusF.length){
     const porMes={};meusF.forEach(f=>{(porMes[String(f.mes).slice(0,7)]=porMes[String(f.mes).slice(0,7)]||[]).push(f);});
