@@ -149,10 +149,11 @@ def sincronizar_comercial(sess, aba, mes_iso):
         cli = str(cel(fmt, r, iC)).strip()
         s = _sem_acento(cli)
         doc = _re.sub(r"\D", "", str(cel(fmt, r, iDoc)))
-        m = _re.search(r"(NOVOS NEG|RECORREN)", s)
-        # título de seção = tem o texto E não tem CNPJ na linha (linhas de
-        # pagamento sempre têm documento; títulos podem vir com sujeira ao lado)
-        if m and len(doc) < 11:
+        # título de seção = a célula do CLIENTE COMEÇA com o texto — vale
+        # mesmo com lixo nas células vizinhas (até CNPJ perdido ao lado,
+        # caso real da seção da Bruna em agosto/26)
+        m = _re.match(r"(NOVOS NEG|RECORREN)", s)
+        if m:
             secao_tipo = "NOVO" if m.group(1).startswith("NOVOS") else "RECORRENCIA"
             secao_head = _quem(s.split("-")[-1] if "-" in s else s)
             continue
