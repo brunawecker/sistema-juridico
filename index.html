@@ -932,15 +932,22 @@ function montarGestaoEquipe(){
 function _mesCfg(){return (ge("cfg-meta-mes").value||hojeISO().slice(0,7))+"-01";}
 async function carregarMetasCfg(){
   const box=ge("cfg-metas-box");if(!box)return;
-  const mes=_mesCfg();
-  let metas=[];try{metas=await DB.metasMes(mes);}catch(e){box.innerHTML="Erro: "+esc(e.message);return;}
-  const nomes=[...new Set([...(E.equipe||[]).filter(m=>String(m.status).toUpperCase()==="ATIVO")
-    .map(m=>m.nome_sistema),...metas.map(m=>m.pessoa)])];
-  const de=n=>metas.find(m=>m.pessoa===n)||{};
-  const lib=metas.length&&metas.every(m=>m.liberada);
-  box.innerHTML=(metas.length?`<div style="margin-bottom:5px">${lib?'&#9989; <b style="color:var(--green)">Mês liberado</b> — a equipe já vê as metas.':'&#128274; Mês ainda <b>não liberado</b> — só heads veem.'}</div>`:'<div style="margin-bottom:5px">Sem metas salvas para este mês ainda.</div>')+
-    nomes.map(n=>`<div class="linha-item"><span>${esc(n)}</span>
-      <span>R$ <input class="fsel" style="width:110px" id="cfg-meta-${esc(n)}" value="${de(n).meta?(+de(n).meta).toFixed(2).replace(".",","):""}" placeholder="0,00"></span></div>`).join("");
+  try{
+    box.innerHTML="carregando as metas…";
+    const mes=_mesCfg();
+    const metas=await Promise.race([DB.metasMes(mes),
+      new Promise((_,rej)=>setTimeout(()=>rej(new Error("o banco demorou demais — clique em Recarregar")),12000))]);
+    const nomes=[...new Set([...(E.equipe||[]).filter(m=>String(m.status).toUpperCase()==="ATIVO")
+      .map(m=>m.nome_sistema),...(metas||[]).map(m=>m.pessoa)])];
+    const de=n=>(metas||[]).find(m=>m.pessoa===n)||{};
+    const lib=(metas||[]).length&&metas.every(m=>m.liberada);
+    box.innerHTML=((metas||[]).length?`<div style="margin-bottom:5px">${lib?'&#9989; <b style="color:var(--green)">Mês liberado</b> — a equipe já vê as metas.':'&#128274; Mês ainda <b>não liberado</b> — só heads veem.'}</div>`:'<div style="margin-bottom:5px">Sem metas salvas para este mês ainda.</div>')+
+      nomes.map(n=>`<div class="linha-item"><span>${esc(n)}</span>
+        <span>R$ <input class="fsel" style="width:110px" id="cfg-meta-${esc(n)}" value="${de(n).meta?(+de(n).meta).toFixed(2).replace(".",","):""}" placeholder="0,00"></span></div>`).join("");
+  }catch(e){
+    box.innerHTML=`<div class="aviso erro" style="margin-bottom:6px">Não consegui carregar as metas: ${esc((e&&e.message)||String(e))}</div>
+      <button class="btn bts btsm" onclick="carregarMetasCfg()">&#8635; Recarregar</button>`;
+  }
 }
 async function sugerirMetasCfg(){
   const mes=_mesCfg();
