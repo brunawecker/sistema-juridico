@@ -1198,6 +1198,9 @@ async function telaMinhas(){
       ?"Este bloco é reservado todos os dias por definição da banca — quem delega também o vê como tempo ocupado. As demais tarefas se organizam no restante do dia."
       :"Nada vencido na sua fila: este bloco já está programado no seu dia para buscar negócios novos — quem delega também o vê como tempo ocupado. "+(imed.length?"Dê conta das imediatas de hoje e use o bloco no melhor horário. ":"")+"O planejador não antecipa tarefas dentro dele, e o tempo conta no Diário e na sua produtividade."}</div>
     <button class="btn btg btsm" onclick="iniciarProspeccao()">&#127919; Prospectar agora (liga o relógio)</button></div>`;
+  // 📞 o follow-up entra como CARTÃO do dia na lista (depois de imediatas e
+  // atrasadas) — pedido da Bruna, 18/08/2026; a fila abre num painel próprio
+  E._fuCard=null;
   if(reservaFu>0){
     const pBR=s=>{const m=String(s||"").match(/(\d{2})\/(\d{2})\/(\d{4})/);return m?new Date(+m[3],+m[2]-1,+m[1]):null;};
     const hj0=new Date();hj0.setHours(0,0,0,0);
@@ -1207,15 +1210,9 @@ async function telaMinhas(){
       if(va!==vb)return va-vb;
       return String(a.data_proposta_dt||"9999").localeCompare(String(b.data_proposta_dt||"9999"));});
     E._propMap=E._propMap||{};ordFu.forEach(p=>{E._propMap[p.id_proposta]=p;});
-    h+=`<div class="painel" style="background:#EEF3F9;border-color:#C9D8EA">
-      <div class="bloco-t" style="color:#1F4E79">&#128222; Follow-up de propostas — ${fmtMin(reservaFu)} do dia · ${propsFu.length} na rua sob sua responsabilidade</div>
-      <div style="font-size:11px;color:var(--gray);margin-bottom:5px">Bloco diário para retomar negociações — mais paradas primeiro. Clique para abrir a rodada; o tempo conta na sua produtividade.</div>`+
-      ordFu.slice(0,5).map(p=>{const r=pBR(p.data_retorno);
-        return `<div class="linha-item" style="cursor:pointer" onclick='abrirNegociacao(${JSON.stringify(p.id_proposta)})'>
-        <span><b>${esc(p.cliente||"")}</b> · R$ ${esc(p.valor||"0")} · ${esc(p.status||"")}</span>
-        <span style="font-size:11px;color:${r&&r<=hj0?"var(--red)":"var(--gray)"}">${p.data_retorno?"retorno "+esc(p.data_retorno):"sem retorno combinado"}</span></div>`;}).join("")+
-      `${propsFu.length>5?`<div style="font-size:11px;color:var(--gray)">+ ${propsFu.length-5} outras na aba Propostas.</div>`:""}
-      <button class="btn btp btsm" style="margin-top:6px" onclick="iniciarFollowup()">&#128222; Fazer follow-up agora (liga o relógio)</button></div>`;
+    E._fuCard={min:reservaFu,naRua:propsFu.length,
+      fila:ordFu.map(p=>({id:p.id_proposta,cliente:p.cliente,valor:p.valor,status:p.status,
+        ret:p.data_retorno,venc:!!(pBR(p.data_retorno)&&pBR(p.data_retorno)<=hj0)}))};
   }
   // quem pode delegar (e não é head) vê a fila do seu grupo — pedido do Ygor:
   // "preciso saber quem recebe" (head já tem isso no Painel)
@@ -1289,11 +1286,35 @@ function desenhaMinhas(){
   const rot={1:"&#128308; Imediatas",2:"&#128992; Em atraso",3:"&#128309; Para hoje",4:"&#128995; Completando capacidade"};
   const g={1:[],2:[],3:[],4:[]};lista.forEach(t=>g[t._urg||4]?.push(t));
   let h="";let algum=false;
-  [1,2,3,4].forEach(k=>{if(!g[k].length)return;algum=true;
+  [1,2,3,4].forEach(k=>{
+    // 📞 o cartão do follow-up entra DEPOIS de imediatas e atrasadas
+    if(k===3&&E._fuCard){h+=fuCardHtml();algum=true;}
+    if(!g[k].length)return;algum=true;
     h+=`<div class="grupo-t"><span>${rot[k]}</span><span class="qt">${g[k].length} · ~${g[k].reduce((s,t)=>s+t._tempo,0)}min</span></div>`
       +g[k].map(t=>cardTarefa(t,false,true)).join("");});
   alvo.innerHTML=algum?h:`<div class="vazio"><div style="font-size:30px">&#127881;</div>
     <p style="font-weight:600;margin-top:8px">Nenhuma tarefa pendente!</p></div>`;
+}
+// cartão diário do follow-up de propostas — clica e abre a fila + relógio
+function fuCardHtml(){
+  const f=E._fuCard;if(!f)return "";
+  const rolando=!!(E._avulsa&&String(E._avulsa.desc||"").indexOf("📞")>-1);
+  const vencidas=f.fila.filter(x=>x.venc).length;
+  return `<div class="grupo-t"><span>&#128222; Comercial do dia</span><span class="qt">1 · ~${f.min}min</span></div>
+    <div class="tc u3" style="border-left:4px solid #1F4E79;background:#EEF3F9;cursor:pointer" onclick="abrirFollowupDia()">
+      <div style="flex:1;min-width:0"><div class="tcc">&#128222; Follow-up de propostas${rolando?' <span class="tag tek">&#9201; rolando agora</span>':''}${vencidas?` <span class="tag ti">${vencidas} retorno(s) vencido(s)</span>`:""}</div>
+      <div class="tco">${f.naRua} proposta(s) na rua · bloco de ${fmtMin(f.min)} — toque para abrir a fila e ligar o relógio</div></div>
+      <div style="font-family:'DM Mono';font-size:11px;color:#1F4E79">&#9201; ~${f.min}min</div></div>`;
+}
+function abrirFollowupDia(){
+  const f=E._fuCard;if(!f)return;
+  modal2("&#128222; Follow-up de propostas — hoje",
+    `${fmtMin(f.min)} reservados · ${f.naRua} proposta(s) na rua sob sua responsabilidade`,
+    `<div style="font-size:12px;color:var(--gray);margin-bottom:6px">Mais paradas primeiro. Clique na proposta para registrar a rodada (próximo passo + data de retorno obrigatórios). Ligue o relógio: o tempo conta na sua produtividade e aparece para as heads em "Em Andamento Agora".</div>`
+    +f.fila.map(x=>`<div class="linha-item" style="cursor:pointer" onclick='abrirNegociacao(${JSON.stringify(x.id)})'>
+      <span><b>${esc(x.cliente||"")}</b> · R$ ${esc(x.valor||"0")} · ${esc(x.status||"")}</span>
+      <span style="font-size:11px;color:${x.venc?"var(--red)":"var(--gray)"}">${x.ret?"retorno "+esc(x.ret):"sem retorno combinado"}</span></div>`).join("")
+    +`<button class="btn btp btw" style="margin-top:10px" onclick="fecharModal2();iniciarFollowup()">&#128222; Começar follow-up (liga o relógio)</button>`);
 }
 function renderKanban(lista){
   const cols=[[1,"&#128308; Imediatas","#FCE4D6"],[2,"&#128992; Urgentes","#FFF2CC"],
@@ -1302,6 +1323,9 @@ function renderKanban(lista){
     const ct=lista.filter(t=>(t._urg||t._g)===k);
     return `<div style="flex:0 0 260px;background:var(--gray-lt);border-radius:12px;padding:9px">
       <div style="font-size:11px;font-weight:700;background:${bg};border-radius:6px;padding:5px 8px;margin-bottom:8px">${rot} (${ct.length})</div>
+      ${k===3&&E._fuCard?`<div class="tc u3" style="margin-bottom:6px;border-left:4px solid #1F4E79;background:#EEF3F9" onclick="abrirFollowupDia()">
+        <div style="flex:1;min-width:0"><div class="tcc">&#128222; Follow-up de propostas</div>
+        <div class="tco">${E._fuCard.naRua} na rua · ${fmtMin(E._fuCard.min)}</div></div></div>`:""}
       ${ct.map(t=>`<div class="tc u${k}" style="margin-bottom:6px" onclick="abrirTarefa('${esc(t.id_tarefa)}')">
         <div style="flex:1;min-width:0"><div class="tcc">${esc(t.cliente)}</div>
         <div class="tco">${esc(t.operacao||"")}</div>
