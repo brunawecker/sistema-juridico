@@ -2265,8 +2265,11 @@ async function telaPainel(){
     .filter(np=>OPERACIONAIS.includes(np)).sort((a,b)=>(prospPor[b]||0)-(prospPor[a]||0));
   if(nomesPros.length)h+=`<div class="painel" style="background:#EAF7EA;border-color:var(--green)">
     <div class="bloco-t" style="color:var(--green)">&#127919; Prospecção da semana</div>`+
-    nomesPros.map(np=>`<div class="linha-item"><span><b>${esc(np)}</b></span>
-      <span style="font-size:12px">${fmtMin(prospPor[np]||0)} prospectando · ${propPor[np]||0} proposta(s) na semana</span></div>`).join("")+
+    nomesPros.map(np=>{const bs=[...new Set((histP||[]).filter(r=>loginDe(r.autor)===np
+        &&String(r.texto||"").indexOf("🎯 Prospecção — base:")>-1)
+        .map(r=>String(r.texto).split("base:")[1].split("|")[0].trim()))];
+      return `<div class="linha-item"><span><b>${esc(np)}</b></span>
+      <span style="font-size:12px">${fmtMin(prospPor[np]||0)} prospectando · ${propPor[np]||0} proposta(s) na semana${bs.length?` · <b>bases:</b> ${bs.map(esc).join(", ")}`:""}</span></div>`;}).join("")+
     `<div style="font-size:11px;color:var(--gray);margin-top:4px">Horas medidas pelo botão &#127919; Prospectar; propostas lançadas nos últimos 7 dias.</div></div>`;
   // 📞 comercial da semana: o bloco de follow-up foi USADO? minutos medidos ×
   // rodadas registradas × propostas ainda paradas 7d+ (por responsável)
@@ -2295,8 +2298,10 @@ async function telaPainel(){
   if(nomesFu.length)h+=`<div class="painel" style="background:#EEF3F9;border-color:#C9D8EA">
     <div class="bloco-t" style="color:#1F4E79">&#128222; Comercial da semana — o bloco de follow-up está sendo usado?</div>`+
     nomesFu.map(nf=>{const par=paradasPor[nf]||0;
+      const semRod=(histP||[]).filter(r=>loginDe(r.autor)===nf
+        &&String(r.texto||"").indexOf("📞 Follow-up encerrado sem rodada")>-1).length;
       return `<div class="linha-item"><span><b>${esc(nf)}</b></span>
-      <span style="font-size:12px">${fmtMin(fuPor[nf]||0)} em follow-up · ${rodPor[nf]||0} rodada(s) · <b style="color:${par?"var(--red)":"var(--green)"}">${par} parada(s) 7d+</b></span></div>`;}).join("")+
+      <span style="font-size:12px">${fmtMin(fuPor[nf]||0)} em follow-up · ${rodPor[nf]||0} rodada(s)${semRod?` · <b style="color:var(--amber)">&#9888; ${semRod} sessão(ões) sem rodada</b>`:""} · <b style="color:${par?"var(--red)":"var(--green)"}">${par} parada(s) 7d+</b></span></div>`;}).join("")+
     `<div style="font-size:11px;color:var(--gray);margin-top:4px">Minutos medidos pelo botão &#128222;; rodadas registradas nas propostas nos últimos 7 dias; "paradas" = na rua sem nenhuma rodada há mais de 7 dias.</div></div>`;}
   h+=`<div class="sg">
     <div class="sc"><div class="sl">Total</div><div class="sv">${total}</div></div>
@@ -3459,6 +3464,7 @@ async function salvarNegociacao(id){
   if(passo)ln+=" | ⏭ Próximo: "+passo;if(ret)ln+=" (retorno "+ret+")";if(perda)ln+=" | ✗ Motivo: "+perda;
   try{const r=await DB.negociacao({id_proposta:id,linha_log:ln,etapa,valor:val,cond,passo,retorno:ret,perda,
       valor_mes:vmes||null,data_pagto:dpag||null});
+    if(E._avulsa&&String(E._avulsa.desc||"").indexOf("📞")>-1)E._fuRodadasSessao=(E._fuRodadasSessao||0)+1;
     toast(r.convertido?"🎉 Rodada salva — cliente convertido em OFICIAL!":"Rodada registrada!","ok");}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   fecharModal2();telaPropostas();
@@ -4191,6 +4197,7 @@ function ligaChipAvulsa(desc,iniMs){
 async function iniciarFollowup(){
   try{await DB.sessaoIniciar({id_tarefa:"AVULSA",cliente:"⏱️ 📞 Follow-up propostas",operacao:"📞 Follow-up propostas"});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
+  E._fuRodadasSessao=0;
   ligaChipAvulsa("📞 Follow-up propostas",Date.now());
   toast("Follow-up valendo — o relógio está contando no topo.","ok");
 }
@@ -4223,7 +4230,7 @@ function mostrarFimFollowup(){
     <div style="margin-top:10px"><a href="javascript:adiarFimFollowup()" style="font-size:12px;color:var(--gray)">Estou finalizando um contato — me lembre em 10 min</a></div></div>`;}
 async function fimFollowupOk(){
   const b=document.getElementById("fim-fu");if(b)b.remove();
-  await pararAvulsa();telaMinhas();}
+  await pararAvulsa();}
 function adiarFimFollowup(){
   const b=document.getElementById("fim-fu");if(b)b.remove();
   if(E._fuLimite){E._fuLimite.avisado=false;E._fuLimite.fimMs=Date.now()+10*60000;}}
@@ -4256,19 +4263,58 @@ function mostrarFimProspeccao(){
     <div style="margin-top:10px"><a href="javascript:adiarFimProspeccao()" style="font-size:12px;color:var(--gray)">Estou finalizando um contato — me lembre em 10 min</a></div></div>`;}
 async function fimProspeccaoOk(){
   const b=document.getElementById("fim-pros");if(b)b.remove();
-  await pararAvulsa();telaMinhas();}
+  await pararAvulsa();}
 function adiarFimProspeccao(){
   const b=document.getElementById("fim-pros");if(b)b.remove();
   if(E._prosLimite){E._prosLimite.avisado=false;E._prosLimite.fimMs=Date.now()+10*60000;}}
-async function pararAvulsa(){
+async function pararAvulsa(extraNota){
   if(!E._avulsa)return;
+  const desc=String(E._avulsa.desc||"");
+  // relatório obrigatório para as heads (pedido da Bruna, 18/08/2026):
+  // prospecção informa a BASE + resultado; follow-up sem rodada, justifica
+  if(extraNota===undefined){
+    if(desc.indexOf("🎯 Prospecção")>-1){abrirFechoProspeccao();return;}
+    if(desc.indexOf("📞 Follow-up")>-1&&!(E._fuRodadasSessao>0)){abrirFechoFollowup();return;}
+  }
   const min=Math.round((Date.now()-E._avulsa.ini)/60000);
   clearInterval(E._avulsaInt);E._prosLimite=null;E._fuLimite=null;ge("chip-timer").style.display="none";
   try{await DB.sessaoConcluir(min,"AVULSA");
-    if(min>=1)await DB.nota({id_tarefa:"AVULSA",id_cliente:null,tipo:"TIMER",texto:`Tempo registrado: ${min} min — ⏱️ ${E._avulsa.desc}`});}
+    if(min>=1)await DB.nota({id_tarefa:"AVULSA",id_cliente:null,tipo:"TIMER",texto:`Tempo registrado: ${min} min — ⏱️ ${E._avulsa.desc}`});
+    if(extraNota)await DB.nota({id_tarefa:"AVULSA",id_cliente:null,tipo:"HISTORICO",texto:extraNota});
+    else if(desc.indexOf("📞 Follow-up")>-1&&E._fuRodadasSessao>0)
+      await DB.nota({id_tarefa:"AVULSA",id_cliente:null,tipo:"HISTORICO",
+        texto:`📞 Follow-up do dia: ${E._fuRodadasSessao} rodada(s) registrada(s) nas propostas.`});}
   catch(e){toast("Erro: "+e.message,"erro");}
-  toast(`Atividade registrada: ${min} min.`,"ok");E._avulsa=null;marcarAtividade();
+  toast(`Atividade registrada: ${min} min.`,"ok");E._avulsa=null;E._fuRodadasSessao=0;marcarAtividade();
 }
+const BASES_PROSPECCAO=["Carteira Bruna","Carteira Danielly","Carteira Eduarda",
+  "Clientes do Simples Nacional","Inadimplentes / execuções da região",
+  "Indicação de clientes","Lista fria / externa","Outra (descreva no relato)"];
+function abrirFechoProspeccao(){
+  modal2("&#127919; Fechar a prospecção","O relatório do dia vai para as heads",`
+    <div class="bloco-t">Em que base você prospectou? *</div>
+    <select class="fsel" id="fp-base" style="width:100%"><option value="">— escolha —</option>
+      ${BASES_PROSPECCAO.map(x=>`<option>${esc(x)}</option>`).join("")}</select>
+    <div class="bloco-t" style="margin-top:9px">O que você conseguiu? *</div>
+    <textarea class="fta" id="fp-rel" placeholder="Ex.: 12 contatos, 3 interessados, 1 reunião marcada para quinta"></textarea>
+    <button class="btn btp btw" style="margin-top:8px" onclick="confirmarFechoProspeccao()">&#10003; Registrar relatório e parar o relógio</button>`);}
+async function confirmarFechoProspeccao(){
+  const b=ge("fp-base").value,r=(ge("fp-rel").value||"").trim();
+  if(!b){toast("Diga em que base você prospectou.","erro");return;}
+  if(!r){toast("Conte o que conseguiu — é o relatório que as heads acompanham.","erro");return;}
+  fecharModal2();
+  await pararAvulsa(`🎯 Prospecção — base: ${b} | ${r}`);}
+function abrirFechoFollowup(){
+  modal2("&#128222; Parar sem nenhuma rodada?","Nenhuma rodada foi registrada nesta sessão",`
+    <div style="font-size:12px;color:var(--gray);margin-bottom:6px">O follow-up existe para registrar rodadas nas propostas. Se nenhuma saiu, explique para as heads:</div>
+    <textarea class="fta" id="ff-just" placeholder="Ex.: liguei para 4 clientes e nenhum atendeu; reagendei os retornos"></textarea>
+    <button class="btn btp btw" style="margin-top:8px" onclick="confirmarFechoFollowup()">Registrar justificativa e parar</button>
+    <div style="text-align:center;margin-top:8px"><a href="javascript:fecharModal2()" style="font-size:12px;color:var(--gray)">voltar e registrar uma rodada</a></div>`);}
+async function confirmarFechoFollowup(){
+  const j=(ge("ff-just").value||"").trim();
+  if(!j){toast("Escreva a justificativa.","erro");return;}
+  fecharModal2();
+  await pararAvulsa(`📞 Follow-up encerrado sem rodada — justificativa: ${j}`);}
 async function retomarSessaoAtiva(){
   try{const s=await DB.sessaoAtiva();
     if(s&&s.id_tarefa==="AVULSA"){const m=String(s.hora_inicio||"").match(/(\d{1,2}):(\d{2})/);
