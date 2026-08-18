@@ -303,6 +303,37 @@ def main():
         print(f"6. vínculo cartão×cadastro: {sincronizados} nome(s)/CNPJ sincronizado(s), "
               f"{suspeitos} suspeita(s) sinalizada(s)")
 
+        # 7) fechamento comercial: nos primeiros dias úteis do mês, congela a
+        # foto do mês anterior (atingido líquido, novos × recorrência, projeção
+        # final) — vira o "retrovisor" do Comercial. Não sobrescreve sementes.
+        if hoje.day <= 5:
+            mes_ant = (hoje.replace(day=1) - timedelta(days=1)).replace(day=1)
+            cur.execute("""select
+                (select count(*) from juridico.comercial_pagamentos where mes=%s),
+                (select count(*) from juridico.comercial_fechamento
+                  where mes=%s and origem='FOTO')""", (mes_ant, mes_ant))
+            tem, ja = cur.fetchone()
+            if tem and not ja:
+                cur.execute("""insert into juridico.comercial_fechamento
+                    (mes,pessoa,meta,projecao,atingido,novos,n_novos,recorrencia,n_rec,origem)
+                    select %s, p.credito,
+                      (select m.meta from juridico.config_metas m
+                        where m.mes=%s and m.pessoa=p.credito),
+                      coalesce(sum(p.valor_bruto) filter (where p.status<>'PAGO'
+                        and coalesce(p.status,'')<>'' and not p.fora_projecao
+                        and p.status not like '%%CANCEL%%'),0),
+                      coalesce(sum(p.valor_liquido) filter (where p.status='PAGO'),0),
+                      coalesce(sum(p.valor_liquido) filter (where p.status='PAGO' and p.tipo='NOVO'),0),
+                      count(*) filter (where p.status='PAGO' and p.tipo='NOVO'),
+                      coalesce(sum(p.valor_liquido) filter (where p.status='PAGO' and p.tipo<>'NOVO'),0),
+                      count(*) filter (where p.status='PAGO' and p.tipo<>'NOVO'),
+                      'FOTO'
+                    from juridico.comercial_pagamentos p
+                    where p.mes=%s and p.credito is not null
+                    group by p.credito
+                    on conflict (mes,pessoa) do nothing""", (mes_ant, mes_ant, mes_ant))
+                print(f"7. fechamento comercial de {mes_ant}: {cur.rowcount} pessoa(s)")
+
         # batimento (o Painel vigia)
         cur.execute("""insert into juridico.robo_status (nome, ultima) values ('rotina7h', now())
                        on conflict (nome) do update set ultima = excluded.ultima""")
