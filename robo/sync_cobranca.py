@@ -76,9 +76,11 @@ def _quem(nome):
     n = _sem_acento(nome)
     if not n:
         return None
-    for chave, sis in NOMES_COMERCIAL.items():
+    # nome mais LONGO ganha: "MARIA EDUARDA BASTOS" tem "EDUARDA" dentro e
+    # precisa cair na Madu, não na Eduarda (variações reais da planilha)
+    for chave in sorted(NOMES_COMERCIAL, key=len, reverse=True):
         if _sem_acento(chave) in n:
-            return sis
+            return NOMES_COMERCIAL[chave]
     return None
 
 
@@ -146,12 +148,14 @@ def sincronizar_comercial(sess, aba, mes_iso):
     for r in range(hdr_i + 1, len(fmt)):
         cli = str(cel(fmt, r, iC)).strip()
         s = _sem_acento(cli)
+        doc = _re.sub(r"\D", "", str(cel(fmt, r, iDoc)))
         m = _re.search(r"(NOVOS NEG|RECORREN)", s)
-        if m and len("".join(str(x) for x in (fmt[r] if r < len(fmt) else []))) < 80:
+        # título de seção = tem o texto E não tem CNPJ na linha (linhas de
+        # pagamento sempre têm documento; títulos podem vir com sujeira ao lado)
+        if m and len(doc) < 11:
             secao_tipo = "NOVO" if m.group(1).startswith("NOVOS") else "RECORRENCIA"
             secao_head = _quem(s.split("-")[-1] if "-" in s else s)
             continue
-        doc = _re.sub(r"\D", "", str(cel(fmt, r, iDoc)))
         if len(doc) < 11:
             continue
         bru_cru, liq_cru = cel(cru, r, iBru), cel(cru, r, iLiq)
