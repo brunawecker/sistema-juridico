@@ -3526,8 +3526,10 @@ async function telaComercial(){
   // BLOCO 1 — análise dos meses anteriores, no formato exato da planilha
   // (visão da própria pessoa; heads têm o consolidado logo abaixo)
   if(!ehHead){
+    // TODOS os meses anteriores, acumulando (pedido da Bruna, 18/08/2026):
+    // em setembro mostra junho+julho+agosto; a tabela rola para o lado
     const mine=fechs.filter(f=>f.pessoa===eu)
-      .sort((a,b)=>String(a.mes).localeCompare(String(b.mes))).slice(-3);
+      .sort((a,b)=>String(a.mes).localeCompare(String(b.mes)));
     if(mine.length){
       const mLbl=f=>new Date(String(f.mes).slice(0,10)+"T12:00:00")
         .toLocaleDateString("pt-BR",{month:"long"}).replace(/^./,x=>x.toUpperCase());
@@ -3551,7 +3553,7 @@ async function telaComercial(){
         ${rowsB1.map(([rot,fn,forte])=>`<tr style="border-top:1px solid var(--gray-lt)">
           <td style="padding:4px 8px">${rot}</td>${mine.map(f=>`<td style="text-align:right;padding:4px 8px;font-family:'DM Mono'${forte?";font-weight:700;color:var(--navy)":""}">${fn(f)}</td>`).join("")}</tr>`).join("")}
         </table></div>
-        <div style="font-size:11px;color:var(--gray);margin-top:4px">Junho e julho vieram da planilha da reunião (sem as contagens); de agosto em diante o robô congela o fechamento completo sozinho no 1º dia útil do mês.</div></div>`;
+        <div style="font-size:11px;color:var(--gray);margin-top:4px">A tabela acumula todos os meses. Junho e julho vieram da planilha da reunião — naqueles meses ainda não havia a coluna ASSESSOR, então a divisão recorrência × novos individual não existe (por isso os traços). De agosto em diante o robô congela o fechamento completo sozinho no 1º dia útil do mês.</div></div>`;
     }
   }
   // retrovisor consolidado (heads: fechamentos mensais da banca)
