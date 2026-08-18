@@ -37,11 +37,11 @@ def sessao_google():
     return AuthorizedSession(cr)
 
 
-def ler_aba(sess, aba):
+def ler_aba(sess, aba, render="FORMATTED_VALUE"):
     nome_a1 = aba.replace("'", "''")   # apóstrofo em nome de aba dobra (regra A1)
     rng = urllib.parse.quote(f"'{nome_a1}'", safe="")
     url = (f"https://sheets.googleapis.com/v4/spreadsheets/{SHEET_ID}/values/{rng}"
-           f"?valueRenderOption=FORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING")
+           f"?valueRenderOption={render}&dateTimeRenderOption=FORMATTED_STRING")
     ultimo = None
     for tent in range(4):
         r = sess.get(url, timeout=120)
@@ -50,6 +50,134 @@ def ler_aba(sess, aba):
         ultimo = f"HTTP {r.status_code}: {r.text[:200]}"
         time.sleep(2 * (tent + 1))
     raise RuntimeError(f"falha ao ler aba {aba}: {ultimo}")
+
+
+# ------------------------------------------------------------------ COMERCIAL
+# Etapa 1 do Comercial (aprovada pela Bruna em 18/08/2026): cada linha de
+# pagamento da aba do mês vira um registro com tipo (seção NOVOS/RECORRÊNCIA),
+# crédito (coluna ASSESSOR; vazia = head da seção) e a convenção da banca:
+# valor digitado como TEXTO = inadimplente crônico, fora da projeção.
+NOMES_COMERCIAL = {
+    "DANIELLY": "Danielly", "BRUNA": "Bruna", "EDUARDA": "Eduarda", "DUDA": "Eduarda",
+    "MARIA EDUARDA": "Madu", "MADU": "Madu", "YGOR": "Ygor",
+    "MARIA LUISA": "Malu", "MARIA LUIZA": "Malu", "MALU": "Malu",
+    "THIAGO": "Thiago", "NICHOLAS": "Nicholas", "JOAO": "João", "JOÃO": "João",
+    "LAURA": "Laura",
+}
+
+
+def _sem_acento(s):
+    import unicodedata
+    s = unicodedata.normalize("NFD", str(s or ""))
+    return "".join(c for c in s if unicodedata.category(c) != "Mn").upper().strip()
+
+
+def _quem(nome):
+    n = _sem_acento(nome)
+    if not n:
+        return None
+    for chave, sis in NOMES_COMERCIAL.items():
+        if _sem_acento(chave) in n:
+            return sis
+    return None
+
+
+def _num_br(v):
+    if isinstance(v, (int, float)):
+        return float(v)
+    v = str(v or "").replace("R$", "").strip()
+    if not v:
+        return 0.0
+    v = v.replace(".", "").replace(",", ".")
+    try:
+        return float(v)
+    except Exception:
+        return 0.0
+
+
+def _data_br(v):
+    import re as _re
+    m = _re.search(r"(\d{2})/(\d{2})/(\d{4})", str(v or ""))
+    return f"{m.group(3)}-{m.group(2)}-{m.group(1)}" if m else None
+
+
+def sincronizar_comercial(sess, aba, mes_iso):
+    """Lê a aba do mês em dois modos (formatado + cru) e grava
+    juridico.comercial_pagamentos. Célula de valor em TEXTO => fora_projecao."""
+    import re as _re
+    fmt = ler_aba(sess, aba)
+    cru = ler_aba(sess, aba, render="UNFORMATTED_VALUE")
+    hdr_i, hdr = None, None
+    for i, row in enumerate(fmt[:12]):
+        s = "|".join(str(x) for x in row).upper()
+        if "CLIENTE" in s and "CNPJ" in s:
+            hdr_i, hdr = i, [_sem_acento(h) for h in row]
+            break
+    if hdr_i is None:
+        print(f"comercial: cabeçalho não achado em {aba} — mantendo dados atuais")
+        return
+
+    def idx(*nomes):
+        for n in nomes:
+            for j, h in enumerate(hdr):
+                if h == _sem_acento(n):
+                    return j
+        for n in nomes:
+            for j, h in enumerate(hdr):
+                if _sem_acento(n) in h:
+                    return j
+        return None
+
+    iC, iDoc = idx("CLIENTE"), idx("CNPJ/CPF", "CNPJ")
+    iTipo, iLiq, iBru = idx("TIPO DE COBR."), idx("R$ LIQUIDO"), idx("R$ BRUTO")
+    iSt, iForma = idx("STATUS"), idx("FORMA PGTO")
+    iDp, iVc = idx("D. PGTO"), idx("VENC.")
+    iAdv, iAss = idx("ADV"), idx("ASSESSOR")
+    if iAss is None:
+        print(f"comercial: aba {aba} sem coluna ASSESSOR — mantendo dados atuais")
+        return
+
+    def cel(rows, r, j):
+        row = rows[r] if r < len(rows) else []
+        return row[j] if (j is not None and j < len(row)) else ""
+
+    linhas = []
+    secao_tipo, secao_head = None, None
+    for r in range(hdr_i + 1, len(fmt)):
+        cli = str(cel(fmt, r, iC)).strip()
+        s = _sem_acento(cli)
+        m = _re.search(r"(NOVOS NEG|RECORREN)", s)
+        if m and len("".join(str(x) for x in (fmt[r] if r < len(fmt) else []))) < 80:
+            secao_tipo = "NOVO" if m.group(1).startswith("NOVOS") else "RECORRENCIA"
+            secao_head = _quem(s.split("-")[-1] if "-" in s else s)
+            continue
+        doc = _re.sub(r"\D", "", str(cel(fmt, r, iDoc)))
+        if len(doc) < 11:
+            continue
+        bru_cru, liq_cru = cel(cru, r, iBru), cel(cru, r, iLiq)
+        # convenção: valor como TEXTO na planilha = fora da projeção (crônico)
+        fora = bool(str(bru_cru).strip()) and not isinstance(bru_cru, (int, float))
+        credito = (_quem(cel(fmt, r, iAss)) or _quem(cel(fmt, r, iAdv)) or secao_head)
+        linhas.append((aba, mes_iso, cli, str(cel(fmt, r, iDoc)).strip(),
+                       secao_tipo or "RECORRENCIA", secao_head, credito,
+                       _num_br(bru_cru if str(bru_cru).strip() else cel(fmt, r, iBru)),
+                       _num_br(liq_cru if str(liq_cru).strip() else cel(fmt, r, iLiq)),
+                       _sem_acento(cel(fmt, r, iSt)), _sem_acento(cel(fmt, r, iForma)),
+                       _data_br(cel(fmt, r, iDp)), _data_br(cel(fmt, r, iVc)),
+                       fora, _sem_acento(cel(fmt, r, iTipo))))
+    if not linhas:
+        print(f"comercial: aba {aba} sem lançamentos — mantendo dados atuais")
+        return
+    with psycopg.connect() as conn, conn.cursor() as cur:
+        cur.execute("delete from juridico.comercial_pagamentos where mes = %s", (mes_iso,))
+        with cur.copy("""copy juridico.comercial_pagamentos
+            (aba,mes,cliente,cnpj_cpf,tipo,secao_head,credito,valor_bruto,
+             valor_liquido,status,forma_pgto,data_pgto,venc,fora_projecao,tipo_col)
+            from stdin""") as cp:
+            for ln in linhas:
+                cp.write_row(ln)
+        conn.commit()
+    print(f"comercial: {len(linhas)} lançamento(s) de {aba}")
 
 
 def bater_coracao():
@@ -230,6 +358,11 @@ def main():
             for linha in linhas_cob:
                 cp.write_row(linha)
         conn.commit()
+    # comercial (etapa 1): mesma aba, com seção/tipo/crédito/fora-da-projeção
+    try:
+        sincronizar_comercial(sess, aba_usada, hoje.replace(day=1).isoformat())
+    except Exception as e:
+        print(f"comercial: falhou sem afetar a cobrança — {e}")
     bater_coracao()
     print(f"ok: {len(linhas_cob)} lançamento(s) da aba '{aba_usada}'")
     return 0
