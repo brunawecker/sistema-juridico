@@ -335,6 +335,12 @@ const PROSPEC_SEMPRE={};
 const FOLLOWUP={};
 const fuEfetivo=(base,carteira)=>base>0?Math.min(base+3*Math.max(0,(carteira||0)-10),90):0;
 const propNaRua=p=>String(p.fechada||"NÃO")!=="SIM"&&!/recusad/i.test(String(p.status||""));
+// taxa média de fechamento proposta→negócio em serviços B2B (referência de
+// mercado, pedido da Bruna 18/08/2026) — usada no "falta buscar" do Comercial
+const TAXA_FECHAMENTO_MERCADO=0.25;
+// propostas que trabalham para a meta da pessoa: as dela E as que ela pediu
+const propostasDe=(lista,nome)=>(lista||[]).filter(p=>propNaRua(p)&&(
+  String(p.responsavel||p.executor||"").trim()===nome||String(p.quem_pediu||"").trim()===nome));
 const minhasNaRua=(lista,nome)=>(lista||[]).filter(p=>propNaRua(p)&&String(p.responsavel||p.executor||"").trim()===nome);
 // entre os seniores, tarefa de um para o outro só por pedido de head
 // (pedido da Bruna, 17/08/2026) — o check viaja no texto e o receptor o vê marcado
@@ -3478,8 +3484,13 @@ async function telaComercial(){
       const d=String(p.data_pagto_prevista||"").slice(0,7);
       if(!d||d===mes.slice(0,7)){emNeg+=v;nNeg++;}});
     const meta=+(mrow.meta||0);
+    const minhasRua=propostasDe(props,n);
+    const ruaTotal=minhasRua.reduce((s,p)=>s+(+p.valor_num||0),0);
+    const esperado=ruaTotal*TAXA_FECHAMENTO_MERCADO;
+    const faltaBuscar=Math.max(0,meta-pago-proj-esperado);
     return {meta,liberada:!!mrow.liberada,pago,novos,rec:pago-novos,nNovos,nRec,proj,
       emNeg,nNeg,nProps:mProps.length,falta:Math.max(0,meta-pago),
+      nRua:minhasRua.length,ruaTotal,esperado,faltaBuscar,
       cob:meta>0?Math.round((pago+emNeg)/meta*100):null};
   };
   const linB2=(rot,val,forte)=>`<tr style="border-top:1px solid var(--gray-lt)">
@@ -3534,8 +3545,26 @@ async function telaComercial(){
       Object.entries(porOrig).sort((a,b)=>b[1].v-a[1].v).map(([o,x])=>`<div class="linha-item">
         <span>${esc(o)}</span><span style="font-size:12px">${x.n} proposta(s) · ${fmtR$(x.v)}${totV?` · ${Math.round(x.v/totV*100)}%`:""}</span></div>`).join("")+`</div>`;
   };
+  const visualMes=(c,liberadaOk)=>{
+    if(!liberadaOk||!(c.meta>0))return "";
+    const pc=v=>Math.max(0,Math.min(100,v/c.meta*100));
+    const wPago=pc(c.pago),wProj=Math.min(pc(c.proj),100-wPago),
+          wEsp=Math.min(pc(c.esperado),Math.max(0,100-wPago-wProj));
+    return `<div style="background:#F0F5F8;border-radius:12px;padding:11px 14px;margin-bottom:10px">
+      <div style="display:flex;height:22px;border-radius:11px;overflow:hidden;background:#CBE0EA">
+        <div style="width:${wPago}%;background:var(--green)" title="pago"></div>
+        <div style="width:${wProj}%;background:var(--navy)" title="boletos na rua"></div>
+        <div style="width:${wEsp}%;background:var(--amber)" title="propostas (taxa de mercado)"></div></div>
+      <div class="sg" style="margin-top:9px">
+        <div class="sc"><div class="sl">&#9989; Pago</div><div class="sv green" style="font-size:14px">${fmtR$(c.pago)}</div></div>
+        <div class="sc"><div class="sl">&#128196; Boletos na rua</div><div class="sv" style="font-size:14px">${fmtR$(c.proj)}</div></div>
+        <div class="sc"><div class="sl">&#128221; Propostas devem render</div><div class="sv amber" style="font-size:14px">~${fmtR$(c.esperado)}</div></div>
+        <div class="sc" style="background:${c.faltaBuscar>0?"var(--red-lt)":"var(--green-lt)"}"><div class="sl">&#127919; Falta BUSCAR</div><div class="sv ${c.faltaBuscar>0?"red":"green"}" style="font-size:15px">${c.faltaBuscar>0?fmtR$(c.faltaBuscar):"meta coberta!"}</div></div></div>
+      <div style="font-size:11px;color:var(--gray);margin-top:5px">${c.nRua} proposta(s) na rua trabalhando para você (suas + as que você pediu), somando ${fmtR$(c.ruaTotal)} — na taxa média de fechamento do mercado (${Math.round(TAXA_FECHAMENTO_MERCADO*100)}%), devem virar ~${fmtR$(c.esperado)}. Falta buscar = meta − pago − boletos − esse esperado.</div></div>`;
+  };
   const visaoPessoal=(nome,liberadaOk)=>{
-    let hh=blocoB2(calc(nome),liberadaOk)+`</div>`;
+    const cP=calc(nome);
+    let hh=visualMes(cP,liberadaOk)+blocoB2(cP,liberadaOk)+`</div>`;
     hh+=blocoB1(nome);
     hh+=blocoOrigem(minhasNaRua(props,nome),nome===eu?"":" — "+esc(nome));
     return hh;
@@ -3567,6 +3596,10 @@ async function telaComercial(){
       const linhas=pessoas.map(n=>({n,c:calc(n)})).sort((a,b)=>b.c.meta-a.c.meta||b.c.pago-a.c.pago);
       const tot=linhas.reduce((t,l)=>{["meta","pago","novos","rec","proj","emNeg"].forEach(k=>t[k]=(t[k]||0)+l.c[k]);return t;},{});
       tot.cob=tot.meta>0?Math.round((tot.pago+tot.emNeg)/tot.meta*100):null;
+      const totV={...tot,esperado:linhas.reduce((s,l)=>s+l.c.esperado,0),
+        ruaTotal:linhas.reduce((s,l)=>s+l.c.ruaTotal,0),nRua:linhas.reduce((s,l)=>s+l.c.nRua,0)};
+      totV.faltaBuscar=Math.max(0,totV.meta-totV.pago-totV.proj-totV.esperado);
+      h+=visualMes(totV,true);
       h+=blocoB2({...tot,falta:Math.max(0,tot.meta-tot.pago),nNovos:linhas.reduce((s,l)=>s+l.c.nNovos,0),
         nRec:linhas.reduce((s,l)=>s+l.c.nRec,0),nNeg:linhas.reduce((s,l)=>s+l.c.nNeg,0),
         nProps:linhas.reduce((s,l)=>s+l.c.nProps,0),liberada:true,cob:tot.cob},true);
