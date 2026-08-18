@@ -488,8 +488,10 @@ const S = {
   async cargaEquipe(){return okS(await supa.rpc("carga_dia"))||[];},
   async comercialPagamentos(mes){return okS(await supa.from("comercial_pagamentos").select("*").eq("mes",mes))||[];},
   async metasMes(mes){return okS(await supa.from("config_metas").select("*").eq("mes",mes))||[];},
-  async metaSalvar(mes,pessoa,meta){okS(await supa.from("config_metas").upsert({mes,pessoa,meta},{onConflict:"mes,pessoa"}));return{ok:true};},
-  async metasLiberar(mes,lib){okS(await supa.from("config_metas").update({liberada:lib}).eq("mes",mes));return{ok:true};},
+  async metaSalvar(mes,pessoa,meta){const ok=await rpcS("meta_salvar",{p_mes:mes,p_pessoa:pessoa,p_meta:meta});
+    if(!ok)throw new Error("não foi possível salvar a meta");return{ok:true};},
+  async metasLiberar(mes,lib){const ok=await rpcS("metas_liberar",{p_mes:mes,p_lib:lib});
+    if(!ok)throw new Error("não foi possível liberar");return{ok:true};},
   async fechamentos(){return okS(await supa.from("comercial_fechamento").select("*"))||[];},
   async sugDescartar(id){okS(await supa.from("sugestao_descartada").upsert({id_tarefa:id,por:E.perfil.nome_sistema,em:new Date().toISOString()}));return{ok:true};},
   async sugDescartes(){const lim=new Date(Date.now()-7*86400000).toISOString();
