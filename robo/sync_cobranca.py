@@ -134,7 +134,12 @@ def sincronizar_comercial(sess, aba, mes_iso):
     iTipo, iLiq, iBru = idx("TIPO DE COBR."), idx("R$ LIQUIDO"), idx("R$ BRUTO")
     iSt, iForma = idx("STATUS"), idx("FORMA PGTO")
     iDp, iVc = idx("D. PGTO"), idx("VENC.")
-    iAdv, iAss = idx("ADV"), idx("ASSESSOR")
+    iAdv = idx("ADV")
+    # abas novas têm a coluna ASSESSOR; nas antigas (junho/julho) a
+    # participação morava em "ASS. JUR" — o exato vem primeiro
+    iAss = idx("ASSESSOR")
+    if iAss is None:
+        iAss = idx("ASS. JUR")
     if iAss is None:
         print(f"comercial: aba {aba} sem coluna ASSESSOR — mantendo dados atuais")
         return
@@ -162,7 +167,13 @@ def sincronizar_comercial(sess, aba, mes_iso):
         bru_cru, liq_cru = cel(cru, r, iBru), cel(cru, r, iLiq)
         # convenção: valor como TEXTO na planilha = fora da projeção (crônico)
         fora = bool(str(bru_cru).strip()) and not isinstance(bru_cru, (int, float))
-        credito = (_quem(cel(fmt, r, iAss)) or _quem(cel(fmt, r, iAdv)) or secao_head)
+        ass_txt = str(cel(fmt, r, iAss)).strip()
+        # ex-membro/SDR com nome na coluna: crédito fica no nome dele (não
+        # infla a head) — igual ao critério do PDF da reunião
+        credito = (_quem(ass_txt)
+                   or (ass_txt.title() if ass_txt and "REF" not in ass_txt.upper()
+                       and len(ass_txt) > 3 else None)
+                   or _quem(cel(fmt, r, iAdv)) or secao_head)
         linhas.append((aba, mes_iso, cli, str(cel(fmt, r, iDoc)).strip(),
                        secao_tipo or "RECORRENCIA", secao_head, credito,
                        _num_br(bru_cru if str(bru_cru).strip() else cel(fmt, r, iBru)),
