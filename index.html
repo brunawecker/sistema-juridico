@@ -499,6 +499,7 @@ const S = {
   async metasLiberar(mes,lib){const ok=await rpcS("metas_liberar",{p_mes:mes,p_lib:lib});
     if(!ok)throw new Error("não foi possível liberar");return{ok:true};},
   async fechamentos(){return okS(await supa.from("comercial_fechamento").select("*"))||[];},
+  async snapshots(){return okS(await supa.from("snapshot_diario").select("*"))||[];},
   async sugDescartar(id){okS(await supa.from("sugestao_descartada").upsert({id_tarefa:id,por:E.perfil.nome_sistema,em:new Date().toISOString()}));return{ok:true};},
   async sugDescartes(){const lim=new Date(Date.now()-7*86400000).toISOString();
     return okS(await supa.from("sugestao_descartada").select("id_tarefa").gte("em",lim))||[];},
@@ -2524,6 +2525,48 @@ async function telaDiario(dia){
 async function telaCapacidade(){
   setNav("cap","Capacidade da Equipe"); carregando();
   let ops,hist,reu;try{[ops,hist,reu]=await Promise.all([DB.tarefas(),DB.historicoHoje(),DB.reunioes()]);}catch(e){return erro(e.message);}
+  // 📈 termômetro de contratação (pedido da Bruna, 18/08/2026): compara a
+  // demanda do dia com a mão de obra líquida e a tendência de atrasadas —
+  // gera a justificativa objetiva para avaliar nova contratação
+  let termometro="";
+  if(E.perfil.head_sim){
+    let cgT=[],snT=[];
+    try{cgT=await DB.cargaEquipe();}catch(e){}
+    try{snT=await DB.snapshots();}catch(e){}
+    const rowsOp=(cgT||[]).filter(r=>OPERACIONAIS.includes(loginDe(r.nome)));
+    if(rowsOp.length){
+      const capTot=OPERACIONAIS.reduce((s,n)=>s+capDe(n),0);
+      const blocos=rowsOp.reduce((s,r)=>s+(+r.pros_min||0)+(+r.fu_min||0),0);
+      const maoLiq=Math.max(1,capTot-blocos);
+      const demanda=rowsOp.reduce((s,r)=>s+(+r.minutos||0),0);
+      const ocup=Math.round(demanda/maoLiq*100);
+      const serie=(snT||[]).filter(x=>x.data_dt).sort((a,b)=>String(a.data_dt).localeCompare(String(b.data_dt)));
+      const atr=x=>x?(+x.atrasadas_num||parseInt(x.atrasadas)||0):null;
+      const atrHoje=atr(serie[serie.length-1]),atr7=atr(serie[Math.max(0,serie.length-6)]),
+            atr14=atr(serie[Math.max(0,serie.length-11)]);
+      const subindo=atrHoje!==null&&atr14!==null&&atrHoje>atr14;
+      const deficit=demanda-maoLiq;
+      const pessoas=deficit>0?(deficit/450).toFixed(1):0;
+      const nivel=(ocup>=110&&subindo)?2:(ocup>=90||subindo)?1:0;
+      const cores=[["var(--green)","var(--green-lt)","&#128994; Sem sinal de contratação"],
+        ["var(--amber)","var(--amber-lt)","&#128993; Atenção — perto do limite"],
+        ["var(--red)","var(--red-lt)","&#128308; Sinal de contratação"]][nivel];
+      const just=nivel===2
+        ?`A banca tem ${fmtMin(maoLiq)} de mão de obra líquida por dia (capacidade ${fmtMin(capTot)} − ${fmtMin(blocos)} de blocos comerciais) e a fila do dia exige ${fmtMin(demanda)} — ocupação de ${ocup}%. As atrasadas foram de ${atr14??"—"} para ${atrHoje??"—"} em ~14 dias. Déficit de ${fmtMin(Math.max(0,deficit))}/dia ≈ ${pessoas} jornada(s) de 7h30: o volume contratado é incompatível com a mão de obra disponível.`
+        :nivel===1
+        ?`Ocupação em ${ocup}% da mão de obra líquida (${fmtMin(demanda)} de demanda para ${fmtMin(maoLiq)} disponíveis) e atrasadas ${subindo?`subindo (${atr14??"—"} → ${atrHoje??"—"} em ~14 dias)`:`estáveis (${atrHoje??"—"})`}. Vale acompanhar por mais alguns dias antes de decidir contratação.`
+        :`Ocupação em ${ocup}% (${fmtMin(demanda)} de demanda para ${fmtMin(maoLiq)} líquidos) e atrasadas ${atrHoje??"—"} (${atr14??"—"} há ~14 dias). A mão de obra atual dá conta do volume.`;
+      termometro=`<div class="painel" style="background:${cores[1]};border-color:${cores[0]}">
+        <div class="bloco-t" style="color:${cores[0]}">&#128200; Termômetro de contratação — ${cores[2]}</div>
+        <div class="sg" style="margin-top:4px">
+          <div class="sc"><div class="sl">Mão de obra líquida/dia</div><div class="sv" style="font-size:14px">${fmtMin(maoLiq)}</div></div>
+          <div class="sc"><div class="sl">Demanda do dia</div><div class="sv" style="font-size:14px">${fmtMin(demanda)}</div></div>
+          <div class="sc"><div class="sl">Ocupação</div><div class="sv ${ocup>=110?"red":ocup>=90?"amber":"green"}">${ocup}%</div></div>
+          <div class="sc"><div class="sl">Atrasadas (14d)</div><div class="sv" style="font-size:14px">${atr14??"—"} → ${atrHoje??"—"}</div></div></div>
+        <div style="font-size:12px;margin-top:6px">${just}</div>
+        <div style="font-size:10.5px;color:var(--gray);margin-top:4px">Mão de obra líquida = capacidades − blocos de prospecção/follow-up · demanda = tempo estimado das tarefas vencidas + de hoje · use este texto como justificativa objetiva junto aos sócios.</div></div>`;
+    }
+  }
   const hjBR=brHoje(),hjISO=hojeISO();
   const tsCap=(ops||[]).map(classificar);
   const linhasCap=OPERACIONAIS.map(nome=>{
@@ -2595,7 +2638,7 @@ async function telaCapacidade(){
     ${gruposSem.length?`<div style="font-size:12px;font-weight:700;margin:8px 0 3px">Declarações de aviso no grupo (${Math.min(3,gruposSem.length)} de ${gruposSem.length})</div>${sorteia(gruposSem,3).map(itemAmostra).join("")}`:""}
     ${relampago.length?`<div style="font-size:12px;font-weight:700;margin:8px 0 3px;color:var(--amber)">&#9889; Conclusões relâmpago — menos de 5 min cronometrados (${relampago.length})</div>${relampago.map(itemAmostra).join("")}`:""}
   </div>`;
-  ge("conteudo").innerHTML=h;
+  ge("conteudo").innerHTML=termometro+h;
 }
 // =================================================== TELA: EM ANDAMENTO
 async function telaAgora(){
@@ -3854,22 +3897,29 @@ function alvosCriacao(){
   const l=DELEGA_PARA[p.nome_sistema]||[];
   return l.length?l.filter(n=>OPERACIONAIS.includes(n)):["João","Laura","Thiago"].filter(n=>OPERACIONAIS.includes(n));
 }
-// para o vendedor, reordena o seletor: quem está mais livre primeiro (folga =
-// capacidade - fila do dia - janela de prospecção, a mesma conta de todos)
-async function ordenarPorFolga(selId){
-  const p=E.perfil||{};if(!/vendedor|comercial/i.test(p.cargo||""))return;
+// quem recebe tarefa nova: ranking pelo peso das frequências (pedido da
+// Bruna, 18/08/2026) — score = 5×diárias + 2×semanais + total de ativas;
+// menor score primeiro. Madu (advogada) fica FORA da recomendação para
+// tarefas operacionais — só entra por escolha explícita (venda direta dela).
+async function ordenarReceptores(selId){
   const sel=ge(selId);if(!sel)return;
-  let cg=[];try{cg=await DB.cargaEquipe();}catch(e){}
-  const folgaDe=n=>{const c=(cg||[]).find(r=>loginDe(r.nome)===n);
-    return c?Math.max(0,capDe(n)-(c.minutos||0)-(c.pros_min||0)-(c.fu_min||0)):null;};
-  const ord=alvosCriacao().map(n=>({n,f:folgaDe(n)}))
-    .sort((a,b)=>(b.f??-1)-(a.f??-1));
-  if(!ord.length)return;
-  sel.innerHTML=ord.map((o,i)=>`<option value="${esc(o.n)}">${esc(o.n)}${o.f!==null?` — ${fmtMin(o.f)} livres`:""}${i===0&&o.f!==null?" (mais livre)":""}</option>`).join("");
+  let cg=[];try{cg=await DB.cargaEquipe();}catch(e){return;}
+  if(!(cg||[]).length)return;
+  const lista=alvosCriacao();
+  const info=n=>(cg||[]).find(r=>loginDe(r.nome)===n)||null;
+  const score=n=>{const c=info(n);
+    return c?((+c.n_diarias||0)*5+(+c.n_semanais||0)*2+(+c.total_ativas||0)):99999;};
+  const maduFora=lista.includes("Madu");
+  const ord=[...lista].filter(n=>!(maduFora&&n==="Madu")).sort((a,b)=>score(a)-score(b));
+  if(maduFora)ord.push("Madu");
+  const atual=sel.value;
+  sel.innerHTML=ord.map((n,i)=>{const c=info(n);
+    const det=c?` — ${c.total_ativas} ativas · ${c.n_diarias} diárias · ${c.n_semanais} semanais`:"";
+    const rot=(n==="Madu"&&maduFora)?`${n} (advogada — só venda direta dela)`
+      :`${n}${det}${i===0?" ✓ recomendado":""}`;
+    return `<option value="${esc(n)}">${esc(rot)}</option>`;}).join("");
+  if(atual&&ord.includes(atual))sel.value=atual;
 }
-function toggleFab(){const m=ge("fab-menu");m.style.display=m.style.display==="flex"?"none":"flex";}
-function fecharFab(){ge("fab-menu").style.display="none";}
-// ---- nova tarefa (cliente existente)
 async function abrirNovaTarefa(){
   modal2("&#128203; Nova tarefa","Cliente existente",`
     <input class="fi" id="nt-q" placeholder="&#128269; Digite 2+ letras do cliente..." oninput="buscaNT()">
@@ -3902,7 +3952,7 @@ function formNT(id){
     <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px">&#128206; Documentos iniciais (opcional — pode selecionar v&aacute;rios):</label>
       <input type="file" id="nt-doc" class="fsel" multiple style="max-width:240px"></div>
     <button class="btn btp btw" style="margin-top:8px" onclick="criarTarefaNova()">&#10003; Criar tarefa</button>`;
-  ordenarPorFolga("nt-ass");
+  ordenarReceptores("nt-ass");
 }
 // envia os anexos escolhidos na criação (um a um; avisa o que subiu e o que não)
 async function enviarDocsCriacao(inputId,idCli,idTar){
@@ -3960,7 +4010,7 @@ function abrirNovoCliente(){
     <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px">&#128206; Documentos iniciais (opcional — pode selecionar v&aacute;rios):</label>
       <input type="file" id="nc-doc" class="fsel" multiple style="max-width:240px"></div>
     <button class="btn btp btw" style="margin-top:8px" onclick="criarClienteTarefa()">&#10003; Cadastrar cliente + criar tarefa</button>`);
-  ordenarPorFolga("nc-ass");
+  ordenarReceptores("nc-ass");
 }
 // cliente já existe? migra o que foi preenchido no "Novo cliente" e cria só
 // a tarefa nele (operação, frequência, assessor, orientação e anexos)
