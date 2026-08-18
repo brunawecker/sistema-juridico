@@ -486,6 +486,11 @@ const S = {
   async presencaPing(){try{await supa.from("presenca").upsert({nome:E.perfil.nome_sistema,ultima:new Date().toISOString()});}catch(e){}return{ok:true};},
   async presencas(){return okS(await supa.from("presenca").select("*"))||[];},
   async cargaEquipe(){return okS(await supa.rpc("carga_dia"))||[];},
+  async comercialPagamentos(mes){return okS(await supa.from("comercial_pagamentos").select("*").eq("mes",mes))||[];},
+  async metasMes(mes){return okS(await supa.from("config_metas").select("*").eq("mes",mes))||[];},
+  async metaSalvar(mes,pessoa,meta){okS(await supa.from("config_metas").upsert({mes,pessoa,meta},{onConflict:"mes,pessoa"}));return{ok:true};},
+  async metasLiberar(mes,lib){okS(await supa.from("config_metas").update({liberada:lib}).eq("mes",mes));return{ok:true};},
+  async fechamentos(){return okS(await supa.from("comercial_fechamento").select("*"))||[];},
   async sugDescartar(id){okS(await supa.from("sugestao_descartada").upsert({id_tarefa:id,por:E.perfil.nome_sistema,em:new Date().toISOString()}));return{ok:true};},
   async sugDescartes(){const lim=new Date(Date.now()-7*86400000).toISOString();
     return okS(await supa.from("sugestao_descartada").select("id_tarefa").gte("em",lim))||[];},
@@ -594,14 +599,16 @@ const S = {
       prospeccao:d.novo_cliente?"SIM":"NÃO",produtos:d.produtos||"",verticais:d.verticais||"",
       valor:String(d.valor||0),valor_num:d.valor||0,cond_pagamento:d.cond||"",origem:d.origem||"",
       forma_contato:d.contato||"",forma_parecer:d.parecer||"",link_sharepoint:d.sharepoint||"",
-      tempo_min:String(d.tempo||0),tempo_min_num:d.tempo||0,status:d.status||"Enviada",obs:d.obs||"",fechada:"NÃO"}));
-    if(idc)await histS("",idc,"PROPOSTA","Proposta "+pr+" lançada — R$ "+(d.valor||0)+" ("+(d.status||"Enviada")+")");
+      tempo_min:String(d.tempo||0),tempo_min_num:d.tempo||0,status:d.status||"Proposta enviada",obs:d.obs||"",fechada:"NÃO"}));
+    if(idc)await histS("",idc,"PROPOSTA","Proposta "+pr+" lançada — R$ "+(d.valor||0)+" ("+(d.status||"Proposta enviada")+")");
     return{ok:true,id:pr,id_cliente:idc};},
   async negociacao(d){const r=okS(await supa.from("propostas_visiveis").select("negociacao_log,id_cliente").eq("id_proposta",d.id_proposta));
     if(!r||!r.length)throw new Error("proposta não encontrada");
     const log=(r[0].negociacao_log||""),idc=r[0].id_cliente;
     const u={negociacao_log:d.linha_log+(log?"\n"+log:""),proximo_passo:d.passo||"",data_retorno:d.retorno||""};
     if(d.cond)u.cond_atual=d.cond; if(d.valor)u.valor_atual=d.valor; if(d.perda)u.motivo_perda=d.perda;
+    if(d.valor_mes!==undefined)u.valor_mes=d.valor_mes;
+    if(d.data_pagto!==undefined)u.data_pagto_prevista=d.data_pagto;
     if(d.etapa){u.status=d.etapa;if(d.etapa==="Aceita")u.fechada="SIM";}
     okS(await supa.from("propostas").update(u).eq("id_proposta",d.id_proposta));
     let conv=false;
@@ -808,9 +815,10 @@ async function sairVerComo(){try{await DB.verComoSair();}catch(e){toast("Não de
 function montarMenu(){
   const p=E.perfil, vend=/vendedor|comercial/i.test(p.cargo||"");
   let itens;
-  if(vend) itens=[["prop","&#128203;","Propostas",telaPropostas]];
+  if(vend) itens=[["prop","&#128203;","Propostas",telaPropostas],["com","&#128188;","Comercial",telaComercial]];
   else if(p.head_sim) itens=[
     ["painel","&#128202;","Painel Geral",telaPainel],
+    ["com","&#128188;","Comercial",telaComercial],
     ["diario","&#9200;","Acompanhamento Diário",telaDiario],
     ["minhas","&#128203;","Minhas Tarefas",telaMinhas],
     ["assessor","&#128101;","Por Assessor",telaPorAssessor],
@@ -829,6 +837,7 @@ function montarMenu(){
   else itens=[
     ["minhas","&#128203;","Minhas Tarefas",telaMinhas],
     ["agenda","&#128197;","Minha Agenda",telaAgenda],
+    ["com","&#128188;","Meu Comercial",telaComercial],
     ["prod","&#128200;","Minha Produtividade",telaProdutividade],
     ["cli","&#127970;","Buscar Clientes",telaClientes],
     ["prop","&#128203;","Minhas Propostas",telaPropostas],
@@ -861,6 +870,13 @@ async function telaConfig(){setNav("cfg","Configurações");carregando();
   const capDeCfg=n=>{const r=(cf.cap||[]).find(x=>x.nome===n);return r?r.minutos:"";};
   const perDe=n=>(cf.per||[]).find(x=>x.nome===n)||{};
   ge("conteudo").innerHTML=`
+  <div class="painel"><div class="bloco-t">&#127919; Metas do mês (Comercial)</div>
+    <div style="font-size:11px;color:var(--gray);margin-bottom:6px">A meta só aparece para a pessoa depois de <b>Liberar</b>. "Sugerir" aplica +10,573% sobre o mês anterior (regra do crescimento até R$ 1 milhão em dezembro).</div>
+    <div class="linha-acao"><input type="month" class="fsel" id="cfg-meta-mes" value="${hojeISO().slice(0,7)}" onchange="carregarMetasCfg()">
+      <button class="btn bts btsm" onclick="sugerirMetasCfg()">&#10024; Sugerir +10,573%</button>
+      <button class="btn btp btsm" onclick="salvarMetasCfg()">&#128190; Salvar metas</button>
+      <button class="btn btg btsm" onclick="liberarMetasCfg()">&#128275; Liberar mês</button></div>
+    <div id="cfg-metas-box" style="margin-top:6px;font-size:12px;color:var(--gray)">carregando…</div></div>
   <div class="painel"><div class="bloco-t">Capacidade diária (minutos de trabalho por pessoa)</div>
     ${nomes.map(n=>`<div class="linha-item"><span>${esc(n)}</span>
       <input class="fsel" style="width:90px" type="number" min="60" max="720" id="cfg-cap-${esc(n)}" value="${capDeCfg(n)}" placeholder="420"></div>`).join("")}
@@ -908,6 +924,47 @@ function montarGestaoEquipe(){
       <input class="fsel" id="ge-novo-email" placeholder="e-mail do Gmail" style="flex:1;min-width:200px">
       <input class="fsel" id="ge-novo-cargo" placeholder="cargo" style="width:140px">
       <button class="btn btg btsm" onclick="adicionarMembro()">&#10003; Adicionar</button></div></div>`;
+  carregarMetasCfg();
+}
+// ---- Metas do mês (Comercial): heads revisam, salvam e liberam
+function _mesCfg(){return (ge("cfg-meta-mes").value||hojeISO().slice(0,7))+"-01";}
+async function carregarMetasCfg(){
+  const box=ge("cfg-metas-box");if(!box)return;
+  const mes=_mesCfg();
+  let metas=[];try{metas=await DB.metasMes(mes);}catch(e){box.innerHTML="Erro: "+esc(e.message);return;}
+  const nomes=[...new Set([...(E.equipe||[]).filter(m=>String(m.status).toUpperCase()==="ATIVO")
+    .map(m=>m.nome_sistema),...metas.map(m=>m.pessoa)])];
+  const de=n=>metas.find(m=>m.pessoa===n)||{};
+  const lib=metas.length&&metas.every(m=>m.liberada);
+  box.innerHTML=(metas.length?`<div style="margin-bottom:5px">${lib?'&#9989; <b style="color:var(--green)">Mês liberado</b> — a equipe já vê as metas.':'&#128274; Mês ainda <b>não liberado</b> — só heads veem.'}</div>`:'<div style="margin-bottom:5px">Sem metas salvas para este mês ainda.</div>')+
+    nomes.map(n=>`<div class="linha-item"><span>${esc(n)}</span>
+      <span>R$ <input class="fsel" style="width:110px" id="cfg-meta-${esc(n)}" value="${de(n).meta?(+de(n).meta).toFixed(2).replace(".",","):""}" placeholder="0,00"></span></div>`).join("");
+}
+async function sugerirMetasCfg(){
+  const mes=_mesCfg();
+  const ant=new Date(mes+"T12:00:00");ant.setMonth(ant.getMonth()-1);
+  const mesAnt=ant.toISOString().slice(0,7)+"-01";
+  let base=[];try{base=await DB.metasMes(mesAnt);}catch(e){}
+  if(!base.length){toast("Sem metas no mês anterior para basear a sugestão.","erro");return;}
+  base.forEach(m=>{const el=ge("cfg-meta-"+m.pessoa);
+    if(el)el.value=((+m.meta||0)*1.105730).toFixed(2).replace(".",",");});
+  toast("Sugestão aplicada (+10,573% sobre "+brData(mesAnt).slice(3)+") — revise e salve.","ok");
+}
+async function salvarMetasCfg(){
+  const mes=_mesCfg();let n=0;
+  for(const m of (E.equipe||[]).filter(x=>String(x.status).toUpperCase()==="ATIVO")){
+    const el=ge("cfg-meta-"+m.nome_sistema);if(!el)continue;
+    const v=numBR((el.value||"").trim());if(!el.value.trim())continue;
+    try{await DB.metaSalvar(mes,m.nome_sistema,v);n++;}
+    catch(e){toast("Erro em "+m.nome_sistema+": "+e.message,"erro");return;}}
+  toast(n?n+" meta(s) salva(s). Lembre de LIBERAR quando estiver tudo revisado.":"Nada para salvar.","ok");
+  carregarMetasCfg();
+}
+async function liberarMetasCfg(){
+  const mes=_mesCfg();
+  if(!confirm("Liberar as metas deste mês? A partir daí cada pessoa passa a ver a própria meta no Comercial."))return;
+  try{await DB.metasLiberar(mes,true);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Metas liberadas! A equipe já enxerga.","ok");carregarMetasCfg();
 }
 async function salvarMembro(nome){
   const em=(ge("ge-em-"+nome).value||"").trim().toLowerCase(),
@@ -2256,13 +2313,23 @@ async function liberarMais(assessor){
 async function telaPorAssessor(){
   setNav("assessor","Por Assessor"); carregando();
   let data;try{data=await DB.tarefas();}catch(e){return erro(e.message);}
+  let propsPA=[];try{propsPA=await DB.propostas();}catch(e){}
   const ts=(data||[]).map(classificar);E.tarefas=ts;
   // agrupa pelo nome oficial (loginDe unifica apelidos/nome completo) e a
   // etiqueta de atrasadas usa a mesma régua do Painel (fora delegadas/correção)
   const grp={};ts.filter(t=>t.id_tarefa).forEach(t=>{const a=loginDe(t.assessor)||"(sem assessor)";(grp[a]=grp[a]||[]).push(t);});
   const ord=Object.entries(grp).sort((a,b)=>b[1].length-a[1].length);
+  // blocos comerciais reservados no dia de cada um (pedido da Bruna, 18/08):
+  // a head enxerga aqui quanto do dia está tomado por prospecção e follow-up
+  const blocosDe=n=>{const ch=[];
+    const pm=PROSPEC[n]||0;
+    if(pm>0)ch.push(`<span class="tag tek" title="Janela de Prospecção${PROSPEC_SEMPRE[n]?" — bloco FIXO, vale todo dia":" — abre só com nada vencido"}">&#127919; ${fmtMin(pm)}${PROSPEC_SEMPRE[n]?" fixas":" (mérito)"}</span>`);
+    const fu=fuEfetivo(FOLLOWUP[n]||0,minhasNaRua(propsPA,n).length);
+    if(fu>0)ch.push(`<span class="tag tek" title="Follow-up diário de propostas — bloco obrigatório, todo dia">&#128222; ${fmtMin(fu)}/dia</span>`);
+    return ch.join(" ");};
   ge("conteudo").innerHTML=ord.map(([n,lista])=>{const atr=lista.filter(t=>t._atrasada&&!t._delegada&&!t._emCorrecao).length;
     return `<details class="det" open><summary><span style="flex:1;font-weight:700;color:var(--navy)">${esc(n)}</span>
+      ${blocosDe(n)}
       <span class="tag ${atr?"ti":"tek"}">${lista.length} tarefas · ${atr} atrasadas</span></summary>
       <div style="padding:8px 12px 12px">${lista.slice(0,60).map(t=>cardTarefa(t)).join("")}</div></details>`;}).join("")
     ||`<div class="vazio">Sem tarefas.</div>`;
@@ -2674,7 +2741,7 @@ async function telaRelatorio(){
     encSem=(casos||[]).filter(c=>naSemana(c.data_encerramento_dt)).length,
     propLanc=(props||[]).filter(p=>naSemana(p.data_proposta_dt)).length,
     propAc=(props||[]).filter(p=>p.status==="Aceita"&&naSemana(p.data_proposta_dt)),
-    propRua=(props||[]).filter(p=>["Enviada","Em análise","Em negociação","Aguardando cliente"].includes(p.status)).length,
+    propRua=(props||[]).filter(propNaRua).length,
     valAc=propAc.reduce((s,p)=>s+(parseFloat(p.valor_num)||0),0);
   const cardI=(ic,l,v,cor)=>`<div class="sc"><div class="sl">${ic} ${l}</div><div class="sv pq" style="color:${cor||"var(--navy)"}">${v}</div></div>`;
   let h=`<div class="painel" style="padding:8px 12px"><b>Período: ${ini.toLocaleDateString("pt-BR")} a ${new Date().toLocaleDateString("pt-BR")}</b></div>`;
@@ -3109,9 +3176,9 @@ async function telaPropostas(){
         <option value=""${soMinhas?"":" selected"}>Todas as propostas</option>
         <option value="m"${soMinhas?" selected":""}>Minhas propostas</option></select>
       <select class="fsel" id="pp-st" onchange="desenhaProps()"><option value="">Todos status</option>
-        ${["Em análise","Enviada","Em negociação","Aguardando cliente","Aceita","Recusada"].map(s=>`<option>${s}</option>`).join("")}</select>
+        ${[...ETAPAS_PROP,"Aceita","Recusada"].map(s=>`<option>${s}</option>`).join("")}</select>
       <select class="fsel" id="pp-or" onchange="desenhaProps()"><option value="">Todas origens</option>
-        ${["Carteira","Franqueado","Parceiro","T2","Golden","Backoffice"].map(s=>`<option>${s}</option>`).join("")}</select>
+        ${["Cliente Villela (carteira)","Franqueado","Indicação de Parceiro","T2 (SDRs Lauren)","Backoffice","Prospecção direta"].map(s=>`<option>${s}</option>`).join("")}</select>
       <button class="btn btp btsm" onclick="abrirProposta()">+ Lançar proposta</button></div>
     <div id="pp-lista"></div>`;
   desenhaProps();
@@ -3140,7 +3207,7 @@ function desenhaProps(){
     const val=(parseFloat(p.valor_num)||0).toLocaleString("pt-BR",{minimumFractionDigits:2});
     // dias "na rua" sem resposta
     let naRua="";
-    if(["Enviada","Em análise","Em negociação","Aguardando cliente"].includes(p.status)&&p.data_proposta_dt){
+    if(propNaRua(p)&&p.data_proposta_dt){
       const d=-diasAte(String(p.data_proposta_dt).slice(0,10));
       if(d>=7)naRua=`<span class="tag" style="background:${d>=15?"var(--red)":"var(--amber)"};color:white">&#9203; ${d} dias sem resposta</span>`;}
     const prosp=p.prospeccao==="SIM"?'<span class="tag ts">PROSPECÇÃO</span>':"";
@@ -3175,7 +3242,7 @@ function desenhaProps(){
       ${podeMexer?`<div class="linha-acao">
         <button class="btn btp btsm" onclick='abrirNegociacao(${JSON.stringify(p.id_proposta)})'>&#128172; Negociação${nLog?` (${nLog})`:""}</button>
         <select class="fsel" onchange='mudaStatusProp(${JSON.stringify(p.id_proposta)},this.value)'>
-          ${["Em análise","Enviada","Em negociação","Aguardando cliente","Aceita","Recusada"].map(s=>`<option ${s===p.status?"selected":""}>${s}</option>`).join("")}</select>
+          ${[...ETAPAS_PROP,"Aceita","Recusada"].map(s=>`<option ${s===p.status?"selected":""}>${s}</option>`).join("")}</select>
         ${baixada?`<span class="tag" style="background:#8A8F94;color:white">&#10007; Baixada — reabra mudando a etapa</span>`
           :p.fechada!=="SIM"?`<button class="btn btg btsm" onclick='fecharProp(${JSON.stringify(p.id_proposta)})'>&#10003; Fechada (vira cliente)</button>`:'<span class="tag tek">&#10003; Fechada</span>'}
         <button class="btn bts btsm" style="color:var(--red);border-color:var(--red)" title="Apagar proposta (lançada errada/duplicada) — fica um retrato no histórico do cliente" onclick='apagarProposta(${JSON.stringify(p.id_proposta)})'>&#128465;</button></div>`:""}</div>`;}).join("")
@@ -3198,6 +3265,7 @@ async function mudaStatusProp(id,status){
   const p=E._propMap[id];if(p)p.status=status;
   toast("Status atualizado","ok");
 }
+const ETAPAS_PROP=["Proposta enviada","Em análise pelo cliente","Reunião agendada","Aguardando documentação","Negociando condições","Aprovada — aguardando pagamento","Sem retorno do cliente"];
 const MOTIVOS_PERDA=["Achou caro / sem verba","Fechou com concorrente","Sem retorno (sumiu)",
   "Vai deixar para depois","Resolveu internamente","Outro"];
 function abrirRecusa(id){
@@ -3275,11 +3343,16 @@ function abrirNegociacao(id){
     <textarea class="fta" id="ng-txt" placeholder="O que foi conversado? Ex: Cliente pediu parcelamento maior..."></textarea>
     <div class="linha-acao" style="margin-top:6px">
       <label style="font-size:11px">Etapa:</label><select class="fsel" id="ng-etapa" onchange="ge('ng-perda-w').style.display=this.value==='Recusada'?'block':'none'">
-      <option value="">(manter: ${esc(p.status||"")})</option>${["Em negociação","Aguardando cliente","Aceita","Recusada"].map(s=>`<option>${s}</option>`).join("")}</select></div>
+      <option value="">(manter: ${esc(p.status||"")})</option>${[...ETAPAS_PROP,"Aceita","Recusada"].map(s=>`<option>${s}</option>`).join("")}</select></div>
     <div class="linha-acao"><label style="font-size:11px">Novo valor R$:</label><input class="fsel" id="ng-val" placeholder="0,00" style="width:110px">
       <label style="font-size:11px">Novas condições:</label><input class="fsel" id="ng-cond" placeholder="Ex: Boleto 10x" style="flex:1"></div>
     <div class="linha-acao"><label style="font-size:11px">Próximo passo: *</label><input class="fsel" id="ng-passo" style="flex:1" placeholder="Ex: ligar para confirmar">
       <label style="font-size:11px">retorno: *</label><input type="date" class="fsel" id="ng-ret"></div>
+    <div class="linha-acao" style="margin-top:4px;background:#EEF3F9;border-radius:8px;padding:6px 8px">
+      <label style="font-size:11px" title="Quanto deste negócio deve ser PAGO no mês corrente. Parcelado: só a parcela do mês. Cartão de crédito: valor integral (a empresa antecipa).">&#128181; Previsto p/ ESTE mês: R$</label>
+      <input class="fsel" id="ng-vmes" placeholder="0,00" style="width:100px" value="${esc(p.valor_mes||"")}">
+      <label style="font-size:11px">pagamento em:</label><input type="date" class="fsel" id="ng-dpag" value="${p.data_pagto_prevista||""}"></div>
+    <div style="font-size:10px;color:var(--gray);margin-top:2px">Parcelado conta só a parcela do mês · cartão de crédito conta integral · esses valores alimentam a cobertura da meta no Comercial.</div>
     <div id="ng-perda-w" style="display:none;margin-top:6px"><input class="fi" id="ng-perda" placeholder="Motivo da perda"></div>
     <div class="bloco-t" style="margin-top:10px">&#128206; Levantamento anexado</div>
     <div id="ng-docs" style="font-size:12px;color:var(--gray)">carregando…</div>
@@ -3325,6 +3398,7 @@ async function salvarNegociacao(id){
   const etapa=ge("ng-etapa").value,val=(ge("ng-val").value||"").trim(),cond=(ge("ng-cond").value||"").trim();
   const passo=(ge("ng-passo").value||"").trim();let ret=ge("ng-ret").value||"";if(ret)ret=brData(ret);
   const perda=(ge("ng-perda")?.value||"").trim();
+  const vmes=numBR((ge("ng-vmes")?.value||"").trim()),dpag=ge("ng-dpag")?.value||"";
   if(etapa==="Recusada"&&!perda){toast("Informe o motivo da perda — é o dado que permite melhorar as próximas propostas.","erro");return;}
   // rodada viva exige próximo passo + data de retorno (pedido da Bruna,
   // 18/08/2026) — só fechamento (Aceita) e recusa dispensam
@@ -3334,10 +3408,112 @@ async function salvarNegociacao(id){
   let ln=`${brHoje()} ${String(agora.getHours()).padStart(2,"0")}:${String(agora.getMinutes()).padStart(2,"0")} — ${E.perfil.nome_sistema}${etapa?" ["+etapa+"]":""}: ${txt}`;
   if(val)ln+=" | 💰 Novo valor: R$ "+val;if(cond)ln+=" | 💳 Novas condições: "+cond;
   if(passo)ln+=" | ⏭ Próximo: "+passo;if(ret)ln+=" (retorno "+ret+")";if(perda)ln+=" | ✗ Motivo: "+perda;
-  try{const r=await DB.negociacao({id_proposta:id,linha_log:ln,etapa,valor:val,cond,passo,retorno:ret,perda});
+  try{const r=await DB.negociacao({id_proposta:id,linha_log:ln,etapa,valor:val,cond,passo,retorno:ret,perda,
+      valor_mes:vmes||null,data_pagto:dpag||null});
     toast(r.convertido?"🎉 Rodada salva — cliente convertido em OFICIAL!":"Rodada registrada!","ok");}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   fecharModal2();telaPropostas();
+}
+// =================================================== TELA: COMERCIAL
+// Etapas 4 e 5 do Comercial (aprovadas em 18/08/2026): assessor vê a própria
+// régua do mês; heads veem a banca inteira. Fontes: planilha de pagamentos
+// (via robô, R$ líquido pago / bruto em aberto, convenção do texto=crônico),
+// propostas (em negociação com previsão no mês) e metas liberadas.
+const fmtR$=v=>"R$ "+(+v||0).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
+async function telaComercial(){
+  setNav("com",E.perfil.head_sim?"Comercial":"Meu Comercial"); carregando();
+  const mes=hojeISO().slice(0,7)+"-01";
+  const mesNome=new Date(mes+"T12:00:00").toLocaleDateString("pt-BR",{month:"long",year:"numeric"}).toUpperCase();
+  let pags=[],metas=[],fechs=[],props=[];
+  try{pags=await DB.comercialPagamentos(mes);}catch(e){}
+  try{metas=await DB.metasMes(mes);}catch(e){}
+  try{fechs=await DB.fechamentos();}catch(e){}
+  try{props=await DB.propostas();}catch(e){}
+  const ehHead=!!E.perfil.head_sim,eu=E.perfil.nome_sistema;
+  const calc=n=>{
+    const mrow=metas.find(m=>m.pessoa===n)||{};
+    const meus=pags.filter(p=>p.credito===n);
+    const pago=meus.filter(p=>p.status==="PAGO").reduce((s,p)=>s+(+p.valor_liquido||0),0);
+    const novos=meus.filter(p=>p.status==="PAGO"&&p.tipo==="NOVO").reduce((s,p)=>s+(+p.valor_liquido||0),0);
+    const nNovos=meus.filter(p=>p.status==="PAGO"&&p.tipo==="NOVO").length;
+    const nRec=meus.filter(p=>p.status==="PAGO"&&p.tipo!=="NOVO").length;
+    const proj=meus.filter(p=>p.status&&p.status!=="PAGO"&&!p.fora_projecao&&p.status.indexOf("CANCEL")===-1)
+      .reduce((s,p)=>s+(+p.valor_bruto||0),0);
+    const mProps=minhasNaRua(props,n);
+    let emNeg=0,nNeg=0;
+    mProps.forEach(p=>{const v=+(p.valor_mes||0);if(!v)return;
+      const d=String(p.data_pagto_prevista||"").slice(0,7);
+      if(!d||d===mes.slice(0,7)){emNeg+=v;nNeg++;}});
+    const meta=+(mrow.meta||0);
+    return {meta,liberada:!!mrow.liberada,pago,novos,rec:pago-novos,nNovos,nRec,proj,
+      emNeg,nNeg,nProps:mProps.length,falta:Math.max(0,meta-pago),
+      cob:meta>0?Math.round((pago+emNeg)/meta*100):null};
+  };
+  const cardReg=(c,liberadaOk)=>`<div class="sg">
+    <div class="sc"><div class="sl">Meta do mês</div><div class="sv" style="font-size:15px">${liberadaOk?fmtR$(c.meta):"&#128274;"}</div></div>
+    <div class="sc"><div class="sl">Pago (líquido)</div><div class="sv green" style="font-size:15px">${fmtR$(c.pago)}</div></div>
+    <div class="sc"><div class="sl">Projeção (boleto na rua)</div><div class="sv" style="font-size:15px">${fmtR$(c.proj)}</div></div>
+    <div class="sc"><div class="sl">Em negociação p/ o mês</div><div class="sv" style="font-size:15px">${fmtR$(c.emNeg)}</div></div>
+    <div class="sc"><div class="sl">Falta p/ meta</div><div class="sv ${c.falta>0?"amber":"green"}" style="font-size:15px">${liberadaOk?fmtR$(c.falta):"&#128274;"}</div></div>
+    <div class="sc"><div class="sl">Cobertura</div><div class="sv ${c.cob===null?"":c.cob>=100?"green":c.cob>=60?"amber":"red"}">${liberadaOk&&c.cob!==null?c.cob+"%":"—"}</div></div></div>
+    <div style="font-size:11px;color:var(--gray);margin:2px 0 8px">Pago: R$ líquido da planilha (${c.nNovos} novo(s) ${fmtR$(c.novos)} · ${c.nRec} recorrência ${fmtR$(c.rec)}) · Projeção: aceito com boleto enviado, ainda não pago · Em negociação: suas propostas com previsão de pagamento neste mês (${c.nNeg} de ${c.nProps} na rua) · Cobertura = (pago + negociação) ÷ meta.</div>`;
+  let h=`<div class="painel"><div class="bloco-t">&#128188; Comercial — ${esc(mesNome)}</div>`;
+  if(!ehHead){
+    const c=calc(eu);
+    if(!c.liberada)h+=`<div class="aviso info" style="margin-bottom:8px">&#128274; A meta deste mês ainda não foi liberada pelas heads — os demais números já são ao vivo.</div>`;
+    h+=cardReg(c,c.liberada)+`</div>`;
+  }else{
+    const pessoas=[...new Set([...metas.map(m=>m.pessoa),...pags.map(p=>p.credito).filter(Boolean)])];
+    const linhas=pessoas.map(n=>({n,c:calc(n)})).sort((a,b)=>b.c.meta-a.c.meta);
+    const tot=linhas.reduce((t,l)=>{["meta","pago","novos","rec","proj","emNeg"].forEach(k=>t[k]=(t[k]||0)+l.c[k]);return t;},{});
+    tot.cob=tot.meta>0?Math.round((tot.pago+tot.emNeg)/tot.meta*100):null;
+    h+=cardReg({...tot,falta:Math.max(0,tot.meta-tot.pago),nNovos:linhas.reduce((s,l)=>s+l.c.nNovos,0),
+      nRec:linhas.reduce((s,l)=>s+l.c.nRec,0),nNeg:linhas.reduce((s,l)=>s+l.c.nNeg,0),
+      nProps:linhas.reduce((s,l)=>s+l.c.nProps,0)},true);
+    const foraProj=pags.filter(p=>p.fora_projecao).reduce((s,p)=>s+(+p.valor_bruto||0),0);
+    h+=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+      <tr style="color:var(--gray);text-align:right"><th style="text-align:left">Pessoa</th><th>Meta</th><th>Pago</th><th>Novos</th><th>Recorr.</th><th>Projeção</th><th>Em neg. (mês)</th><th>Cobertura</th></tr>`+
+      linhas.map(l=>`<tr style="border-top:1px solid var(--gray-lt);text-align:right">
+        <td style="text-align:left;padding:5px 0"><b>${esc(l.n)}</b>${l.c.liberada?"":' <span title="meta ainda não liberada">&#128274;</span>'}</td>
+        <td>${fmtR$(l.c.meta)}</td><td style="color:var(--green)"><b>${fmtR$(l.c.pago)}</b></td>
+        <td>${fmtR$(l.c.novos)}</td><td>${fmtR$(l.c.rec)}</td><td>${fmtR$(l.c.proj)}</td>
+        <td>${fmtR$(l.c.emNeg)}</td><td><b>${l.c.cob!==null?l.c.cob+"%":"—"}</b></td></tr>`).join("")+
+      `</table></div>
+      <div style="font-size:11px;color:var(--gray);margin-top:6px">&#128683; Fora da projeção (inadimplentes crônicos — valor em texto na planilha): <b>${fmtR$(foraProj)}</b> · Metas: Configurações → &#127919; Metas do mês.</div></div>`;
+  }
+  // retrovisor (fechamentos mensais: sementes do PDF + fotos futuras do robô)
+  const meusF=(ehHead?fechs:fechs.filter(f=>f.pessoa===eu))
+    .sort((a,b)=>String(b.mes).localeCompare(String(a.mes)));
+  if(meusF.length){
+    const porMes={};meusF.forEach(f=>{(porMes[String(f.mes).slice(0,7)]=porMes[String(f.mes).slice(0,7)]||[]).push(f);});
+    h+=`<div class="painel"><div class="bloco-t">&#128200; Retrovisor — fechamentos mensais</div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+      <tr style="color:var(--gray);text-align:right"><th style="text-align:left">Mês${ehHead?" / pessoa":""}</th><th>Meta</th><th>Projeção</th><th>Atingido</th><th>%</th></tr>`+
+      Object.entries(porMes).map(([m,fs])=>{
+        const tt=fs.reduce((t,f)=>{["meta","projecao","atingido"].forEach(k=>t[k]=(t[k]||0)+(+f[k]||0));return t;},{});
+        const linhaMes=`<tr style="border-top:2px solid var(--border);text-align:right;background:var(--gray-lt)">
+          <td style="text-align:left;padding:4px 0"><b>${m.split("-").reverse().join("/")}</b></td>
+          <td>${fmtR$(tt.meta)}</td><td>${fmtR$(tt.projecao)}</td><td><b>${fmtR$(tt.atingido)}</b></td>
+          <td><b>${tt.meta>0?Math.round(tt.atingido/tt.meta*100)+"%":"—"}</b></td></tr>`;
+        const linhasP=ehHead?fs.sort((a,b)=>(+b.atingido||0)-(+a.atingido||0)).map(f=>`<tr style="border-top:1px solid var(--gray-lt);text-align:right">
+          <td style="text-align:left;padding:3px 0 3px 14px">${esc(f.pessoa)}</td>
+          <td>${f.meta!==null?fmtR$(f.meta):"—"}</td><td>${fmtR$(f.projecao)}</td><td>${fmtR$(f.atingido)}</td>
+          <td>${+f.meta>0?Math.round(+f.atingido/+f.meta*100)+"%":"—"}</td></tr>`).join("")
+          :fs.map(f=>``).join("");
+        return linhaMes+linhasP;}).join("")+
+      `</table></div></div>`;
+  }
+  // origem das propostas na rua (quadro automático do PDF)
+  const naRua=ehHead?(props||[]).filter(propNaRua):minhasNaRua(props,eu);
+  if(naRua.length){
+    const porOrig={};naRua.forEach(p=>{const o=p.origem||"(sem origem)";
+      (porOrig[o]=porOrig[o]||{n:0,v:0});porOrig[o].n++;porOrig[o].v+=(+p.valor_num||0);});
+    const totV=Object.values(porOrig).reduce((s,x)=>s+x.v,0);
+    h+=`<div class="painel"><div class="bloco-t">&#128506; Origem das propostas na rua${ehHead?" (banca)":""}</div>`+
+      Object.entries(porOrig).sort((a,b)=>b[1].v-a[1].v).map(([o,x])=>`<div class="linha-item">
+        <span>${esc(o)}</span><span style="font-size:12px">${x.n} proposta(s) · ${fmtR$(x.v)}${totV?` · ${Math.round(x.v/totV*100)}%`:""}</span></div>`).join("")+`</div>`;
+  }
+  ge("conteudo").innerHTML=h;
 }
 // =================================================== TELA: FIXAS
 async function telaFixas(){
@@ -3745,7 +3921,7 @@ async function abrirProposta(){
     <div style="background:var(--green-lt);border-radius:9px;padding:8px 12px;display:flex;justify-content:space-between;margin-top:6px">
       <b style="font-size:12px;color:var(--green)">&#128176; Total da proposta</b><b id="pr-total" style="color:var(--green)">R$ 0,00</b></div>
     <div class="bloco-t" style="margin-top:8px">Origem e formato</div>
-    <div class="linha-acao"><select class="fsel" id="pr-orig"><option value="">Veio de *</option>${["Carteira","Franqueado","Parceiro","T2","Golden","Backoffice"].map(x=>`<option>${x}</option>`).join("")}</select>
+    <div class="linha-acao"><select class="fsel" id="pr-orig"><option value="">Veio de *</option>${["Cliente Villela (carteira)","Franqueado","Indicação de Parceiro","T2 (SDRs Lauren)","Backoffice","Prospecção direta"].map(x=>`<option>${x}</option>`).join("")}</select>
       <select class="fsel" id="pr-cont"><option value="">Como foi feita *</option><option>Reunião</option><option>WhatsApp</option></select>
       <select class="fsel" id="pr-par" onchange="ge('pr-sp-w').style.display=this.value==='Word'?'block':'none'"><option value="">Parecer *</option><option value="Word">Word / levantamento</option><option value="Mensagem">Mensagem / ligação</option></select></div>
     <div id="pr-sp-w" style="display:none;margin-top:5px"><input class="fi" id="pr-sp" placeholder="Link do levantamento no SharePoint *"></div>
@@ -3839,7 +4015,7 @@ async function lancarProposta(){
   try{const r=await DB.criarProposta({cliente,id_cliente:idc,cnpj,novo_cliente:novo,
     executor:exec,quem_pediu:pediu,responsavel:exec,produtos:prods.join(", "),verticais:verts.join(", "),
     valor:tot,cond,origem:orig,contato:cont,parecer:par,sharepoint:sp,tempo,
-    data:ge("pr-data").value||hojeISO(),obs:ge("pr-obs").value||"",status:"Enviada"});
+    data:ge("pr-data").value||hojeISO(),obs:ge("pr-obs").value||"",status:"Proposta enviada"});
     toast("✓ Proposta lançada: "+r.id,"ok");}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   fecharModal2();if(E.view==="prop")telaPropostas();
