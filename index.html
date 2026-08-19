@@ -500,6 +500,7 @@ const S = {
     if(!ok)throw new Error("não foi possível liberar");return{ok:true};},
   async fechamentos(){return okS(await supa.from("comercial_fechamento").select("*"))||[];},
   async snapshots(){return okS(await supa.from("snapshot_diario").select("*"))||[];},
+  async placar(){return okS(await supa.rpc("placar_semana"))||[];},
   async sugDescartar(id){okS(await supa.from("sugestao_descartada").upsert({id_tarefa:id,por:E.perfil.nome_sistema,em:new Date().toISOString()}));return{ok:true};},
   async sugDescartes(){const lim=new Date(Date.now()-7*86400000).toISOString();
     return okS(await supa.from("sugestao_descartada").select("id_tarefa").gte("em",lim))||[];},
@@ -3673,10 +3674,40 @@ async function telaComercial(){
     hh+=blocoOrigem(minhasNaRua(props,nome),nome===eu?"":" — "+esc(nome));
     return hh;
   };
+  // 🏆 Placar da semana — Programa de Engajamento (público para a equipe)
+  let placarHtml="";
+  try{
+    const pl=await DB.placar();
+    if((pl||[]).length){
+      const hj=new Date();
+      const semanaMes=Math.floor((hj.getDate()-1)/7)+1;
+      const crit=[1,2,3,4,1][Math.min(semanaMes,5)-1];
+      const CRITS={1:["OPERAÇÃO","mais tarefas concluídas na semana",r=>r.conclusoes,r=>r.conclusoes+" concluída(s)"],
+        2:["TIME","voto da equipe — apurado na sexta",()=>0,()=>"votação na sexta"],
+        3:["FATURAMENTO POR VALOR","maior valor em contratos novos pagos",r=>+r.valor_novos,r=>fmtR$(+r.valor_novos)],
+        4:["FATURAMENTO POR VOLUME","mais contratos novos pagos",r=>+r.novos,r=>r.novos+" contrato(s)"]}[crit];
+      const fichasDe=r=>(+r.novos||0)+(r.recorrencia_ok?1:0);
+      const ordF=[...pl].sort((a,b)=>fichasDe(b)-fichasDe(a)||(+b.valor_novos)-(+a.valor_novos));
+      const ordC=[...pl].sort((a,b)=>CRITS[2](b)-CRITS[2](a));
+      const lider=crit!==2?ordC[0]:null;
+      placarHtml=`<div class="painel" style="background:linear-gradient(135deg,#2C6E8A,#447F98);color:white">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+          <b>&#127942; Placar da semana — Programa de Engajamento</b>
+          <span style="font-size:11px;opacity:.85">semana ${semanaMes} do mês · corte oficial: sexta 15h</span></div>
+        <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:8px">${ordF.map((r,i)=>
+          `<span style="background:rgba(255,255,255,${fichasDe(r)>0?".22":".10"});border-radius:10px;padding:5px 11px;font-size:12px${i===0&&fichasDe(r)>0?";outline:2px solid #FFD966":""}">
+          &#127903;&#65039; <b>${fichasDe(r)}</b> ${esc(r.pessoa)}${r.recorrencia_ok?' <span title="carteira em dia — ficha provável na sexta" style="font-size:10px">&#128176;&#10003;</span>':""}</span>`).join("")}</div>
+        <div style="background:rgba(255,255,255,.12);border-radius:10px;padding:8px 12px;margin-top:9px;font-size:12.5px">
+          &#128081; <b>Coroa desta semana: ${CRITS[0]}</b> <span style="opacity:.85">(${CRITS[1]})</span><br>
+          ${lider?`Na frente agora: <b>${esc(lider.pessoa)}</b> — ${CRITS[3](lider)}${ordC[1]&&CRITS[2](ordC[1])>0?` · na cola: ${esc(ordC[1].pessoa)} (${CRITS[3](ordC[1])})`:""}`
+            :"Decidida por votação anônima na sexta — quem mais ajudou o time."}</div>
+        <div style="font-size:10px;opacity:.75;margin-top:5px">&#127903;&#65039; = contratos novos PAGOS na semana (1 cada) + carteira em dia (&#128176;&#10003; vira ficha na sexta 15h). Indicação em dobro e contador novo são lançados pelo responsável do programa no quadro oficial.</div></div>`;
+    }
+  }catch(e){}
   let h;
   if(!ehHead){
     const c=calc(eu);
-    h=`<div class="painel"><div class="bloco-t">&#128188; Comercial — ${esc(mesNome)}</div>`;
+    h=placarHtml+`<div class="painel"><div class="bloco-t">&#128188; Comercial — ${esc(mesNome)}</div>`;
     if(!c.liberada)h+=`<div class="aviso info" style="margin-bottom:8px">&#128274; A meta deste mês ainda não foi liberada pelas heads — os demais números já são ao vivo.</div>`;
     h+=visaoPessoal(eu,c.liberada);
   }else{
@@ -3685,7 +3716,7 @@ async function telaComercial(){
     const pessoas=[...new Set([...metas.map(m=>m.pessoa),...pags.map(p=>p.credito).filter(Boolean),
       ...fechs.map(f=>f.pessoa)])].filter(Boolean).sort((a,b)=>a.localeCompare(b));
     const rotAlvo=alvo==="__EQUIPE__"?"Equipe":(alvo===eu?"Meu Comercial":esc(alvo));
-    h=`<div class="painel"><div class="bloco-t">&#128188; Comercial — ${rotAlvo} — ${esc(mesNome)}</div>
+    h=placarHtml+`<div class="painel"><div class="bloco-t">&#128188; Comercial — ${rotAlvo} — ${esc(mesNome)}</div>
       <div class="linha-acao" style="margin-bottom:8px;align-items:center">
         <select class="fsel" id="com-alvo" onchange="E._comAlvo=this.value;telaComercial()">
           <option value="__EQUIPE__" ${alvo==="__EQUIPE__"?"selected":""}>&#128101; Equipe (geral)</option>
