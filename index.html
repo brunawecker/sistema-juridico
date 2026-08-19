@@ -2629,7 +2629,7 @@ async function telaCapacidade(){
           <td>${x.r.total_ativas}</td><td>${x.r.n_diarias}</td><td>${x.r.n_semanais}</td>
           <td>${x.r.pendentes}</td><td><b>${x.sc}</b></td></tr>`).join("")+
         (madu?`<tr style="border-top:2px solid var(--border);text-align:right;color:var(--gray)">
-          <td style="text-align:left;padding:4px 0">—</td><td style="text-align:left">Madu <span style="font-size:10px">(advogada — só venda direta dela)</span></td>
+          <td style="text-align:left;padding:4px 0">—</td><td style="text-align:left">Madu <span style="font-size:10px">(advogada — só tarefas diretas das heads)</span></td>
           <td>${madu.r.total_ativas}</td><td>${madu.r.n_diarias}</td><td>${madu.r.n_semanais}</td>
           <td>${madu.r.pendentes}</td><td>${madu.sc}</td></tr>`:"")+
         `</table></div>
@@ -4051,7 +4051,7 @@ async function ordenarReceptores(selId){
   const atual=sel.value;
   sel.innerHTML=ord.map((n,i)=>{const c=info(n);
     const det=c?` — ${c.total_ativas} ativas · ${c.n_diarias} diárias · ${c.n_semanais} semanais`:"";
-    const rot=(n==="Madu"&&maduFora)?`${n} (advogada — só venda direta dela)`
+    const rot=(n==="Madu"&&maduFora)?`${n} (advogada — só tarefas diretas das heads)`
       :`${n}${det}${i===0?" ✓ recomendado":""}`;
     return `<option value="${esc(n)}">${esc(rot)}</option>`;}).join("");
   if(atual&&ord.includes(atual))sel.value=atual;
