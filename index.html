@@ -3450,6 +3450,13 @@ function abrirNegociacao(id){
     <div class="bloco-t">Proposta original
       <button class="btn bts btsm" style="padding:1px 8px;font-size:10px" onclick="ge('ng-fix').style.display=ge('ng-fix').style.display==='none'?'block':'none'">&#9998; corrigir valor/pagamento</button></div>
     <div style="font-size:12px;background:#F7F9FB;border:1px solid var(--border);border-radius:8px;padding:8px 11px"><b>${valOrig}</b> · ${esc(p.cond_pagamento||"—")} · lançada em ${esc(p.data_proposta||"")}</div>
+    <div class="linha-acao" style="margin-top:6px;background:#EEF3F9;border-radius:8px;padding:6px 9px;align-items:center">
+      <label style="font-size:11px">&#128100; Conduz a venda (quem pediu):</label>
+      <select class="fsel" id="ng-quem">${(E.equipe||[]).filter(m=>String(m.status||"").toUpperCase()==="ATIVO")
+        .map(m=>m.nome_sistema).sort((a,b)=>a.localeCompare(b))
+        .map(n=>`<option ${String(p.quem_pediu||"").trim()===n?"selected":""}>${esc(n)}</option>`).join("")}</select>
+      <button class="btn bts btsm" onclick='salvarQuemPediu(${JSON.stringify(id)})'>&#128190; Trocar</button></div>
+    <div style="font-size:10.5px;color:var(--gray);margin-top:2px">Quem pediu <b>precisa ser quem vai conduzir a venda</b>: é para essa pessoa que contam a meta, o follow-up diário e a fila de negociação.</div>
     <div id="ng-fix" style="display:none;background:var(--amber-lt);border-radius:8px;padding:8px 11px;margin-top:5px">
       <div style="font-size:11px;color:#7A5C00;margin-bottom:4px">Corrige a proposta em si (negociou outra forma? entrada no cartão?). Fica registrado na linha do tempo.</div>
       <div class="linha-acao"><label style="font-size:11px">Valor R$:</label><input class="fsel" id="ng-fixval" style="width:110px" value="${esc(p.valor||"")}">
@@ -3480,6 +3487,21 @@ function abrirNegociacao(id){
       <button class="btn bts btsm" onclick='enviarDocProposta(${JSON.stringify(id)})'>&#8613; Anexar levantamento</button></div>
     <button class="btn btp btw" style="margin-top:10px" onclick='salvarNegociacao(${JSON.stringify(id)})'>&#128190; Salvar rodada</button>`);
   carregarDocsProposta(id);}
+async function salvarQuemPediu(id){
+  const p=E._propMap[id];if(!p)return;
+  const novo=ge("ng-quem").value;
+  const antes=String(p.quem_pediu||"").trim();
+  if(!novo||novo===antes){toast("Nada para trocar.","erro");return;}
+  const hora=new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+  const linha=`${brHoje()} ${hora} — ${E.perfil.nome_sistema}: 👤 Venda passa a ser conduzida por ${novo} (antes: ${antes||"—"}) — quem pediu/responsável atualizados`;
+  try{okS(await supa.from("propostas").update({quem_pediu:novo,responsavel:novo,
+      negociacao_log:linha+(p.negociacao_log?"\n"+p.negociacao_log:"")}).eq("id_proposta",id));}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  p.quem_pediu=novo;p.responsavel=novo;
+  p.negociacao_log=linha+(p.negociacao_log?"\n"+p.negociacao_log:"");
+  toast("Venda agora é conduzida por "+novo+" — meta e follow-up passam a contar para essa pessoa.","ok");
+  abrirNegociacao(id);if(typeof desenhaProps==="function")desenhaProps();
+}
 async function carregarDocsProposta(id){
   const box=ge("ng-docs");if(!box)return;
   let docs=[];try{docs=await DB.docsProposta(id);}catch(e){box.innerHTML=esc(e.message);return;}
@@ -4156,7 +4178,8 @@ async function abrirProposta(){
     <div id="pr-dup"></div>
     <div class="bloco-t" style="margin-top:8px">Responsáveis</div>
     <div class="linha-acao"><select class="fsel" id="pr-exec"><option value="">Quem executa *</option>${[...new Set(equipeOps)].map(n=>`<option>${n}</option>`).join("")}</select>
-      <select class="fsel" id="pr-pediu"><option value="">Quem pediu *</option>${[...new Set(equipeOps)].map(n=>`<option>${n}</option>`).join("")}</select></div>
+      <select class="fsel" id="pr-pediu" title="Quem pediu precisa ser quem vai CONDUZIR a venda — meta e follow-up contam para essa pessoa"><option value="">Quem pediu (conduz a venda) *</option>${[...new Set(equipeOps)].map(n=>`<option>${n}</option>`).join("")}</select></div>
+    <div style="font-size:10.5px;color:var(--gray)">&#128100; "Quem pediu" precisa ser <b>quem vai conduzir a venda</b> — é para essa pessoa que contam a meta e o follow-up diário.</div>
     <div class="bloco-t" style="margin-top:8px">Produtos * <span style="font-weight:400;font-size:10px">(um ou mais)</span></div>
     <div>${chk("pr-prod",PROP_PRODUTOS)}</div>
     <div class="bloco-t" style="margin-top:8px">Verticais *</div>
