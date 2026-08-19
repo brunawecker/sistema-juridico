@@ -1170,7 +1170,9 @@ async function telaMinhas(){
   try{propsFu=minhasNaRua(await DB.propostas(),nome);}catch(e){}
   const fuJanela=fuEfetivo(FOLLOWUP[nome]||0,propsFu.length);
   let reservaFu=0;
-  if(fuJanela>0){reservaFu=Math.min(rem,fuJanela);rem-=reservaFu;}
+  // obrigatório TODOS os dias: reserva integral mesmo com o dia lotado
+  // (antes, dia cheio engolia o bloco e o cartão sumia — pedido da Bruna 19/08)
+  if(fuJanela>0){reservaFu=fuJanela;rem=Math.max(0,rem-reservaFu);}
   for(const t of diar){if(jaAdd[t.id_tarefa])continue;
     if(rem-t._tempo<0){fila.push(t);continue;}if(push1(t,t._dias<0?2:3))rem-=t._tempo;}
   let nAtr=0;
@@ -1303,8 +1305,9 @@ function desenhaMinhas(){
   const g={1:[],2:[],3:[],4:[]};lista.forEach(t=>g[t._urg||4]?.push(t));
   let h="";let algum=false;
   [1,2,3,4].forEach(k=>{
-    // 📞 o cartão do follow-up entra DEPOIS de imediatas e atrasadas
-    if(k===3&&E._fuCard){h+=fuCardHtml();algum=true;}
+    // 📞 o cartão do follow-up abre o dia, junto das IMEDIATAS (é diário
+    // e obrigatório — pedido da Bruna, 19/08/2026)
+    if(k===1&&E._fuCard&&(!u||u==="1")){h+=fuCardHtml();algum=true;}
     if(!g[k].length)return;algum=true;
     h+=`<div class="grupo-t"><span>${rot[k]}</span><span class="qt">${g[k].length} · ~${g[k].reduce((s,t)=>s+t._tempo,0)}min</span></div>`
       +g[k].map(t=>cardTarefa(t,false,true)).join("");});
@@ -1339,7 +1342,7 @@ function renderKanban(lista){
     const ct=lista.filter(t=>(t._urg||t._g)===k);
     return `<div style="flex:0 0 260px;background:var(--gray-lt);border-radius:12px;padding:9px">
       <div style="font-size:11px;font-weight:700;background:${bg};border-radius:6px;padding:5px 8px;margin-bottom:8px">${rot} (${ct.length})</div>
-      ${k===3&&E._fuCard?`<div class="tc u3" style="margin-bottom:6px;border-left:4px solid #1F4E79;background:#EEF3F9" onclick="abrirFollowupDia()">
+      ${k===1&&E._fuCard?`<div class="tc u3" style="margin-bottom:6px;border-left:4px solid #1F4E79;background:#EEF3F9" onclick="abrirFollowupDia()">
         <div style="flex:1;min-width:0"><div class="tcc">&#128222; Follow-up de propostas</div>
         <div class="tco">${E._fuCard.naRua} na rua · ${fmtMin(E._fuCard.min)}</div></div></div>`:""}
       ${ct.map(t=>`<div class="tc u${k}" style="margin-bottom:6px" onclick="abrirTarefa('${esc(t.id_tarefa)}')">
