@@ -4027,6 +4027,10 @@ function abrirNovoCliente(){
       <select class="fsel" id="nc-reg"><option value="">Regime</option>${REGIMES.map(r=>`<option>${r}</option>`).join("")}</select>
       <input class="fsel" id="nc-mun" placeholder="Município"><input class="fsel" id="nc-uf" placeholder="UF" style="width:60px"></div>
     <textarea class="fta" id="nc-res" style="margin-top:6px" placeholder="Resumo inicial (opcional)"></textarea>
+    <label style="font-size:12px;display:flex;gap:7px;align-items:center;margin-top:8px;cursor:pointer">
+      <input type="checkbox" id="nc-semtarefa" style="width:15px;height:15px" onchange="ge('nc-tarefa-w').style.display=this.checked?'none':'block'">
+      Cadastrar <b>só o cliente</b>, sem lançar tarefa agora</label>
+    <div id="nc-tarefa-w">
     <div class="bloco-t" style="margin-top:10px">Primeira tarefa</div>
     <div class="linha-acao"><select class="fsel" id="nc-op"><option value="">Tipo de operação *</option>${OPERACOES.map(o=>`<option>${esc(o)}</option>`).join("")}</select>
       <select class="fsel" id="nc-chk">${["IMEDIATO","DIÁRIO","SEMANAL","MENSAL"].map(x=>`<option>${x}</option>`).join("")}</select>
@@ -4035,7 +4039,8 @@ function abrirNovoCliente(){
     ${EXIGE_PEDIDO_HEAD.includes(E.perfil.nome_sistema)?`<label style="font-size:12px;display:flex;gap:7px;align-items:center;margin-top:6px;cursor:pointer"><input type="checkbox" id="nc-headflag" style="width:15px;height:15px"> &#127963;&#65039; Tarefa por <b>pedido direto de uma das heads</b> <span style="color:var(--gray)">(obrigatório se for para ${EXIGE_PEDIDO_HEAD.filter(x=>x!==E.perfil.nome_sistema).join(" ou ")})</span></label>`:""}
     <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px">&#128206; Documentos iniciais (opcional — pode selecionar v&aacute;rios):</label>
       <input type="file" id="nc-doc" class="fsel" multiple style="max-width:240px"></div>
-    <button class="btn btp btw" style="margin-top:8px" onclick="criarClienteTarefa()">&#10003; Cadastrar cliente + criar tarefa</button>`);
+    </div>
+    <button class="btn btp btw" style="margin-top:8px" onclick="criarClienteTarefa()">&#10003; Cadastrar</button>`);
   ordenarReceptores("nc-ass");
 }
 // cliente já existe? migra o que foi preenchido no "Novo cliente" e cria só
@@ -4070,7 +4075,9 @@ async function criarClienteTarefa(){
   const dig=s=>String(s||"").replace(/\D/g,"");
   const dCand=dig(cnpj);
   const jaDoc=dCand?(todos||[]).find(x=>dig(x.cnpj_cpf)===dCand):null;
+  const semTarefa=!!(ge("nc-semtarefa")||{}).checked;
   if(jaDoc){
+    if(semTarefa){toast(`Este documento já é do cliente ${jaDoc.nome} (${jaDoc.id_cliente}) — nada a cadastrar.`,"erro");return;}
     // pedido da Eduarda: aproveita o que já foi preenchido e cria SÓ a tarefa
     if(confirm(`Este documento já é do cliente:\n\n${jaDoc.nome} (${jaDoc.id_cliente})\n\nCriar a TAREFA direto nesse cliente, aproveitando o que você preencheu?\n\nOK = criar só a tarefa · Cancelar = voltar ao formulário`))
       await criarTarefaParaExistente(jaDoc);
@@ -4080,6 +4087,14 @@ async function criarClienteTarefa(){
     if(confirm(`Então criar só a TAREFA no cliente existente "${jaNome.nome}", com o que você preencheu?`))
       await criarTarefaParaExistente(jaNome);
     return;}
+  // cadastro sem tarefa (pedido da Bruna, 19/08/2026)
+  if(semTarefa){
+    try{const rc=await DB.criarCliente({nome,cnpj,head:ge("nc-head").value,vertical:ge("nc-vert").value,
+      situacao:ge("nc-sit").value,regime:ge("nc-reg").value,municipio:ge("nc-mun").value,uf:ge("nc-uf").value,
+      resumo:ge("nc-res").value});
+      toast(`✓ Cliente ${rc.id} cadastrado (sem tarefa).`,"ok");}
+    catch(e){toast("Erro: "+e.message,"erro");return;}
+    fecharModal2();recarregar();return;}
   const op=ge("nc-op").value;if(!op){toast("Selecione a operação da primeira tarefa.","erro");return;}
   if(!alvosCriacao().includes(ge("nc-ass").value)){toast("Você direciona tarefas só para: "+alvosCriacao().join(", ")+".","erro");return;}
   const flagNC2=precisaPedidoHead(E.perfil.nome_sistema,ge("nc-ass").value);
