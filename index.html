@@ -3940,6 +3940,9 @@ async function ordenarReceptores(selId){
     return `<option value="${esc(n)}">${esc(rot)}</option>`;}).join("");
   if(atual&&ord.includes(atual))sel.value=atual;
 }
+function toggleFab(){const m=ge("fab-menu");m.style.display=m.style.display==="flex"?"none":"flex";}
+function fecharFab(){ge("fab-menu").style.display="none";}
+// ---- nova tarefa (cliente existente)
 async function abrirNovaTarefa(){
   modal2("&#128203; Nova tarefa","Cliente existente",`
     <input class="fi" id="nt-q" placeholder="&#128269; Digite 2+ letras do cliente..." oninput="buscaNT()">
