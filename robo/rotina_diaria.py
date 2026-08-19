@@ -334,6 +334,29 @@ def main():
                     on conflict (mes,pessoa) do nothing""", (mes_ant, mes_ant, mes_ant))
                 print(f"7. fechamento comercial de {mes_ant}: {cur.rowcount} pessoa(s)")
 
+        # 8) janelas públicas congeladas (família do defeito de 19/08/2026):
+        # tabela ganhou coluna nova e a view espelho "select *" não a expôe —
+        # o site quebra em silêncio. Detecta e recria a view no ato.
+        cur.execute("""
+          with v as (select table_name vw, array_agg(column_name::text) cols
+                     from information_schema.columns where table_schema='public' group by 1),
+               t as (select table_name tb, array_agg(column_name::text) cols
+                     from information_schema.columns where table_schema='juridico' group by 1)
+          select v.vw from v join t on t.tb = v.vw
+          where array(select unnest(t.cols) except select unnest(v.cols)) <> '{}'""")
+        congeladas = [r[0] for r in cur.fetchall()]
+        for vw in congeladas:
+            try:
+                cur.execute(f"""create or replace view public.{vw}
+                    with (security_invoker=true) as select * from juridico.{vw}""")
+                print(f"8. janela pública {vw} descongelada (colunas novas expostas)")
+            except Exception as e:
+                print(f"8. AVISO: não consegui descongelar {vw}: {e}")
+        if congeladas:
+            cur.execute("notify pgrst, 'reload schema'")
+        else:
+            print("8. janelas públicas: todas em dia")
+
         # batimento (o Painel vigia)
         cur.execute("""insert into juridico.robo_status (nome, ultima) values ('rotina7h', now())
                        on conflict (nome) do update set ultima = excluded.ultima""")
