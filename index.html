@@ -3947,9 +3947,15 @@ function toggleFab(){const m=ge("fab-menu");m.style.display=m.style.display==="f
 function fecharFab(){ge("fab-menu").style.display="none";}
 // ---- nova tarefa (cliente existente)
 async function abrirNovaTarefa(){
-  modal2("&#128203; Nova tarefa","Cliente existente",`
+  modal2("&#128203; Nova tarefa","Cliente existente ou tarefa interna",`
+    <label style="font-size:12px;display:flex;gap:7px;align-items:center;margin-bottom:6px;cursor:pointer">
+      <input type="checkbox" id="nt-interna" style="width:15px;height:15px" onchange="toggleNTInterna(this.checked)">
+      &#128466;&#65039; Tarefa <b>interna</b> — sem vínculo com cliente (ex.: analisar e-mail, organizar arquivos)</label>
+    <div id="nt-busca-w">
     <input class="fi" id="nt-q" placeholder="&#128269; Digite 2+ letras do cliente..." oninput="buscaNT()">
-    <div id="nt-res" style="max-height:150px;overflow:auto"></div><div id="nt-form"></div>`);
+    <div id="nt-res" style="max-height:150px;overflow:auto"></div></div>
+    <div id="nt-int-w" style="display:none"><input class="fi" id="nt-int" placeholder="Título da tarefa interna * (ex.: Analisar e-mail da Receita)"></div>
+    <div id="nt-form"></div>`);
   if(!E._clsTodos||!E._clsTodos.length){try{E._clsTodos=await DB.clientes("");E._cli={};E._clsTodos.forEach(c=>E._cli[c.id_cliente]=c);}catch(e){}}
 }
 function buscaNT(){
@@ -3960,10 +3966,22 @@ function buscaNT(){
     <span><b>${esc(c.nome)}</b> <span style="color:var(--gray);font-size:11px">${esc(c.cnpj_cpf||"")}</span></span></div>`).join("")
     ||`<div style="font-size:12px;color:var(--gray)">Nenhum cliente. Use "Novo cliente + tarefa".</div>`;
 }
+function toggleNTInterna(on){
+  ge("nt-busca-w").style.display=on?"none":"block";
+  ge("nt-int-w").style.display=on?"block":"none";
+  if(on){E._ntCli={id_cliente:"",cnpj_cpf:"",interna:true};formNTCorpo("",true);}
+  else{E._ntCli=null;ge("nt-form").innerHTML="";const r=ge("nt-res");if(r)r.innerHTML="";}
+}
 function formNT(id){
   const c=E._cli[id];E._ntCli=c;ge("nt-res").innerHTML="";ge("nt-q").value=c.nome;
   const alvosNT=alvosCriacao();
   const resp=alvosNT.includes(c.assessor_responsavel||"")?c.assessor_responsavel:"";
+  formNTCorpo(resp);
+}
+function formNTCorpo(resp,interna){
+  // tarefa interna pode ir para QUALQUER membro ativo (inclusive heads)
+  const alvosNT=interna?(E.equipe||[]).filter(m=>String(m.status||"").toUpperCase()==="ATIVO")
+      .map(m=>m.nome_sistema):alvosCriacao();
   ge("nt-form").innerHTML=`
     ${resp?`<div class="aviso info" style="margin:6px 0">&#128100; Responsável deste cliente: <b>${esc(resp)}</b> (já selecionado)</div>`:""}
     <div class="linha-acao" style="margin-top:6px">
@@ -3978,7 +3996,7 @@ function formNT(id){
     <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px">&#128206; Documentos iniciais (opcional — pode selecionar v&aacute;rios):</label>
       <input type="file" id="nt-doc" class="fsel" multiple style="max-width:240px"></div>
     <button class="btn btp btw" style="margin-top:8px" onclick="criarTarefaNova()">&#10003; Criar tarefa</button>`;
-  ordenarReceptores("nt-ass");
+  if(!interna)ordenarReceptores("nt-ass");
 }
 // envia os anexos escolhidos na criação (um a um; avisa o que subiu e o que não)
 async function enviarDocsCriacao(inputId,idCli,idTar){
@@ -3993,8 +4011,11 @@ async function enviarDocsCriacao(inputId,idCli,idTar){
   if(falhas.length)toast("Não anexado(s): "+falhas.join("; "),"erro");
 }
 async function criarTarefaNova(){
-  const c=E._ntCli;if(!c){toast("Selecione um cliente.","erro");return;}
-  if(!alvosCriacao().includes(ge("nt-ass").value)){toast("Você direciona tarefas só para: "+alvosCriacao().join(", ")+".","erro");return;}
+  const c=E._ntCli;if(!c){toast("Selecione um cliente (ou marque tarefa interna).","erro");return;}
+  if(c.interna){const tt=(ge("nt-int").value||"").trim();
+    if(!tt){toast("Dê um título para a tarefa interna.","erro");return;}
+    c.nome="🗒️ "+tt;}
+  if(!c.interna&&!alvosCriacao().includes(ge("nt-ass").value)){toast("Você direciona tarefas só para: "+alvosCriacao().join(", ")+".","erro");return;}
   const flagNT=precisaPedidoHead(E.perfil.nome_sistema,ge("nt-ass").value);
   if(flagNT&&!(ge("nt-headflag")||{}).checked){toast("Para direcionar a "+ge("nt-ass").value+", marque que a tarefa é por pedido direto de uma das heads.","erro");return;}
   const op=ge("nt-op").value;if(!op){toast("Selecione a operação.","erro");return;}
@@ -4011,7 +4032,7 @@ async function criarTarefaNova(){
     revisao:revISO});
     toast("✓ Tarefa criada: "+r.id,"ok");}
   catch(e){toast("Erro: "+e.message,"erro");return;}
-  await enviarDocsCriacao("nt-doc",c.id_cliente,r.id);
+  await enviarDocsCriacao("nt-doc",c.id_cliente||"INTERNO",r.id);
   fecharModal2();recarregar();
 }
 // ---- novo cliente + tarefa
