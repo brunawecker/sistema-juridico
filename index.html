@@ -353,7 +353,9 @@ function coroaCriterio(){
     4:["FATURAMENTO POR VOLUME","mais contratos novos pagos",r=>+r.novos||0,r=>(r.novos||0)+" contrato(s)"]}[crit];
   return {semanaMes,crit,rotulo:C[0],desc:C[1],medir:C[2],fmt:C[3]};
 }
-const fichasSemana=r=>(+r.novos||0)+(r.recorrencia_ok?1:0);
+// ficha CONFIRMADA = contrato novo pago (1 cada). A ficha de carteira em dia
+// só nasce na sexta às 15h — até lá é apenas o selo 💰 "provável"
+const fichasSemana=r=>(+r.novos||0);
 // quem lidera a coroa vê o PRÓPRIO sistema coroado em dourado
 async function coroaViva(){
   try{
@@ -3730,7 +3732,7 @@ async function telaComercial(){
             <td><b>${fichasSemana(r)}</b></td><td>${r.novos||0}</td><td>${fmtR$(+r.valor_novos||0)}</td>
             <td>${r.conclusoes||0}</td><td>${r.recorrencia_ok?"&#10003;":"&#9888;&#65039;"}</td></tr>`).join("")}
         </table></div>
-        <div style="font-size:10px;opacity:.75;margin-top:5px">&#127903;&#65039; = contratos novos PAGOS na semana (1 cada) + carteira em dia (&#128176;&#10003; vira ficha na sexta 15h). Indicação em dobro, contador parceiro novo, reativação e o voto do time são somados pelo responsável do programa no quadro da sexta.</div></div>`;
+        <div style="font-size:10px;opacity:.75;margin-top:5px">&#127903;&#65039; = SÓ contratos novos PAGOS na semana (1 cada). O selo &#128176;&#10003; indica carteira em dia — essa ficha só nasce na sexta às 15h, se a semana fechar sem atraso. Indicação em dobro, contador novo, reativação e voto do time são somados pelo responsável no quadro da sexta.</div></div>`;
     }
   }catch(e){}
   let h;
