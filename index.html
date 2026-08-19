@@ -387,6 +387,12 @@ const EXIGE_PEDIDO_HEAD=["Madu","Ygor","Malu"];
 const MARCA_PEDIDO_HEAD="🏛️ Por pedido direto de head";
 const precisaPedidoHead=(de,para)=>EXIGE_PEDIDO_HEAD.includes(de)&&EXIGE_PEDIDO_HEAD.includes(para)&&de!==para;
 const temPedidoHead=t=>String((t&&t.supervisao)||"").includes("Por pedido direto de head");
+// link de pasta só é link se for endereço de verdade (a equipe digitava "." e
+// o navegador abria o próprio sistema — relato da Bruna, 19/08/2026)
+const urlPasta=v=>{v=String(v||"").trim();
+  if(/^https?:\/\//i.test(v))return v;
+  if(/^[\w.-]+\.[a-z]{2,}([\/?#].*)?$/i.test(v))return "https://"+v;
+  return null;};
 const alvosDelegacao=nome=>{const l=DELEGA_PARA[nome]||[];
   return (E.perfil&&E.perfil.head_sim&&nome===E.perfil.nome_sistema)||!l.length
     ?OPERACIONAIS.filter(a=>a!==nome):l.filter(a=>a!==nome);};
@@ -1426,7 +1432,7 @@ async function painelParaCorrigir(alvoId){
           <span style="font-size:11px;color:#6B4FBF">Correção → ${esc(t.correcao_head)}</span>
           <span style="font-size:11px;color:${cor};font-weight:600;margin-left:6px">${txt}</span></div>
         <span style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
-          ${t.correcao_link?`<a href="${esc(t.correcao_link)}" target="_blank" style="font-size:11px;color:var(--dani)">&#128193; Pasta</a>`:""}
+          ${t.correcao_link?(urlPasta(t.correcao_link)?`<a href="${esc(urlPasta(t.correcao_link))}" target="_blank" style="font-size:11px;color:var(--dani)">&#128193; Pasta</a>`:`<span style="font-size:11px;color:var(--gray)" title="${esc(t.correcao_link)}">&#128206; ${/anex/i.test(t.correcao_link)?"anexado na tarefa":"sem link válido"}</span>`):""}
           <button class="btn btp btsm" onclick="devolverCorrecao('${esc(t.id_tarefa)}',${t.linha})">&#8617; Devolver ao assessor</button>
           ${(E.perfil.head_sim&&d<0)?`<button class="btn bts btsm" onclick="puxarCorrecao('${esc(t.id_tarefa)}',${t.linha})">&#9995; ${String(t.correcao_head||"").toLowerCase()===meu?"Renovar prazo (3d úteis)":"Puxar para mim"}</button>`:""}</span></div>
         ${t.correcao_justif?`<div style="font-size:11px;color:var(--gray);font-style:italic;margin-top:3px">Justificativa: ${esc(t.correcao_justif)}</div>`:""}</div>`;};
@@ -2003,6 +2009,8 @@ async function enviarCorrecao(){
   const t=E.atual,head=ge("cr-head").value,link=(ge("cr-link").value||"").trim();
   if(!head){toast("Escolha quem vai corrigir.","erro");return;}
   if(!link){toast("Cole o link da pasta.","erro");return;}
+  if(!urlPasta(link)&&!/^anexo/i.test(link)){
+    toast("Isso não é um link válido. Cole o endereço completo (https://...) — ou escreva ANEXO se o material está anexado no cartão.","erro");return;}
   const manual=document.querySelector('input[name="cr-pz"]:checked').value==="m";
   let dias=3,justif="";
   if(manual){dias=parseInt(ge("cr-dias").value)||0;justif=(ge("cr-justif").value||"").trim();
