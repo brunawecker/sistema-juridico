@@ -342,6 +342,33 @@ const TAXA_FECHAMENTO_MERCADO=0.25;
 const propostasDe=(lista,nome)=>(lista||[]).filter(p=>propNaRua(p)&&(
   String(p.responsavel||p.executor||"").trim()===nome||String(p.quem_pediu||"").trim()===nome));
 const minhasNaRua=(lista,nome)=>(lista||[]).filter(p=>propNaRua(p)&&String(p.responsavel||p.executor||"").trim()===nome);
+// 👑 critério rotativo da coroa (Programa de Engajamento): semana 1 operação,
+// 2 voto do time, 3 valor, 4 volume; 5ª semana volta à operação
+function coroaCriterio(){
+  const hj=new Date();const semanaMes=Math.floor((hj.getDate()-1)/7)+1;
+  const crit=[1,2,3,4,1][Math.min(semanaMes,5)-1];
+  const C={1:["OPERAÇÃO","mais tarefas concluídas na semana",r=>+r.conclusoes||0,r=>(r.conclusoes||0)+" concluída(s)"],
+    2:["TIME","voto da equipe — apurado na sexta",()=>0,()=>"votação na sexta"],
+    3:["FATURAMENTO POR VALOR","maior valor em contratos novos pagos",r=>+r.valor_novos||0,r=>fmtR$(+r.valor_novos||0)],
+    4:["FATURAMENTO POR VOLUME","mais contratos novos pagos",r=>+r.novos||0,r=>(r.novos||0)+" contrato(s)"]}[crit];
+  return {semanaMes,crit,rotulo:C[0],desc:C[1],medir:C[2],fmt:C[3]};
+}
+const fichasSemana=r=>(+r.novos||0)+(r.recorrencia_ok?1:0);
+// quem lidera a coroa vê o PRÓPRIO sistema coroado em dourado
+async function coroaViva(){
+  try{
+    const pl=await DB.placar();if(!(pl||[]).length)return;
+    const cc=coroaCriterio();if(cc.crit===2)return;
+    const ord=[...pl].sort((a,b)=>cc.medir(b)-cc.medir(a));
+    if(!ord[0]||cc.medir(ord[0])<=0)return;
+    if(ord[0].pessoa!==E.perfil.nome_sistema)return;
+    const nm=ge("sb-nm"),av=ge("sb-av");
+    if(nm){nm.innerHTML="&#128081; "+esc(E.perfil.nome_sistema);nm.style.color="#FFD966";
+      nm.title="Você está na frente da coroa desta semana ("+cc.rotulo+") — segura até sexta 15h!";}
+    if(av){av.style.background="linear-gradient(135deg,#FFD966,#E0A800)";
+      av.style.color="#5A4500";av.style.boxShadow="0 0 0 3px #FFD966";}
+  }catch(e){}
+}
 // entre os seniores, tarefa de um para o outro só por pedido de head
 // (pedido da Bruna, 17/08/2026) — o check viaja no texto e o receptor o vê marcado
 const EXIGE_PEDIDO_HEAD=["Madu","Ygor","Malu"];
@@ -766,6 +793,7 @@ async function entrou(){
   // sinal de presença: "estou com o site aberto" a cada 5 min (todos os perfis)
   if(!p.vendo_como_outro){DB.presencaPing();setInterval(()=>DB.presencaPing(),5*60000);}
   vigiarVersao();
+  coroaViva();
 }
 // página aberta há dias = código velho + regras novas do banco = erro que
 // parece defeito. A cada 10 min confere o carimbo publicado; mudou → faixa.
@@ -3679,29 +3707,30 @@ async function telaComercial(){
   try{
     const pl=await DB.placar();
     if((pl||[]).length){
-      const hj=new Date();
-      const semanaMes=Math.floor((hj.getDate()-1)/7)+1;
-      const crit=[1,2,3,4,1][Math.min(semanaMes,5)-1];
-      const CRITS={1:["OPERAÇÃO","mais tarefas concluídas na semana",r=>r.conclusoes,r=>r.conclusoes+" concluída(s)"],
-        2:["TIME","voto da equipe — apurado na sexta",()=>0,()=>"votação na sexta"],
-        3:["FATURAMENTO POR VALOR","maior valor em contratos novos pagos",r=>+r.valor_novos,r=>fmtR$(+r.valor_novos)],
-        4:["FATURAMENTO POR VOLUME","mais contratos novos pagos",r=>+r.novos,r=>r.novos+" contrato(s)"]}[crit];
-      const fichasDe=r=>(+r.novos||0)+(r.recorrencia_ok?1:0);
-      const ordF=[...pl].sort((a,b)=>fichasDe(b)-fichasDe(a)||(+b.valor_novos)-(+a.valor_novos));
-      const ordC=[...pl].sort((a,b)=>CRITS[2](b)-CRITS[2](a));
-      const lider=crit!==2?ordC[0]:null;
+      const cc=coroaCriterio();
+      const ordF=[...pl].sort((a,b)=>fichasSemana(b)-fichasSemana(a)||(+b.valor_novos)-(+a.valor_novos));
+      const ordC=[...pl].sort((a,b)=>cc.medir(b)-cc.medir(a));
+      const lider=(cc.crit!==2&&ordC[0]&&cc.medir(ordC[0])>0)?ordC[0]:null;
       placarHtml=`<div class="painel" style="background:linear-gradient(135deg,#2C6E8A,#447F98);color:white">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
           <b>&#127942; Placar da semana — Programa de Engajamento</b>
-          <span style="font-size:11px;opacity:.85">semana ${semanaMes} do mês · corte oficial: sexta 15h</span></div>
+          <span style="font-size:11px;opacity:.85">semana ${cc.semanaMes} do mês · corte oficial: sexta 15h</span></div>
         <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:8px">${ordF.map((r,i)=>
-          `<span style="background:rgba(255,255,255,${fichasDe(r)>0?".22":".10"});border-radius:10px;padding:5px 11px;font-size:12px${i===0&&fichasDe(r)>0?";outline:2px solid #FFD966":""}">
-          &#127903;&#65039; <b>${fichasDe(r)}</b> ${esc(r.pessoa)}${r.recorrencia_ok?' <span title="carteira em dia — ficha provável na sexta" style="font-size:10px">&#128176;&#10003;</span>':""}</span>`).join("")}</div>
+          `<span style="background:rgba(255,255,255,${fichasSemana(r)>0?".22":".10"});border-radius:10px;padding:5px 11px;font-size:12px${i===0&&fichasSemana(r)>0?";outline:2px solid #FFD966":""}">
+          &#127903;&#65039; <b>${fichasSemana(r)}</b> ${esc(r.pessoa)}${r.recorrencia_ok?' <span title="carteira em dia — ficha provável na sexta" style="font-size:10px">&#128176;&#10003;</span>':""}</span>`).join("")}</div>
         <div style="background:rgba(255,255,255,.12);border-radius:10px;padding:8px 12px;margin-top:9px;font-size:12.5px">
-          &#128081; <b>Coroa desta semana: ${CRITS[0]}</b> <span style="opacity:.85">(${CRITS[1]})</span><br>
-          ${lider?`Na frente agora: <b>${esc(lider.pessoa)}</b> — ${CRITS[3](lider)}${ordC[1]&&CRITS[2](ordC[1])>0?` · na cola: ${esc(ordC[1].pessoa)} (${CRITS[3](ordC[1])})`:""}`
+          &#128081; <b>Coroa desta semana: ${cc.rotulo}</b> <span style="opacity:.85">(${cc.desc})</span><br>
+          ${lider?`Na frente agora: <b>${esc(lider.pessoa)}</b> — ${cc.fmt(lider)}${ordC[1]&&cc.medir(ordC[1])>0?` · na cola: ${esc(ordC[1].pessoa)} (${cc.fmt(ordC[1])})`:""} <span style="opacity:.8">· o líder vê o sistema coroado em dourado &#128081;</span>`
             :"Decidida por votação anônima na sexta — quem mais ajudou o time."}</div>
-        <div style="font-size:10px;opacity:.75;margin-top:5px">&#127903;&#65039; = contratos novos PAGOS na semana (1 cada) + carteira em dia (&#128176;&#10003; vira ficha na sexta 15h). Indicação em dobro e contador novo são lançados pelo responsável do programa no quadro oficial.</div></div>`;
+        <div style="overflow-x:auto;margin-top:8px"><table style="width:100%;border-collapse:collapse;font-size:11.5px;color:white">
+          <tr style="opacity:.75;text-align:right"><th style="text-align:left;padding:3px 6px">#</th><th style="text-align:left">Pessoa</th><th>&#127903;&#65039; Fichas</th><th>Novos</th><th>R$ novos</th><th>Concluídas</th><th>Carteira</th></tr>
+          ${ordF.map((r,i)=>`<tr style="border-top:1px solid rgba(255,255,255,.25);text-align:right${lider&&r.pessoa===lider.pessoa?";background:rgba(255,217,102,.28)":""}">
+            <td style="text-align:left;padding:3px 6px">${i+1}º</td>
+            <td style="text-align:left"><b>${esc(r.pessoa)}</b>${lider&&r.pessoa===lider.pessoa?" &#128081;":""}</td>
+            <td><b>${fichasSemana(r)}</b></td><td>${r.novos||0}</td><td>${fmtR$(+r.valor_novos||0)}</td>
+            <td>${r.conclusoes||0}</td><td>${r.recorrencia_ok?"&#10003;":"&#9888;&#65039;"}</td></tr>`).join("")}
+        </table></div>
+        <div style="font-size:10px;opacity:.75;margin-top:5px">&#127903;&#65039; = contratos novos PAGOS na semana (1 cada) + carteira em dia (&#128176;&#10003; vira ficha na sexta 15h). Indicação em dobro, contador parceiro novo, reativação e o voto do time são somados pelo responsável do programa no quadro da sexta.</div></div>`;
     }
   }catch(e){}
   let h;
