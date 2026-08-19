@@ -359,16 +359,26 @@ const fichasSemana=r=>(+r.novos||0);
 // quem lidera a coroa vê o PRÓPRIO sistema coroado em dourado
 async function coroaViva(){
   try{
+    const eu=E.perfil.nome_sistema;
+    const nm=ge("sb-nm"),av=ge("sb-av");
+    // 1º) REINANTE da semana (coroado na sexta): dourado VIVO a semana toda
+    let reinado=null;try{reinado=await DB.coroaAtual();}catch(e){}
+    if(reinado&&reinado.pessoa===eu){
+      if(nm){nm.innerHTML="&#128081; "+esc(eu);nm.style.color="#FFD966";
+        nm.title="Você é o(a) COROADO(A) da semana — o dourado é seu até sexta!";}
+      if(av){av.style.background="linear-gradient(135deg,#FFD966,#E0A800)";
+        av.style.color="#5A4500";av.style.boxShadow="0 0 0 3px #FFD966";}
+      return;}
+    // 2º) líder da corrida ATUAL: dourado suave (está perto, mas ainda não é rei)
     const pl=await DB.placar();if(!(pl||[]).length)return;
     const cc=coroaCriterio();if(cc.crit===2)return;
     const ord=[...pl].sort((a,b)=>cc.medir(b)-cc.medir(a));
     if(!ord[0]||cc.medir(ord[0])<=0)return;
-    if(ord[0].pessoa!==E.perfil.nome_sistema)return;
-    const nm=ge("sb-nm"),av=ge("sb-av");
-    if(nm){nm.innerHTML="&#128081; "+esc(E.perfil.nome_sistema);nm.style.color="#FFD966";
-      nm.title="Você está na frente da coroa desta semana ("+cc.rotulo+") — segura até sexta 15h!";}
-    if(av){av.style.background="linear-gradient(135deg,#FFD966,#E0A800)";
-      av.style.color="#5A4500";av.style.boxShadow="0 0 0 3px #FFD966";}
+    if(ord[0].pessoa!==eu)return;
+    if(nm){nm.innerHTML=esc(eu)+' <span style="font-size:11px;opacity:.9">&#128081;?</span>';
+      nm.style.color="#D9BE6C";
+      nm.title="Você está na FRENTE da corrida da coroa ("+cc.rotulo+") — fecha forte até sexta 15h!";}
+    if(av){av.style.boxShadow="0 0 0 3px #EBD9A5";}
   }catch(e){}
 }
 // entre os seniores, tarefa de um para o outro só por pedido de head
@@ -530,6 +540,11 @@ const S = {
   async fechamentos(){return okS(await supa.from("comercial_fechamento").select("*"))||[];},
   async snapshots(){return okS(await supa.from("snapshot_diario").select("*"))||[];},
   async placar(){return okS(await supa.rpc("placar_semana"))||[];},
+  async coroaAtual(){const r=okS(await supa.from("coroa").select("*"))||[];
+    const seg=(d=>{d.setDate(d.getDate()-((d.getDay()+6)%7));return d.toISOString().slice(0,10);})(new Date());
+    return r.find(x=>String(x.semana).slice(0,10)===seg)||null;},
+  async coroar(pessoa,criterio){const ok=await rpcS("coroar",{p_pessoa:pessoa,p_criterio:criterio});
+    if(!ok)throw new Error("não foi possível coroar");return{ok:true};},
   async sugDescartar(id){okS(await supa.from("sugestao_descartada").upsert({id_tarefa:id,por:E.perfil.nome_sistema,em:new Date().toISOString()}));return{ok:true};},
   async sugDescartes(){const lim=new Date(Date.now()-7*86400000).toISOString();
     return okS(await supa.from("sugestao_descartada").select("id_tarefa").gte("em",lim))||[];},
@@ -3709,8 +3724,11 @@ async function telaComercial(){
   try{
     const pl=await DB.placar();
     if((pl||[]).length){
-      const cc=coroaCriterio();
-      const ordF=[...pl].sort((a,b)=>fichasSemana(b)-fichasSemana(a)||(+b.valor_novos)-(+a.valor_novos));
+      const cc=coroaCriterio();E._critRotulo=cc.rotulo;
+      let reinado=null;try{reinado=await DB.coroaAtual();}catch(e){}
+      // coroado da semana ganha a ficha extra (regra do programa)
+      const fichasCom=r=>fichasSemana(r)+((reinado&&reinado.pessoa===r.pessoa)?1:0);
+      const ordF=[...pl].sort((a,b)=>fichasCom(b)-fichasCom(a)||(+b.valor_novos)-(+a.valor_novos));
       const ordC=[...pl].sort((a,b)=>cc.medir(b)-cc.medir(a));
       const lider=(cc.crit!==2&&ordC[0]&&cc.medir(ordC[0])>0)?ordC[0]:null;
       placarHtml=`<div class="painel" style="background:linear-gradient(135deg,#2C6E8A,#447F98);color:white">
@@ -3718,20 +3736,25 @@ async function telaComercial(){
           <b>&#127942; Placar da semana — Programa de Engajamento</b>
           <span style="font-size:11px;opacity:.85">semana ${cc.semanaMes} do mês · corte oficial: sexta 15h</span></div>
         <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:8px">${ordF.map((r,i)=>
-          `<span style="background:rgba(255,255,255,${fichasSemana(r)>0?".22":".10"});border-radius:10px;padding:5px 11px;font-size:12px${i===0&&fichasSemana(r)>0?";outline:2px solid #FFD966":""}">
-          &#127903;&#65039; <b>${fichasSemana(r)}</b> ${esc(r.pessoa)}${r.recorrencia_ok?' <span title="carteira em dia — ficha provável na sexta" style="font-size:10px">&#128176;&#10003;</span>':""}</span>`).join("")}</div>
+          `<span style="background:rgba(255,255,255,${fichasCom(r)>0?".22":".10"});border-radius:10px;padding:5px 11px;font-size:12px${i===0&&fichasCom(r)>0?";outline:2px solid #FFD966":""}">
+          &#127903;&#65039; <b>${fichasCom(r)}</b> ${esc(r.pessoa)}${reinado&&reinado.pessoa===r.pessoa?" &#128081;":""}${r.recorrencia_ok?' <span title="carteira em dia — ficha provável na sexta" style="font-size:10px">&#128176;&#10003;</span>':""}</span>`).join("")}</div>
+        ${reinado?`<div style="background:rgba(255,217,102,.25);border:1px solid #FFD966;border-radius:10px;padding:7px 12px;margin-top:9px;font-size:12.5px">
+          &#128081; <b>Coroado(a) da semana: ${esc(reinado.pessoa)}</b> — sistema dourado e +1 ficha até sexta <span style="opacity:.8">(critério: ${esc(reinado.criterio||"—")})</span></div>`:""}
         <div style="background:rgba(255,255,255,.12);border-radius:10px;padding:8px 12px;margin-top:9px;font-size:12.5px">
-          &#128081; <b>Coroa desta semana: ${cc.rotulo}</b> <span style="opacity:.85">(${cc.desc})</span><br>
+          &#128081; <b>Corrida da PRÓXIMA coroa: ${cc.rotulo}</b> <span style="opacity:.85">(${cc.desc})</span><br>
           ${lider?`Na frente agora: <b>${esc(lider.pessoa)}</b> — ${cc.fmt(lider)}${ordC[1]&&cc.medir(ordC[1])>0?` · na cola: ${esc(ordC[1].pessoa)} (${cc.fmt(ordC[1])})`:""} <span style="opacity:.8">· o líder vê o sistema coroado em dourado &#128081;</span>`
             :"Decidida por votação anônima na sexta — quem mais ajudou o time."}</div>
         <div style="overflow-x:auto;margin-top:8px"><table style="width:100%;border-collapse:collapse;font-size:11.5px;color:white">
           <tr style="opacity:.75;text-align:right"><th style="text-align:left;padding:3px 6px">#</th><th style="text-align:left">Pessoa</th><th>&#127903;&#65039; Fichas</th><th>Novos</th><th>R$ novos</th><th>Concluídas</th><th>Carteira</th></tr>
           ${ordF.map((r,i)=>`<tr style="border-top:1px solid rgba(255,255,255,.25);text-align:right${lider&&r.pessoa===lider.pessoa?";background:rgba(255,217,102,.28)":""}">
             <td style="text-align:left;padding:3px 6px">${i+1}º</td>
-            <td style="text-align:left"><b>${esc(r.pessoa)}</b>${lider&&r.pessoa===lider.pessoa?" &#128081;":""}</td>
-            <td><b>${fichasSemana(r)}</b></td><td>${r.novos||0}</td><td>${fmtR$(+r.valor_novos||0)}</td>
+            <td style="text-align:left"><b>${esc(r.pessoa)}</b>${reinado&&r.pessoa===reinado.pessoa?" &#128081;":(lider&&r.pessoa===lider.pessoa?" <span style=\'opacity:.8\'>&#128081;?</span>":"")}</td>
+            <td><b>${fichasCom(r)}</b></td><td>${r.novos||0}</td><td>${fmtR$(+r.valor_novos||0)}</td>
             <td>${r.conclusoes||0}</td><td>${r.recorrencia_ok?"&#10003;":"&#9888;&#65039;"}</td></tr>`).join("")}
         </table></div>
+        ${ehHead?`<div class="linha-acao" style="margin-top:8px">
+          <select class="fsel" id="pl-coroar" style="min-width:140px">${ordC.map((r,i)=>`<option ${i===0?"selected":""}>${esc(r.pessoa)}</option>`).join("")}</select>
+          <button class="btn btsm" style="background:#FFD966;color:#5A4500;font-weight:700" onclick="coroarAgora()">&#128081; Coroar (reina a próxima semana)</button></div>`:""}
         <div style="font-size:10px;opacity:.75;margin-top:5px">&#127903;&#65039; = SÓ contratos novos PAGOS na semana (1 cada). O selo &#128176;&#10003; indica carteira em dia — essa ficha só nasce na sexta às 15h, se a semana fechar sem atraso. Indicação em dobro, contador novo, reativação e voto do time são somados pelo responsável no quadro da sexta.</div></div>`;
     }
   }catch(e){}
@@ -3803,6 +3826,12 @@ async function telaComercial(){
     }
   }
   ge("conteudo").innerHTML=h;
+}
+async function coroarAgora(){
+  const p=ge("pl-coroar").value;if(!p)return;
+  if(!confirm(`Coroar ${p}? O reinado (sistema dourado + 1 ficha) vale a PRÓXIMA semana, de segunda a sexta.`))return;
+  try{await DB.coroar(p,E._critRotulo||"");}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast(`👑 ${p} coroado(a)! O dourado assume na segunda-feira.`,"ok");telaComercial();
 }
 // =================================================== TELA: FIXAS
 async function telaFixas(){
