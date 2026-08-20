@@ -86,12 +86,16 @@ def main():
             where nome_sistema in ('Madu','Malu','Ygor')
               and upper(coalesce(status,''))='ATIVO'""")
         seniors = [r[0] for r in cur.fetchall()]
+        # só LEVANTAMENTOS e PARECERES escalam (Bruna, 20/08/2026) —
+        # os demais tipos ficam com a head até ela corrigir/puxar
         cur.execute("""select o.id_tarefa, o.id_cliente, o.correcao_head,
               to_char(o.correcao_data_dt,'DD/MM')
             from juridico.operacional o
             where coalesce(o.correcao_head,'') = any(%s)
               and o.correcao_data_dt is not null
               and o.correcao_data_dt < %s::date
+              and (upper(coalesce(o.operacao,'')) like '%%LEVANTAMENTO%%'
+                   or upper(coalesce(o.operacao,'')) like '%%PARECER%%')
             order by o.correcao_data_dt""",
             (list(ESCALADA.keys()), hoje))
         pendentes = cur.fetchall()
