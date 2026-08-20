@@ -75,46 +75,51 @@ def main():
             (hoje, hoje_br))
         print(f"2. delegações órfãs devolvidas: {cur.rowcount}")
 
-        # 2b) ESCALADA de correções (regra da Bruna, 20/08/2026): correção que
-        # ficou com a HEAD e não foi corrigida no dia do envio passa, no dia
-        # seguinte, ao senior da direção — Danielly→Ygor · Bruna→Malu ·
-        # Eduarda→Madu (se o senior estiver inativo, vai ao menos ocupado
-        # entre os três). A head segue podendo puxar de volta.
+        # 2b) ESCALADA de correções — regra HÍBRIDA (Bruna, 20/08/2026):
+        # correção que ficou com a HEAD e não foi corrigida no dia do envio
+        # passa, na manhã seguinte, ao senior com a MENOR fila de correções
+        # entre Madu, Malu e Ygor; empate é resolvido pela direção
+        # (Danielly→Ygor · Bruna→Malu · Eduarda→Madu). Head pode puxar de volta.
         ESCALADA = {"Danielly": "Ygor", "Bruna": "Malu", "Eduarda": "Madu"}
+        cur.execute("""select nome_sistema from juridico.equipe
+            where nome_sistema in ('Madu','Malu','Ygor')
+              and upper(coalesce(status,''))='ATIVO'""")
+        seniors = [r[0] for r in cur.fetchall()]
         cur.execute("""select o.id_tarefa, o.id_cliente, o.correcao_head,
               to_char(o.correcao_data_dt,'DD/MM')
             from juridico.operacional o
             where coalesce(o.correcao_head,'') = any(%s)
               and o.correcao_data_dt is not null
-              and o.correcao_data_dt < %s::date""",
+              and o.correcao_data_dt < %s::date
+            order by o.correcao_data_dt""",
             (list(ESCALADA.keys()), hoje))
+        pendentes = cur.fetchall()
         escaladas = 0
-        for tid, idc, head_c, dt_env in cur.fetchall():
-            alvo = ESCALADA.get(head_c)
-            cur.execute("""select 1 from juridico.equipe
-                where nome_sistema=%s and upper(coalesce(status,''))='ATIVO'""", (alvo,))
-            if not cur.fetchone():
-                cur.execute("""select e.nome_sistema from juridico.equipe e
-                    where e.nome_sistema in ('Madu','Malu','Ygor')
-                      and upper(coalesce(e.status,''))='ATIVO'
-                    order by (select count(*) from juridico.operacional x
-                              where x.assessor=e.nome_sistema) limit 1""")
-                r = cur.fetchone()
-                if not r:
-                    continue
-                alvo = r[0]
-            cur.execute("""update juridico.operacional set correcao_head=%s
-                where id_tarefa=%s""", (alvo, tid))
-            hid = novo_id(cur, "HIS", 5)
-            cur.execute("""insert into juridico.historico
-                (id_historico,id_tarefa,id_cliente,data,data_dt,autor,tipo,texto,origem)
-                values (%s,%s,%s,%s,%s,'Sistema','CORRECAO',%s,'SITE')""",
-                (hid, tid, idc, hoje_curto, hoje,
-                 f"⏫ Correção escalada: enviada a {head_c} em {dt_env} e não corrigida "
-                 f"no dia — passa para {alvo} (regra de agilidade: dia 2 vai ao senior "
-                 f"da direção). A head pode puxar de volta quando quiser."))
-            escaladas += 1
-        print(f"2b. correções escaladas ao senior: {escaladas}")
+        if pendentes and seniors:
+            filas = {}
+            for s_ in seniors:
+                cur.execute("""select count(*) from juridico.operacional
+                    where correcao_head=%s""", (s_,))
+                filas[s_] = cur.fetchone()[0]
+            for tid, idc, head_c, dt_env in pendentes:
+                menor = min(filas[s_] for s_ in seniors)
+                empatados = sorted(s_ for s_ in seniors if filas[s_] == menor)
+                alvo_dir = ESCALADA.get(head_c)
+                alvo = alvo_dir if alvo_dir in empatados else empatados[0]
+                cur.execute("""update juridico.operacional set correcao_head=%s
+                    where id_tarefa=%s""", (alvo, tid))
+                hid = novo_id(cur, "HIS", 5)
+                cur.execute("""insert into juridico.historico
+                    (id_historico,id_tarefa,id_cliente,data,data_dt,autor,tipo,texto,origem)
+                    values (%s,%s,%s,%s,%s,'Sistema','CORRECAO',%s,'SITE')""",
+                    (hid, tid, idc, hoje_curto, hoje,
+                     f"⏫ Correção escalada: enviada a {head_c} em {dt_env} e não "
+                     f"corrigida no dia — vai para {alvo} (regra híbrida: menor fila "
+                     f"de correções; empate resolvido pela direção). A head pode "
+                     f"puxar de volta quando quiser."))
+                filas[alvo] += 1
+                escaladas += 1
+        print(f"2b. correções escaladas (híbrido menor-fila): {escaladas}")
 
         # 3) reuniões de dias anteriores sem TIMER no histórico
         cur.execute("""
