@@ -1991,11 +1991,18 @@ async function finalizarImpulso(id){
       :"📤 Levantamento enviado direto ao advogado (sem aviso no grupo) ao devolver o impulso."}).catch(()=>{});
   toast("Impulso finalizado! Retorno enviado.","ok");fecharModal();recarregar();}
 function abrirCorrecao(){const t=E.atual;
+  // pasta LEMBRADA: reaproveita o último link válido usado para ESTE cliente
+  // (nesta tarefa ou em qualquer irmã) — pedido da Bruna, 20/08/2026
+  let sugLink=urlPasta(t.correcao_link)||"";
+  if(!sugLink&&t.id_cliente){
+    const irma=(E.tarefas||[]).find(x=>x.id_cliente===t.id_cliente&&urlPasta(x.correcao_link));
+    if(irma)sugLink=urlPasta(irma.correcao_link);}
   modal2("&#9999; Enviar para correção",esc(t.cliente)+" — a tarefa continua sua; vai para revisão",`
     <div class="bloco-t">Enviar para *</div>
     <select class="fsel" id="cr-head" style="width:100%">${["",...CORR_HEADS].map(x=>`<option value="${esc(x)}">${x===E.perfil.nome_sistema?esc(x)+" (você — correção própria)":esc(x)}</option>`).join("")}</select>
     <div class="bloco-t" style="margin-top:10px">Link da pasta (SharePoint) *</div>
-    <input class="fi" id="cr-link" placeholder="https://...sharepoint...">
+    <input class="fi" id="cr-link" placeholder="https://...sharepoint..." value="${esc(sugLink)}">
+    ${sugLink?`<div style="font-size:11px;color:var(--green);margin-top:2px">&#128190; Pasta lembrada deste cliente — confira e ajuste se mudou.</div>`:""}
     <div class="bloco-t">Prazo de retorno</div>
     <div class="linha-acao"><label><input type="radio" name="cr-pz" value="3" checked onchange="ge('cr-manual').style.display='none'"> Padrão — 3 dias úteis</label>
     <label><input type="radio" name="cr-pz" value="m" onchange="ge('cr-manual').style.display='block'"> Definir manualmente</label></div>
