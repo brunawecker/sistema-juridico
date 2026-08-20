@@ -78,9 +78,10 @@ def main():
         # 2b) ESCALADA de correções — regra HÍBRIDA (Bruna, 20/08/2026):
         # correção que ficou com a HEAD e não foi corrigida no dia do envio
         # passa, na manhã seguinte, ao senior com a MENOR fila de correções
-        # entre Madu, Malu e Ygor; empate é resolvido pela direção
-        # (Danielly→Ygor · Bruna→Malu · Eduarda→Madu). Head pode puxar de volta.
-        ESCALADA = {"Danielly": "Ygor", "Bruna": "Malu", "Eduarda": "Madu"}
+        # entre Madu, Malu e Ygor; empate é resolvido pela direção.
+        # A DANIELLY fica FORA da escalada (20/08/2026): os pareceres dela
+        # ela revisa diretamente — só Bruna e Eduarda escalam.
+        ESCALADA = {"Bruna": "Malu", "Eduarda": "Madu"}
         cur.execute("""select nome_sistema from juridico.equipe
             where nome_sistema in ('Madu','Malu','Ygor')
               and upper(coalesce(status,''))='ATIVO'""")
