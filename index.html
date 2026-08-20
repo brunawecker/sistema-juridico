@@ -16,6 +16,16 @@
   --sh2:0 4px 16px rgba(68,127,152,.15),0 12px 40px rgba(68,127,152,.1);
 }
 *{box-sizing:border-box;margin:0;padding:0}
+/* 👑 REINADO: o coroado da semana vê o sistema INTEIRO em tons dourados */
+body.reinado{--navy:#8A6D1C;--navy-lt:#B08D2E;--ice:#F7EFD8;--glacier:#EAD9A8;
+  --dani:#7A5E14;--dani-lt:#FBF4DF;--gray:#8A7A4A;--gray-lt:#F7F3E6;
+  --border:#E6D9AE;--bg:#FBF7EA;
+  --sh:0 2px 8px rgba(138,109,28,.12),0 8px 24px rgba(138,109,28,.08);
+  --sh2:0 4px 16px rgba(138,109,28,.18),0 12px 40px rgba(138,109,28,.12)}
+body.reinado .sb{background:linear-gradient(170deg,#6E5410 0%,#8A6D1C 50%,#B08D2E 100%)}
+body.reinado .tc{background:linear-gradient(135deg,#FFFDF6 0%,#FBF5E3 100%)}
+body.reinado .sc{background:linear-gradient(135deg,#FFFDF6,#FBF4DF)}
+body.reinado .btp{background:linear-gradient(135deg,#8A6D1C,#B08D2E);box-shadow:0 4px 15px rgba(138,109,28,.35)}
 body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
 /* LOGIN */
 #tela-login{min-height:100vh;display:flex;align-items:center;justify-content:center;
@@ -364,21 +374,25 @@ async function coroaViva(){
     // 1º) REINANTE da semana (coroado na sexta): dourado VIVO a semana toda
     let reinado=null;try{reinado=await DB.coroaAtual();}catch(e){}
     if(reinado&&reinado.pessoa===eu){
+      document.body.classList.add("reinado");   // sistema INTEIRO dourado
       if(nm){nm.innerHTML="&#128081; "+esc(eu);nm.style.color="#FFD966";
         nm.title="Você é o(a) COROADO(A) da semana — o dourado é seu até sexta!";}
       if(av){av.style.background="linear-gradient(135deg,#FFD966,#E0A800)";
         av.style.color="#5A4500";av.style.boxShadow="0 0 0 3px #FFD966";}
       return;}
+    document.body.classList.remove("reinado");
     // 2º) líder da corrida ATUAL: dourado suave (está perto, mas ainda não é rei)
     const pl=await DB.placar();if(!(pl||[]).length)return;
     const cc=coroaCriterio();if(cc.crit===2)return;
     const ord=[...pl].sort((a,b)=>cc.medir(b)-cc.medir(a));
     if(!ord[0]||cc.medir(ord[0])<=0)return;
     if(ord[0].pessoa!==eu)return;
-    if(nm){nm.innerHTML=esc(eu)+' <span style="font-size:11px;opacity:.9">&#128081;?</span>';
-      nm.style.color="#D9BE6C";
+    // líder da corrida (suspense): nome dourado + coroinha NA INICIAL —
+    // o resto do sistema continua normal; dourado total é só do coroado
+    if(nm){nm.textContent=eu;nm.style.color="#FFD966";
       nm.title="Você está na FRENTE da corrida da coroa ("+cc.rotulo+") — fecha forte até sexta 15h!";}
-    if(av){av.style.boxShadow="0 0 0 3px #EBD9A5";}
+    if(av){av.style.position="relative";av.style.boxShadow="0 0 0 3px #EBD9A5";
+      av.innerHTML=esc(String(eu||"?").charAt(0))+'<span style="position:absolute;top:-9px;right:-6px;font-size:12px">&#128081;</span>';}
   }catch(e){}
 }
 // entre os seniores, tarefa de um para o outro só por pedido de head
@@ -547,8 +561,16 @@ const S = {
   async snapshots(){return okS(await supa.from("snapshot_diario").select("*"))||[];},
   async placar(){return okS(await supa.rpc("placar_semana"))||[];},
   async coroaAtual(){const r=okS(await supa.from("coroa").select("*"))||[];
-    const seg=(d=>{d.setDate(d.getDate()-((d.getDay()+6)%7));return d.toISOString().slice(0,10);})(new Date());
-    return r.find(x=>String(x.semana).slice(0,10)===seg)||null;},
+    // dourado FORTE acende NA HORA da coroação (sexta) e vale até o fim da
+    // semana do reinado; um reinado novo substitui o anterior na hora.
+    // (semana = segunda do reinado; a coroação acontece na sexta anterior)
+    const hj=new Date();hj.setHours(0,0,0,0);
+    const vig=r.filter(x=>{const seg=new Date(String(x.semana).slice(0,10)+"T00:00:00");
+      const ini=new Date(seg);ini.setDate(ini.getDate()-3);   // sexta da coroação
+      const fim=new Date(seg);fim.setDate(fim.getDate()+6);   // domingo do reinado
+      return hj>=ini&&hj<=fim;})
+      .sort((a,b)=>String(b.semana).localeCompare(String(a.semana)));
+    return vig[0]||null;},
   async coroar(pessoa,criterio){const ok=await rpcS("coroar",{p_pessoa:pessoa,p_criterio:criterio});
     if(!ok)throw new Error("não foi possível coroar");return{ok:true};},
   async sugDescartar(id){okS(await supa.from("sugestao_descartada").upsert({id_tarefa:id,por:E.perfil.nome_sistema,em:new Date().toISOString()}));return{ok:true};},
