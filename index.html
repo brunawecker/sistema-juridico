@@ -3261,11 +3261,16 @@ async function verTarefasCliente(id){
   at.forEach(t=>{if(!E.tarefas.find(x=>x.id_tarefa===t.id_tarefa))E.tarefas.push(t);});
   let h=at.length?`<div class="bloco-t" style="color:var(--dani)">&#10003; ${at.length} ativa(s)</div>`+at.map(t=>cardTarefa(t,true)).join("")
     :`<div style="font-size:12px;color:var(--gray)">Sem tarefas ativas.</div>`;
-  if((r.encerradas||[]).length){h+=`<div class="bloco-t" style="margin-top:10px">&#128193; ${r.encerradas.length} encerrada(s)</div>`+
-    r.encerradas.map(c=>`<div class="linha-item"><span>${esc(c.operacao||"")} · ${esc(c.assessor||"")}${c.data_encerramento_dt?" · "+brData(c.data_encerramento_dt):""}
+  if((r.encerradas||[]).length){
+    // deixa os casos disponíveis para o card completo (verCaso) fora da
+    // tela de Casos Encerrados — pedido da Bruna, 21/08/2026
+    E._casos=E._casos||[];
+    r.encerradas.forEach(c=>{if(!E._casos.find(x=>x.id_encerrado===c.id_encerrado&&x.linha===c.linha))E._casos.push(c);});
+    h+=`<div class="bloco-t" style="margin-top:10px">&#128193; ${r.encerradas.length} encerrada(s) — toque para ver o card</div>`+
+    r.encerradas.map(c=>`<div class="linha-item"><span style="cursor:pointer" onclick='verCaso(${JSON.stringify(c.id_encerrado)},${c.linha})'>&#128203; ${esc(c.operacao||"")} · ${esc(c.assessor||"")}${c.data_encerramento_dt?" · "+brData(c.data_encerramento_dt):""}
       ${c.nota_final?`<br><i style="color:var(--gray);font-size:11px">"${esc(c.nota_final)}"</i>`:""}</span>
       <span><span class="tag tm">${esc(c.motivo||"")}</span>
-      ${E.perfil.head_sim?` <button class="btn bts btsm" onclick='abrirReabrir(${JSON.stringify(c.id_encerrado)},${c.linha})'>&#128260;</button>`:""}</span></div>`).join("");}
+      ${E.perfil.head_sim?` <button class="btn bts btsm" title="Reabrir" onclick='abrirReabrir(${JSON.stringify(c.id_encerrado)},${c.linha})'>&#128260;</button>`:""}</span></div>`).join("");}
   if(propsCli.length){
     h+=`<div class="bloco-t" style="margin-top:10px;color:#7F5200">&#128221; ${propsCli.length} proposta(s) comercial(is)</div>`+
       propsCli.map(p=>{const cor={Aceita:"var(--green)",Recusada:"var(--red)"}[p.status]||"var(--amber)";
