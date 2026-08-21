@@ -3046,17 +3046,43 @@ function filtraCasos(){
         ${c.data_encerramento_dt?`<div style="font-size:10px;color:var(--gray);margin-top:3px">enc ${brData(c.data_encerramento_dt)}</div>`:""}</div></div>
     ${c.resultado_judicial?`<div style="font-size:11px;font-weight:600;color:var(--navy);margin-top:5px">&#128737; ${esc(c.resultado_judicial)}</div>`:""}
     ${c.nota_final?`<div style="font-size:12px;color:var(--gray);margin-top:5px;font-style:italic">"${esc(c.nota_final)}"</div>`:""}
-    <div class="linha-acao"><button class="btn bts btsm" onclick='verCaso(${JSON.stringify(c.id_encerrado)},${c.linha})'>&#128220; Histórico</button>
+    <div class="linha-acao"><button class="btn bts btsm" onclick='verCaso(${JSON.stringify(c.id_encerrado)},${c.linha})'>&#128203; Ver card</button>
       ${E.perfil.head_sim?`<button class="btn bts btsm" onclick='abrirReabrir(${JSON.stringify(c.id_encerrado)},${c.linha})'>&#128260; Reabrir</button>`:""}</div></div>`).join("")
     :`<div class="vazio">Nenhum caso.</div>`);
 }
-function verCaso(id,linha){const c=E._casos.find(x=>x.id_encerrado===id&&x.linha===linha);if(!c)return;
-  ge("m-titulo").textContent=c.cliente;ge("m-sub").textContent="Caso encerrado · "+(c.motivo||"");
-  const ls=String(c.historico||"").split("\n").filter(Boolean);
-  ge("m-corpo").innerHTML=`${c.nota_final?`<div class="bloco"><div class="bloco-t">Nota de encerramento</div><div style="background:var(--ice);border-radius:9px;padding:9px 12px;font-size:13px">${esc(c.nota_final)}</div></div>`:""}
-    <div class="bloco-t">Histórico (${ls.length})</div>
-    ${ls.length?ls.map(l=>`<div class="hentrada"><div class="hbola enc"></div><div class="htexto">${esc(l)}</div></div>`).join(""):`<div class="vazio">Sem histórico.</div>`}`;
-  ge("modal").classList.add("aberto");clearInterval(E.timerInt);E.atual=null;E.timerIni=null;}
+// Card completo do caso arquivado (somente leitura): dados + andamentos
+// reais da tarefa de origem — sem precisar reabrir. Casos da era da
+// planilha (sem tarefa de origem) mostram o texto congelado no arquivo.
+async function verCaso(id,linha){const c=E._casos.find(x=>x.id_encerrado===id&&x.linha===linha);if(!c)return;
+  ge("m-titulo").textContent=c.cliente;
+  ge("m-sub").textContent="Caso encerrado (arquivado) · "+(c.motivo||"")+(c.data_encerramento_dt?" · "+brData(c.data_encerramento_dt):"");
+  ge("m-corpo").innerHTML=`<div class="carregando"><div class="spin"></div></div>`;
+  ge("modal").classList.add("aberto");clearInterval(E.timerInt);E.atual=null;E.timerIni=null;
+  let ent=[];
+  if(c.id_tarefa_origem){try{ent=await DB.historico(c.id_tarefa_origem);}catch(e){ent=[];}}
+  const dados=`<div class="bloco"><div class="bloco-t">Dados do caso</div><div class="dados">
+      <div><b>Operação:</b> ${esc(c.operacao||"—")}</div><div><b>Assessor:</b> ${esc(c.assessor||"—")}</div>
+      <div><b>Head:</b> ${esc(c.head||"—")}</div><div><b>CNPJ/CPF:</b> ${esc(c.cnpj_cpf||"—")}</div>
+      <div><b>Início:</b> ${brData(c.data_inicio_dt)||esc(c.data_inicio||"—")}</div>
+      <div><b>Arquivado em:</b> ${brData(c.data_encerramento_dt)||esc(c.data_encerramento||"—")}</div>
+      ${c.resultado_judicial?`<div><b>Resultado:</b> ${esc(c.resultado_judicial)}</div>`:""}
+      ${c.id_tarefa_origem?`<div><b>Tarefa de origem:</b> ${esc(c.id_tarefa_origem)}</div>`:""}
+    </div></div>`;
+  const nota=c.nota_final?`<div class="bloco"><div class="bloco-t">Nota de encerramento</div><div style="background:var(--ice);border-radius:9px;padding:9px 12px;font-size:13px">${esc(c.nota_final)}</div></div>`:"";
+  let hist;
+  if(ent.length){
+    hist=`<div class="bloco-t">Andamentos até o arquivamento (${ent.length}) — somente leitura</div>`+
+      ent.map(en=>`<div class="hentrada"><div class="hbola ${en.tipo==="SUPERVISÃO"?"sup":en.tipo==="ENCERRAMENTO"?"enc":""}"></div>
+        <div style="flex:1"><div class="hmeta"><span class="hautor">${esc(en.autor)}</span>
+        <span class="hdata">${brData(en.data_dt)||esc(en.data||"")}</span><span class="htipo">${esc(en.tipo||"")}</span></div>
+        <div class="htexto">${esc(en.texto)}</div></div></div>`).join("");
+  }else{
+    const ls=String(c.historico||"").split("\n").filter(Boolean);
+    hist=`<div class="bloco-t">Histórico (${ls.length})</div>`+
+      (ls.length?ls.map(l=>`<div class="hentrada"><div class="hbola enc"></div><div class="htexto">${esc(l)}</div></div>`).join(""):`<div class="vazio">Sem histórico.</div>`);
+  }
+  ge("m-corpo").innerHTML=dados+nota+hist;
+}
 function abrirReabrir(id,linha){
   modal2("&#128260; Reabrir caso","Volta ao operacional ativo",`
     <div class="bloco-t">Frequência</div>
