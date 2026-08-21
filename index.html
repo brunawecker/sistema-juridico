@@ -3401,11 +3401,13 @@ async function telaPropostas(){
   E._cnpjMap={};E._situMap={};(cls||[]).forEach(c=>{if(c.id_cliente){E._cnpjMap[c.id_cliente]=c.cnpj_cpf||"";E._situMap[c.id_cliente]=c.situacao||"";}});
   // head e vendedor abrem em "Todas"; assessor abre em "Minhas" (pode alternar p/ conferir duplicidade)
   const soMinhas=!(E.perfil.head_sim||/vendedor|comercial/i.test(E.perfil.cargo||""));
+  // visão principal só com as ATIVAS; fechadas ficam a um clique (pedido
+  // da Bruna, 21/08/2026). Os cartões de resumo são atalhos clicáveis.
   ge("conteudo").innerHTML=`<div class="sg">
-    <div class="sc"><div class="sl">Total</div><div class="sv" id="pp-s-tot">—</div></div>
-    <div class="sc"><div class="sl">Na rua</div><div class="sv amber" id="pp-s-rua">—</div></div>
-    <div class="sc"><div class="sl">Aceitas</div><div class="sv green" id="pp-s-ace">—</div></div>
-    <div class="sc"><div class="sl">Perdidas</div><div class="sv red" id="pp-s-per">—</div></div>
+    <div class="sc" style="cursor:pointer" title="Mostrar todas" onclick="setSitProp('todas')"><div class="sl">Total</div><div class="sv" id="pp-s-tot">—</div></div>
+    <div class="sc" style="cursor:pointer" title="Só as em negociação" onclick="setSitProp('ativas')"><div class="sl">Na rua</div><div class="sv amber" id="pp-s-rua">—</div></div>
+    <div class="sc" style="cursor:pointer" title="Só as concluídas (aceitas)" onclick="setSitProp('aceitas')"><div class="sl">Aceitas</div><div class="sv green" id="pp-s-ace">—</div></div>
+    <div class="sc" style="cursor:pointer" title="Só as encerradas (recusa/desistência)" onclick="setSitProp('recusadas')"><div class="sl">Perdidas</div><div class="sv red" id="pp-s-per">—</div></div>
     <div class="sc"><div class="sl">Valor total</div><div class="sv pq" id="pp-s-val">—</div></div></div>
     <div class="flr"><input class="si" id="pp-q" placeholder="&#128269; Buscar cliente..." oninput="desenhaProps()">
       <select class="fsel" id="pp-mi" onchange="desenhaProps()">
@@ -3414,7 +3416,12 @@ async function telaPropostas(){
         ${(E.equipe||[]).filter(m=>String(m.status||"").toUpperCase()==="ATIVO")
           .map(m=>m.nome_sistema).sort((a,b)=>a.localeCompare(b))
           .map(n=>`<option value="p:${esc(n)}">&#128203; ${esc(n)}</option>`).join("")}</select>
-      <select class="fsel" id="pp-st" onchange="desenhaProps()"><option value="">Todos status</option>
+      <select class="fsel" id="pp-sit" onchange="desenhaProps()">
+        <option value="ativas" selected>&#128293; Em negociação</option>
+        <option value="aceitas">&#9989; Concluídas (aceitas)</option>
+        <option value="recusadas">&#128683; Encerradas (recusa/desistência)</option>
+        <option value="todas">Todas</option></select>
+      <select class="fsel" id="pp-st" onchange="ajustaSitProp();desenhaProps()"><option value="">Todos status</option>
         ${[...ETAPAS_PROP,"Aceita","Recusada"].map(s=>`<option>${s}</option>`).join("")}</select>
       <select class="fsel" id="pp-or" onchange="desenhaProps()"><option value="">Todas origens</option>
         ${["Cliente Villela (carteira)","Franqueado","Indicação de Parceiro","T2 (SDRs Lauren)","Backoffice","Prospecção direta"].map(s=>`<option>${s}</option>`).join("")}</select>
@@ -3422,6 +3429,14 @@ async function telaPropostas(){
     <div id="pp-lista"></div>`;
   desenhaProps();
 }
+// atalho dos cartões de resumo + coerência entre o filtro de situação e o
+// de status (escolher "Aceita" no status muda a situação junto, e vice-versa)
+function setSitProp(v){const s=ge("pp-sit");if(!s)return;s.value=v;
+  if(v!=="todas"&&ge("pp-st"))ge("pp-st").value="";desenhaProps();}
+function ajustaSitProp(){const st=ge("pp-st").value,s=ge("pp-sit");if(!s)return;
+  if(st==="Aceita")s.value="aceitas";
+  else if(st==="Recusada")s.value="recusadas";
+  else if(st&&(s.value==="aceitas"||s.value==="recusadas"))s.value="ativas";}
 function desenhaProps(){
   if(!E._props||!ge("pp-q"))return;   // tela de propostas não está aberta
   const q=(ge("pp-q").value||"").toLowerCase(),st=ge("pp-st").value,or=ge("pp-or").value,mi=ge("pp-mi")?ge("pp-mi").value:"";
@@ -3444,8 +3459,11 @@ function desenhaProps(){
     if(ge("pp-s-per"))ge("pp-s-per").textContent=base.filter(p=>p.status==="Recusada").length;
     const somaVis=base.reduce((s,p)=>s+(parseFloat(p.valor_num)||0),0);
     ge("pp-s-val").textContent="R$ "+somaVis.toLocaleString("pt-BR",{minimumFractionDigits:2})+(E.perfil.head_sim?"":" (suas)");}
+  const sit=ge("pp-sit")?ge("pp-sit").value:"ativas";
+  const casaSit=p=>sit==="todas"?true:sit==="aceitas"?p.status==="Aceita"
+    :sit==="recusadas"?p.status==="Recusada":!["Aceita","Recusada"].includes(p.status);
   let f=base.filter(p=>(!q||String(p.cliente||"").toLowerCase().includes(q))
-    &&(!st||p.status===st)&&(!or||p.origem===or));
+    &&(!st||p.status===st)&&(!or||p.origem===or)&&casaSit(p));
   // recusadas ficam baixadas: vão para o fim da lista (dados preservados)
   f=[...f.filter(p=>p.status!=="Recusada"),...f.filter(p=>p.status==="Recusada")];
   ge("pp-lista").innerHTML=f.length?f.map(p=>{
