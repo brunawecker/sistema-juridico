@@ -351,7 +351,7 @@ const TAXA_FECHAMENTO_MERCADO=0.25;
 // propostas que trabalham para a meta da pessoa: as dela E as que ela pediu
 const propostasDe=(lista,nome)=>(lista||[]).filter(p=>propNaRua(p)&&(
   String(p.responsavel||p.executor||"").trim()===nome||String(p.quem_pediu||"").trim()===nome));
-const minhasNaRua=(lista,nome)=>(lista||[]).filter(p=>propNaRua(p)&&String(p.responsavel||p.executor||"").trim()===nome);
+const minhasNaRua=(lista,nome)=>(lista||[]).filter(p=>propNaRua(p)&&String(p.responsavel||p.quem_pediu||p.executor||"").trim()===nome);
 // 👑 critério rotativo da coroa (Programa de Engajamento): semana 1 operação,
 // 2 voto do time, 3 valor, 4 volume; 5ª semana volta à operação
 function coroaCriterio(){
@@ -676,7 +676,8 @@ const S = {
         head:d.responsavel||"",vertical:"PROSPECÇÃO",situacao:"PROSPECCAO"}));}}
     const pr=await novoIdS("PROP");
     okS(await supa.from("propostas").insert({id_proposta:pr,data_lancamento:brHoje(),
-      data_proposta:brData(d.data),data_proposta_dt:d.data,executor:d.executor||"",responsavel:d.executor||"",
+      data_proposta:brData(d.data),data_proposta_dt:d.data,executor:d.executor||"",
+      responsavel:d.quem_pediu||d.executor||"",
       quem_pediu:d.quem_pediu||"",cliente:d.cliente||"",id_cliente:idc,
       prospeccao:d.novo_cliente?"SIM":"NÃO",produtos:d.produtos||"",verticais:d.verticais||"",
       valor:String(d.valor||0),valor_num:d.valor||0,cond_pagamento:d.cond||"",origem:d.origem||"",
@@ -2386,7 +2387,7 @@ async function telaPainel(){
       const mA=lnr.match(/—\s*([^:\[]+?)(?:\s*\[[^\]]*\])?:/);
       const a=mA?loginDe(mA[1].trim()):"";if(a)rodPor[a]=(rodPor[a]||0)+1;});
     if(!propNaRua(p))return;
-    const resp=loginDe(String(p.responsavel||p.executor||"").trim());if(!resp)return;
+    const resp=loginDe(donoProp(p));if(!resp)return;
     const prim=pLinhaData(String(p.negociacao_log||"").split("\n")[0]);
     const ult=prim||new Date(String(p.data_proposta_dt||"2000-01-01"));
     if(ult<corteR)paradasPor[resp]=(paradasPor[resp]||0)+1;});
@@ -3408,7 +3409,8 @@ async function telaPropostas(){
     <div class="sc" style="cursor:pointer" title="Só as em negociação" onclick="setSitProp('ativas')"><div class="sl">Na rua</div><div class="sv amber" id="pp-s-rua">—</div></div>
     <div class="sc" style="cursor:pointer" title="Só as concluídas (aceitas)" onclick="setSitProp('aceitas')"><div class="sl">Aceitas</div><div class="sv green" id="pp-s-ace">—</div></div>
     <div class="sc" style="cursor:pointer" title="Só as encerradas (recusa/desistência)" onclick="setSitProp('recusadas')"><div class="sl">Perdidas</div><div class="sv red" id="pp-s-per">—</div></div>
-    <div class="sc"><div class="sl">Valor total</div><div class="sv pq" id="pp-s-val">—</div></div></div>
+    <div class="sc"><div class="sl">Valor na rua</div><div class="sv pq" id="pp-s-val">—</div></div>
+    <div class="sc" title="Fórmula de mercado: valor × chance de fechar por etapa (enviada 20% · sem retorno 10% · reunião 30% · em análise 40% · documentação 50% · negociando 60% · aprovada 90%)"><div class="sl">Projeção &asymp;</div><div class="sv pq green" id="pp-s-proj">—</div></div></div>
     <div class="flr"><input class="si" id="pp-q" placeholder="&#128269; Buscar cliente..." oninput="desenhaProps()">
       <select class="fsel" id="pp-mi" onchange="desenhaProps()">
         <option value=""${soMinhas?"":" selected"}>Todas as propostas</option>
@@ -3446,8 +3448,7 @@ function desenhaProps(){
     ||String(p.executor||"").trim().toLowerCase()===meu||String(p.quem_pediu||"").trim().toLowerCase()===meu;
   // filtro por pessoa (pedido da Bruna, 18/08/2026): vale quem é responsável
   // pela negociação OU quem pediu a proposta
-  const daPessoa=(p,alvo)=>String(p.responsavel||p.executor||"").trim().toLowerCase()===alvo
-    ||String(p.quem_pediu||"").trim().toLowerCase()===alvo;
+  const daPessoa=(p,alvo)=>donoProp(p).toLowerCase()===alvo;
   const base=E._props.filter(p=>{
     if(!mi)return true;
     if(mi==="m")return daPessoa(p,meu);
@@ -3457,8 +3458,12 @@ function desenhaProps(){
     ge("pp-s-rua").textContent=base.filter(p=>!["Aceita","Recusada"].includes(p.status)).length;
     ge("pp-s-ace").textContent=base.filter(p=>p.status==="Aceita").length;
     if(ge("pp-s-per"))ge("pp-s-per").textContent=base.filter(p=>p.status==="Recusada").length;
-    const somaVis=base.reduce((s,p)=>s+(parseFloat(p.valor_num)||0),0);
-    ge("pp-s-val").textContent="R$ "+somaVis.toLocaleString("pt-BR",{minimumFractionDigits:2})+(E.perfil.head_sim?"":" (suas)");}
+    // valor e projeção olham só o que está NA RUA (aceitas/recusadas fora)
+    const naRuaL=base.filter(p=>!["Aceita","Recusada"].includes(p.status));
+    const somaRua=naRuaL.reduce((s,p)=>s+(parseFloat(p.valor_num)||0),0);
+    const proj=naRuaL.reduce((s,p)=>s+(parseFloat(p.valor_num)||0)*(PESOS_ETAPA[p.status]??.2),0);
+    ge("pp-s-val").textContent="R$ "+somaRua.toLocaleString("pt-BR",{minimumFractionDigits:2})+(E.perfil.head_sim?"":" (suas)");
+    if(ge("pp-s-proj"))ge("pp-s-proj").textContent="R$ "+proj.toLocaleString("pt-BR",{maximumFractionDigits:0});}
   const sit=ge("pp-sit")?ge("pp-sit").value:"ativas";
   const casaSit=p=>sit==="todas"?true:sit==="aceitas"?p.status==="Aceita"
     :sit==="recusadas"?p.status==="Recusada":!["Aceita","Recusada"].includes(p.status);
@@ -3530,6 +3535,13 @@ async function mudaStatusProp(id,status){
   toast("Status atualizado","ok");
 }
 const ETAPAS_PROP=["Proposta enviada","Em análise pelo cliente","Reunião agendada","Aguardando documentação","Negociando condições","Aprovada — aguardando pagamento","Sem retorno do cliente"];
+// chance de fechamento por etapa (fórmula de mercado) — alimenta a Projeção
+const PESOS_ETAPA={"Proposta enviada":.2,"Sem retorno do cliente":.1,"Reunião agendada":.3,
+  "Em análise pelo cliente":.4,"Aguardando documentação":.5,"Negociando condições":.6,
+  "Aprovada — aguardando pagamento":.9};
+// dono da proposta = quem VENDE (responsável da negociação; senão quem pediu).
+// Executor fez só o parecer — não é dele, a não ser que também seja o vendedor.
+const donoProp=p=>String(p.responsavel||p.quem_pediu||p.executor||"").trim();
 const MOTIVOS_PERDA=["Achou caro / sem verba","Fechou com concorrente","Sem retorno (sumiu)",
   "Vai deixar para depois","Resolveu internamente","Outro"];
 function abrirRecusa(id){
@@ -4476,7 +4488,7 @@ async function lancarProposta(){
   if(dups.length&&!confirm("⚠️ Já existe proposta em aberto para "+cliente+
     " (executou "+(dups[0].executor||"?")+", status "+(dups[0].status||"?")+").\n\nLançar mesmo assim?"))return;
   try{const r=await DB.criarProposta({cliente,id_cliente:idc,cnpj,novo_cliente:novo,
-    executor:exec,quem_pediu:pediu,responsavel:exec,produtos:prods.join(", "),verticais:verts.join(", "),
+    executor:exec,quem_pediu:pediu,responsavel:pediu||exec,produtos:prods.join(", "),verticais:verts.join(", "),
     valor:tot,cond,origem:orig,contato:cont,parecer:par,sharepoint:sp,tempo,
     data:ge("pr-data").value||hojeISO(),obs:ge("pr-obs").value||"",status:"Proposta enviada"});
     toast("✓ Proposta lançada: "+r.id,"ok");}
