@@ -417,7 +417,7 @@ const urlPasta=v=>{v=String(v||"").trim();
 const alvosDelegacao=nome=>{const l=DELEGA_PARA[nome]||[];
   return (E.perfil&&E.perfil.head_sim&&nome===E.perfil.nome_sistema)||!l.length
     ?OPERACIONAIS.filter(a=>a!==nome):l.filter(a=>a!==nome);};
-const PROP_PRODUTOS=["MANDADO DE SEGURANÇA","ÊXITO TRANSAÇÃO","HT","HT MUNICIPAL","LAUDO CAPAG","GARANTIAS","SCORE","ASSESSORIA","TAX","FGTS","BANCÁRIO","CONTABILIZE"];
+const PROP_PRODUTOS=["MANDADO DE SEGURANÇA","MS MIGRAÇÃO","TIS","ÊXITO TRANSAÇÃO","HT","HT MUNICIPAL","LAUDO CAPAG","GARANTIAS","SCORE","ASSESSORIA","TAX","FGTS","BANCÁRIO","CONTABILIZE"];
 const PROP_VERTICAIS=["REGULARIZE","AUDITE","BACARIZE","CONCILIE","CONTABILIZE","RECUPERE","RENEGOCIE","RNC","VILLELA IP","VBB"];
 const VERTICAIS_CLIENTE=["REGULARIZE","RECUPERE","RENEGOCIE","GOLDEN","CONTABILIZE","A PREENCHER"];
 const REGIMES=["Simples Nacional","Lucro Presumido","Lucro Real","MEI","Inativa"];
@@ -3653,8 +3653,9 @@ function abrirNegociacao(id){
   const cnpjN=(E._cnpjMap||{})[p.id_cliente]||"";
   modal2("&#128172; Negociação — "+esc(p.cliente),esc(p.id_proposta)+(cnpjN?" · CNPJ "+esc(cnpjN):"")+" · etapa atual: "+esc(p.status||""),`
     <div class="bloco-t">Proposta original
-      <button class="btn bts btsm" style="padding:1px 8px;font-size:10px" onclick="ge('ng-fix').style.display=ge('ng-fix').style.display==='none'?'block':'none'">&#9998; corrigir valor/pagamento</button></div>
-    <div style="font-size:12px;background:#F7F9FB;border:1px solid var(--border);border-radius:8px;padding:8px 11px"><b>${valOrig}</b> · ${esc(p.cond_pagamento||"—")} · lançada em ${esc(p.data_proposta||"")}</div>
+      <button class="btn bts btsm" style="padding:1px 8px;font-size:10px" onclick="ge('ng-fix').style.display=ge('ng-fix').style.display==='none'?'block':'none'">&#9998; corrigir serviços/valor/pagamento</button></div>
+    <div style="font-size:12px;background:#F7F9FB;border:1px solid var(--border);border-radius:8px;padding:8px 11px"><b>${valOrig}</b> · ${esc(p.cond_pagamento||"—")} · lançada em ${esc(p.data_proposta||"")}<br>
+      <span style="font-size:11px">&#129534; Serviços propostos: <b>${esc(p.produtos||"—")}</b></span></div>
     <div class="linha-acao" style="margin-top:6px;background:#EEF3F9;border-radius:8px;padding:6px 9px;align-items:center">
       <label style="font-size:11px">&#128100; Conduz a venda (quem pediu):</label>
       <select class="fsel" id="ng-quem">${(E.equipe||[]).filter(m=>String(m.status||"").toUpperCase()==="ATIVO")
@@ -3666,6 +3667,11 @@ function abrirNegociacao(id){
       <div style="font-size:11px;color:#7A5C00;margin-bottom:4px">Corrige a proposta em si (negociou outra forma? entrada no cartão?). Fica registrado na linha do tempo.</div>
       <div class="linha-acao"><label style="font-size:11px">Valor R$:</label><input class="fsel" id="ng-fixval" style="width:110px" value="${esc(p.valor||"")}">
         <label style="font-size:11px">Forma de pagamento:</label><input class="fsel" id="ng-fixcond" style="flex:1" value="${esc(p.cond_pagamento||"")}"></div>
+      <div style="font-size:11px;color:#7A5C00;margin:6px 0 3px"><b>&#129534; Serviços da proposta</b> (marque todos os que foram propostos):</div>
+      <div>${(()=>{const atuais=String(p.produtos||"").split(",").map(x=>x.trim().toUpperCase()).filter(Boolean);
+        const fora=atuais.filter(x=>!PROP_PRODUTOS.includes(x));
+        return PROP_PRODUTOS.map(x=>`<label style="font-size:11px;display:inline-flex;gap:3px;margin-right:9px"><input type="checkbox" class="ng-fixprod" value="${esc(x)}" ${atuais.includes(x)?"checked":""}> ${esc(x)}</label>`).join("")
+          +`<div class="linha-acao" style="margin-top:4px"><label style="font-size:11px">Outro:</label><input class="fsel" id="ng-fixprodoutro" style="flex:1" placeholder="serviço fora da lista (opcional)" value="${esc(fora.join(", "))}"></div>`;})()}</div>
       <button class="btn btp btsm" style="margin-top:5px" onclick='corrigirProposta(${JSON.stringify(id)})'>&#128190; Salvar correção</button></div>
     ${p.valor_atual||p.cond_atual?`<div class="bloco-t" style="margin-top:8px">Condições atuais</div>
       <div style="font-size:12px;background:var(--amber-lt);border-radius:8px;padding:8px 11px;color:#7A5C00"><b>${p.valor_atual?"R$ "+esc(p.valor_atual):"(valor original)"}</b> · ${esc(p.cond_atual||"—")}</div>`:""}
@@ -3725,17 +3731,29 @@ async function corrigirProposta(id){
   const p=E._propMap[id];if(!p)return;
   const vTxt=(ge("ng-fixval").value||"").trim(),cond=(ge("ng-fixcond").value||"").trim();
   const v=numBR(vTxt);
-  if(!v&&!cond){toast("Informe o novo valor e/ou a forma de pagamento.","erro");return;}
+  const marcados=[...document.querySelectorAll(".ng-fixprod:checked")].map(x=>x.value);
+  const outro=(ge("ng-fixprodoutro")?.value||"").trim().toUpperCase();
+  if(outro)outro.split(",").map(x=>x.trim()).filter(Boolean).forEach(x=>{if(!marcados.includes(x))marcados.push(x);});
+  const prodNovo=marcados.join(", ");
+  const prodAntes=String(p.produtos||"").split(",").map(x=>x.trim()).filter(Boolean).join(", ");
+  const mudouProd=prodNovo&&prodNovo!==prodAntes;
+  if(mudouProd&&!marcados.length){toast("A proposta precisa ter ao menos um serviço.","erro");return;}
+  if(!v&&!cond&&!mudouProd){toast("Informe o novo valor, a forma de pagamento e/ou ajuste os serviços.","erro");return;}
   const antes=`R$ ${p.valor||"—"} · ${p.cond_pagamento||"—"}`;
   const hora=new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
-  const linha=`${brHoje()} ${hora} — ${E.perfil.nome_sistema}: ✏️ proposta corrigida para R$ ${vTxt||p.valor||"—"} · ${cond||p.cond_pagamento||"—"} (antes: ${antes})`;
+  const partes=[];
+  if(v||cond)partes.push(`✏️ proposta corrigida para R$ ${vTxt||p.valor||"—"} · ${cond||p.cond_pagamento||"—"} (antes: ${antes})`);
+  if(mudouProd)partes.push(`🧾 serviços corrigidos para ${prodNovo} (antes: ${prodAntes||"—"})`);
+  const linha=`${brHoje()} ${hora} — ${E.perfil.nome_sistema}: ${partes.join(" · ")}`;
   try{const u={negociacao_log:linha+(p.negociacao_log?"\n"+p.negociacao_log:"")};
     if(v){u.valor=vTxt;u.valor_num=v;}
     if(cond)u.cond_pagamento=cond;
+    if(mudouProd)u.produtos=prodNovo;
     okS(await supa.from("propostas").update(u).eq("id_proposta",id));}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   if(v){p.valor=vTxt;p.valor_num=v;}
   if(cond)p.cond_pagamento=cond;
+  if(mudouProd)p.produtos=prodNovo;
   p.negociacao_log=linha+(p.negociacao_log?"\n"+p.negociacao_log:"");
   toast("Proposta corrigida — registrado na linha do tempo.","ok");
   abrirNegociacao(id);desenhaProps();
