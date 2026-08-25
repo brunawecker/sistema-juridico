@@ -3169,7 +3169,9 @@ async function telaClientes(){
     <div id="cl-oparea" style="display:none" class="painel">
       <div style="font-size:12px;color:var(--gray);margin-bottom:6px">Todas as tarefas <b>em andamento</b> de um tipo:</div>
       <div class="linha-acao"><select class="fsel" id="cl-opsel" style="flex:1" onchange="buscaPorOperacao()">
-        <option value="">Escolha o tipo de operação...</option>${OPERACOES.map(o=>`<option>${esc(o)}</option>`).join("")}</select></div></div>
+        <option value="">Escolha o tipo de operação...</option>${OPERACOES.map(o=>`<option>${esc(o)}</option>`).join("")}</select>
+      <select class="fsel" id="cl-opadv" onchange="buscaPorOperacao()">
+        <option value="">&#9878; Todas as advogadas</option>${[...new Set((E.tarefas||[]).map(t=>String(t.advogada||"").trim()).filter(Boolean))].sort((x,y)=>x.localeCompare(y)).map(n=>`<option>${esc(n)}</option>`).join("")}</select></div></div>
     <div id="cl-lista"></div>`;
   desenhaPills();desenhaClientes();
 }
@@ -3198,10 +3200,12 @@ function modoClientes(m){
 function buscaPorOperacao(){
   const op=ge("cl-opsel").value;if(!op)return;
   const alvo=op.toLowerCase();
-  const f=(E.tarefas||[]).filter(t=>t.id_tarefa&&String(t.operacao||"").toLowerCase().includes(alvo))
+  const adv=(ge("cl-opadv")?.value||"").trim();
+  const f=(E.tarefas||[]).filter(t=>t.id_tarefa&&String(t.operacao||"").toLowerCase().includes(alvo)
+      &&(!adv||String(t.advogada||"").trim()===adv))
     .sort((a,b)=>(a._dias??9999)-(b._dias??9999));
-  ge("cl-lista").innerHTML=`<p style="font-size:12px;color:var(--gray);margin-bottom:8px">${f.length} tarefa(s) de "${esc(op)}" em andamento</p>`
-    +(f.length?f.map(t=>cardTarefa(t,true)).join(""):`<div class="vazio">Nenhuma.</div>`);
+  ge("cl-lista").innerHTML=`<p style="font-size:12px;color:var(--gray);margin-bottom:8px">${f.length} tarefa(s) de "${esc(op)}"${adv?` · advogada <b>${esc(adv)}</b>`:""} em andamento</p>`
+    +(f.length?f.map(t=>cardTarefa(t,true)).join(""):`<div class="vazio">Nenhuma${adv?` de ${esc(adv)}`:""}.</div>`);
 }
 function filtroCliente(c){
   if(E._fSit==="OFICIAL"&&String(c.situacao||"")==="PROSPECCAO")return false;
