@@ -3838,8 +3838,9 @@ async function telaComercial(){
       const cc=coroaCriterio();E._critRotulo=cc.rotulo;
       let reinado=null;try{reinado=await DB.coroaAtual();}catch(e){}
       let desafio=null;try{desafio=await DB.desafioSemana();}catch(e){}
-      // fichas extras: coroa da semana e vencedor do desafio-relâmpago
-      const fichasCom=r=>fichasSemana(r)+((reinado&&reinado.pessoa===r.pessoa)?1:0)
+      // fichas extras: coroa da semana (se ainda não girada) e desafio-relâmpago
+      const fichasCom=r=>fichasSemana(r)
+        +((reinado&&reinado.pessoa===r.pessoa&&!reinado.ficha_usada)?1:0)
         +((desafio&&desafio.vencedor===r.pessoa)?1:0);
       const ordF=[...pl].sort((a,b)=>fichasCom(b)-fichasCom(a)||(+b.valor_novos)-(+a.valor_novos));
       // empate no critério da semana → decide o MAIOR VALOR (Bruna, 25/08)
@@ -3853,7 +3854,7 @@ async function telaComercial(){
           `<span style="background:rgba(255,255,255,${fichasCom(r)>0?".22":".10"});border-radius:10px;padding:5px 11px;font-size:12px${i===0&&fichasCom(r)>0?";outline:2px solid #FFD966":""}">
           &#127903;&#65039; <b>${fichasCom(r)}</b> ${esc(r.pessoa)}${reinado&&reinado.pessoa===r.pessoa?" &#128081;":""}${r.recorrencia_ok?' <span title="carteira em dia — ficha provável na sexta" style="font-size:10px">&#128176;&#10003;</span>':""}</span>`).join("")}</div>
         ${reinado?`<div style="background:rgba(255,217,102,.25);border:1px solid #FFD966;border-radius:10px;padding:7px 12px;margin-top:9px;font-size:12.5px">
-          &#128081; <b>Coroado(a) da semana: ${esc(reinado.pessoa)}</b> — sistema dourado e +1 ficha até sexta <span style="opacity:.8">(critério: ${esc(reinado.criterio||"—")})</span></div>`:""}
+          &#128081; <b>Coroado(a) da semana: ${esc(reinado.pessoa)}</b> — sistema dourado até sexta${reinado.ficha_usada?" · <span style=\'opacity:.85\'>ficha da coroa já girada na roleta</span>":" e +1 ficha"} <span style="opacity:.8">(critério: ${esc(reinado.criterio||"—")})</span></div>`:""}
         ${desafio?`<div style="background:rgba(255,255,255,.15);border:1px dashed rgba(255,255,255,.6);border-radius:10px;padding:7px 12px;margin-top:8px;font-size:12.5px">
           &#9889; <b>${esc(desafio.nome)}</b> — ${esc(desafio.descricao||"")}${desafio.vencedor
             ?`<br>&#127937; <b>Conquistado por ${esc(desafio.vencedor)}!</b> (${fmtR$(+desafio.valor)} · ${new Date(desafio.quando).toLocaleString("pt-BR",{weekday:"short",hour:"2-digit",minute:"2-digit"})}) — ficha extra já no placar`
