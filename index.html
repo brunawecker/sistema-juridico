@@ -230,7 +230,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 <!-- MODAL 2 (sobreposto: correção, encerrar, delegar...) -->
 <div class="mfundo" id="modal2" style="z-index:300"><div class="mcaixa" style="max-width:520px">
   <div class="mtopo"><div><div class="mtit" id="m2-titulo">—</div><div class="msub" id="m2-sub">—</div></div>
-    <button class="mfecha" onclick="fecharModal2()">&#10005;</button></div>
+    <button class="mfecha" onclick="if(!modalTemTexto('modal2')||confirm('Há texto não salvo (fica guardado como rascunho). Fechar mesmo assim?'))fecharModal2()">&#10005;</button></div>
   <div class="mcorpo" id="m2-corpo"></div>
 </div></div>
 
@@ -1680,6 +1680,7 @@ function desenharCard(t,hist){
     :`<p style="font-size:13px;color:var(--gray)">Sem histórico.</p>`;
   h+=`</div>`;
   ge("m-corpo").innerHTML=h;
+  rascunhoLiga("nota-texto","and:"+t.id_tarefa);
   carregarCliExtra(t);carregarDocs(t);
 }
 async function carregarCliExtra(t){
@@ -1747,6 +1748,7 @@ async function salvarNota(tipo){
         hist_texto:`✅ Prazo fatal de ${brData(t.prazo_fatal_dt)} marcado como cumprido (confirmado ao registrar andamento).`,hist_tipo:"HISTORICO"});
       t.prazo_fatal_dt=null;t.prazo_fatal=null;t._prazoAlerta=false;t._pfDias=null;}}
   catch(e){toast("Erro: "+e.message,"erro");return;}
+  rascunhoLimpa("and:"+t.id_tarefa);
   toast("Salvo!","ok");abrirTarefa(t.id_tarefa);}
 async function salvarTempo(){
   const min=Math.round((Date.now()-E.timerIni)/60000);
@@ -1969,6 +1971,7 @@ function abrirDelegar(){const t=E.atual;
     <input type="file" id="dg-file" class="fsel" style="max-width:240px"></div>
     ${htmlPacote(E._pacoteExtras,"dg-pac")}
     <button class="btn btp btw" style="margin-top:8px" onclick="confirmarDelegar()">&#129309; Enviar impulso</button>`);
+  rascunhoLiga("dg-txt","dg:"+t.id_tarefa);
   carregarCargaDelegar();}
 // mostra a fila de cada candidato (pedido do Ygor): do dia · total · folga —
 // só quem pode delegar chega aqui, e o banco filtra pelo grupo da pessoa
@@ -2135,10 +2138,24 @@ function minutosDaSessao(t){
     return{min:teto,nota:`⚠️ Cartão aberto ${bruto} min sem resposta à confirmação de atividade. Tempo registrado limitado a ${teto} min (3× o padrão da operação).`};
   return{min:bruto,nota:null};
 }
+// 📝 rascunho automático (pedido da equipe, 25/08/2026): o que é digitado
+// nos campos grandes fica guardado no navegador e volta ao reabrir — só some
+// quando o envio dá certo
+function rKey(k){return "rascunho:"+k;}
+function rascunhoLiga(elId,chave){const el=ge(elId);if(!el)return;
+  try{const v=localStorage.getItem(rKey(chave));
+    if(v&&!(el.value||"").trim())el.value=v;}catch(e){}
+  el.oninput=function(){try{localStorage.setItem(rKey(chave),el.value);}catch(e){}};}
+function rascunhoLimpa(){for(const k of arguments){try{localStorage.removeItem(rKey(k));}catch(e){}}}
+function modalTemTexto(rootId){
+  const raiz=document.getElementById(rootId);if(!raiz)return false;
+  const els=raiz.querySelectorAll("textarea");
+  for(const el of els){if((el.value||"").trim().length>0)return true;}
+  return false;}
 function fecharModal(){
   marcarAtividade();
   clearInterval(E.timerInt);
-  const n=ge("nota-texto");if(n&&n.value.trim()&&!confirm("Há texto não salvo. Fechar mesmo assim?"))return;
+  const n=ge("nota-texto");if(n&&n.value.trim()&&!confirm("Há texto não salvo (fica guardado como rascunho e volta quando você reabrir o cartão). Fechar mesmo assim?"))return;
   const conta=minutosDaSessao(E.atual);
   if(E.atual&&!E.atual._consulta&&E.timerIni){DB.sessaoConcluir(conta.min).catch(()=>{});
     if(conta.min>=1&&E.atual)DB.tempo({id_tarefa:E.atual.id_tarefa,id_cliente:E.atual.id_cliente,minutos:conta.min}).catch(()=>{});
@@ -2148,8 +2165,12 @@ function fecharModal(){
 function modal2(titulo,sub,corpo){ge("m2-titulo").innerHTML=titulo;ge("m2-sub").innerHTML=sub;
   ge("m2-corpo").innerHTML=corpo;ge("modal2").classList.add("aberto");}
 function fecharModal2(){ge("modal2").classList.remove("aberto");}
-ge("modal").addEventListener("click",ev=>{if(ev.target===ge("modal"))fecharModal();});
-ge("modal2").addEventListener("click",ev=>{if(ev.target===ge("modal2"))fecharModal2();});
+ge("modal").addEventListener("click",ev=>{if(ev.target!==ge("modal"))return;
+  if(modalTemTexto("modal")){toast("Seu texto está guardado como rascunho — para fechar, use o ✕ no canto.","erro");return;}
+  fecharModal();});
+ge("modal2").addEventListener("click",ev=>{if(ev.target!==ge("modal2"))return;
+  if(modalTemTexto("modal2")){toast("Seu texto está guardado como rascunho — para fechar, use o ✕ no canto.","erro");return;}
+  fecharModal2();});
 
 // vitrine paginada das sugestões: 8 por página, navegação sem recarregar
 function desenhaSugestoes(){
@@ -3643,6 +3664,7 @@ function abrirNegociacao(id){
     <div class="linha-acao" style="margin-top:4px"><input type="file" id="ng-file" class="fsel" style="max-width:240px">
       <button class="btn bts btsm" onclick='enviarDocProposta(${JSON.stringify(id)})'>&#8613; Anexar levantamento</button></div>
     <button class="btn btp btw" style="margin-top:10px" onclick='salvarNegociacao(${JSON.stringify(id)})'>&#128190; Salvar rodada</button>`);
+  rascunhoLiga("ng-txt","ng:"+id);rascunhoLiga("ng-passo","ngp:"+id);
   carregarDocsProposta(id);}
 async function salvarQuemPediu(id){
   const p=E._propMap[id];if(!p)return;
@@ -3710,6 +3732,7 @@ async function salvarNegociacao(id){
   try{const r=await DB.negociacao({id_proposta:id,linha_log:ln,etapa,valor:val,cond,passo,retorno:ret,perda,
       valor_mes:vmes||null,data_pagto:dpag||null});
     if(E._avulsa&&String(E._avulsa.desc||"").indexOf("📞")>-1)E._fuRodadasSessao=(E._fuRodadasSessao||0)+1;
+    rascunhoLimpa("ng:"+id,"ngp:"+id);
     toast(r.convertido?"🎉 Rodada salva — cliente convertido em OFICIAL!":"Rodada registrada!","ok");}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   fecharModal2();telaPropostas();
