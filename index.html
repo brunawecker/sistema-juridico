@@ -223,11 +223,18 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 <!-- MODAL -->
 <div class="mfundo" id="modal"><div class="mcaixa">
   <div class="mtopo"><div><div class="mtit" id="m-titulo">—</div><div class="msub" id="m-sub">—</div></div>
+    <button class="mfecha" title="Minimizar — navegue pelo sistema com o cartão aberto e o relógio contando" onclick="minimizarCartao()">&#8213;</button>
     <button class="mfecha" onclick="fecharModal()">&#10005;</button></div>
   <div class="mcorpo" id="m-corpo"></div>
 </div></div>
 
 <!-- MODAL 2 (sobreposto: correção, encerrar, delegar...) -->
+<div id="dock-cartao" style="display:none;position:fixed;left:14px;bottom:14px;z-index:180;background:var(--dani);color:white;border-radius:12px;padding:9px 13px;box-shadow:0 8px 26px rgba(0,0,0,.35);cursor:pointer;max-width:320px" onclick="reabrirCartao()">
+  <div style="display:flex;align-items:center;gap:9px">
+    <span style="font-family:'DM Mono';font-weight:700" id="dock-tempo">0:00</span>
+    <span id="dock-nome" style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">—</span>
+    <button onclick="event.stopPropagation();fecharDock()" style="background:rgba(255,255,255,.2);border:0;color:white;border-radius:7px;padding:2px 8px;cursor:pointer">&#10005;</button></div>
+  <div style="font-size:10px;opacity:.8;margin-top:2px">&#9201; relógio contando — toque para reabrir o cartão</div></div>
 <div class="mfundo" id="modal2" style="z-index:300"><div class="mcaixa" style="max-width:520px">
   <div class="mtopo"><div><div class="mtit" id="m2-titulo">—</div><div class="msub" id="m2-sub">—</div></div>
     <button class="mfecha" onclick="if(!modalTemTexto('modal2')||confirm('Há texto não salvo (fica guardado como rascunho). Fechar mesmo assim?'))fecharModal2()">&#10005;</button></div>
@@ -1504,6 +1511,7 @@ async function removerReuniao(id){
 function podeAgirNa(t){return E.perfil.head_sim||ehMeuNome(t.assessor)
   ||AUTORIZADOS_DELEGAR.includes(E.perfil.nome_sistema);}
 async function abrirTarefa(id){
+  esconderDock();
   if(typeof marcarAtividade==="function")marcarAtividade();
   const t=E.tarefas.find(x=>x.id_tarefa===id);if(!t)return;
   // reabertura do MESMO cartão (ex.: depois de registrar andamento): o
@@ -2152,7 +2160,26 @@ function modalTemTexto(rootId){
   const els=raiz.querySelectorAll("textarea");
   for(const el of els){if((el.value||"").trim().length>0)return true;}
   return false;}
+// 🗂 modo minimizado (pedido da equipe, 25/08/2026): recolhe o cartão para
+// uma barrinha no canto, o relógio segue contando e dá para navegar à vontade
+function minimizarCartao(){
+  const t=E.atual;if(!t)return;
+  ge("modal").classList.remove("aberto");
+  ge("dock-nome").textContent=t.cliente||t.id_tarefa;
+  ge("dock-cartao").style.display="block";
+  clearInterval(E._dockInt);
+  const tick=()=>{if(!E.timerIni)return;
+    const s2=Math.floor((Date.now()-E.timerIni)/1000);
+    ge("dock-tempo").textContent=Math.floor(s2/60)+":"+String(s2%60).padStart(2,"0");};
+  tick();E._dockInt=setInterval(tick,1000);
+  toast("Cartão minimizado — o relógio continua contando. Toque na barrinha para voltar.","ok");}
+function reabrirCartao(){
+  esconderDock();
+  if(E.atual)abrirTarefa(E.atual.id_tarefa);}
+function fecharDock(){esconderDock();fecharModal();}
+function esconderDock(){clearInterval(E._dockInt);const d=ge("dock-cartao");if(d)d.style.display="none";}
 function fecharModal(){
+  esconderDock();
   marcarAtividade();
   clearInterval(E.timerInt);
   const n=ge("nota-texto");if(n&&n.value.trim()&&!confirm("Há texto não salvo (fica guardado como rascunho e volta quando você reabrir o cartão). Fechar mesmo assim?"))return;
