@@ -136,6 +136,7 @@ def sincronizar_comercial(sess, aba, mes_iso):
         return None
 
     iC, iDoc = idx("CLIENTE"), idx("CNPJ/CPF", "CNPJ")
+    iId = idx("ID")
     iTipo, iLiq, iBru = idx("TIPO DE COBR."), idx("R$ LIQUIDO"), idx("R$ BRUTO")
     iSt, iForma = idx("STATUS"), idx("FORMA PGTO")
     iDp, iVc = idx("D. PGTO"), idx("VENC.")
@@ -185,7 +186,8 @@ def sincronizar_comercial(sess, aba, mes_iso):
                        _num_br(liq_cru if str(liq_cru).strip() else cel(fmt, r, iLiq)),
                        _sem_acento(cel(fmt, r, iSt)), _sem_acento(cel(fmt, r, iForma)),
                        _data_br(cel(fmt, r, iDp)), _data_br(cel(fmt, r, iVc)),
-                       fora, _sem_acento(cel(fmt, r, iTipo))))
+                       fora, _sem_acento(cel(fmt, r, iTipo)),
+                       str(cel(fmt, r, iId)).strip()))
     if not linhas:
         print(f"comercial: aba {aba} sem lançamentos — mantendo dados atuais")
         return
@@ -193,10 +195,17 @@ def sincronizar_comercial(sess, aba, mes_iso):
         cur.execute("delete from juridico.comercial_pagamentos where mes = %s", (mes_iso,))
         with cur.copy("""copy juridico.comercial_pagamentos
             (aba,mes,cliente,cnpj_cpf,tipo,secao_head,credito,valor_bruto,
-             valor_liquido,status,forma_pgto,data_pgto,venc,fora_projecao,tipo_col)
+             valor_liquido,status,forma_pgto,data_pgto,venc,fora_projecao,tipo_col,
+             id_lanc)
             from stdin""") as cp:
             for ln in linhas:
                 cp.write_row(ln)
+        # carimbo do PRIMEIRO momento em que cada pagamento foi visto como
+        # PAGO — é o que define o corte de sexta 15h do placar
+        cur.execute("""insert into juridico.pago_visto (id_lanc)
+            select distinct id_lanc from juridico.comercial_pagamentos
+            where mes=%s and status='PAGO' and coalesce(id_lanc,'')<>''
+            on conflict (id_lanc) do nothing""", (mes_iso,))
         conn.commit()
     print(f"comercial: {len(linhas)} lançamento(s) de {aba}")
 
