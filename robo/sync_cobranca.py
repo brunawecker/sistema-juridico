@@ -202,8 +202,10 @@ def sincronizar_comercial(sess, aba, mes_iso):
                 cp.write_row(ln)
         # carimbo do PRIMEIRO momento em que cada pagamento foi visto como
         # PAGO — é o que define o corte de sexta 15h do placar
+        # chave por PARCELA: id do contrato + data (parcelas repetem o id)
         cur.execute("""insert into juridico.pago_visto (id_lanc)
-            select distinct id_lanc from juridico.comercial_pagamentos
+            select distinct coalesce(id_lanc,'')||'|'||coalesce(data_pgto::text,'')
+            from juridico.comercial_pagamentos
             where mes=%s and status='PAGO' and coalesce(id_lanc,'')<>''
             on conflict (id_lanc) do nothing""", (mes_iso,))
         conn.commit()
