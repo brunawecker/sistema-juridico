@@ -384,7 +384,7 @@ async function coroaViva(){
     // 2º) líder da corrida ATUAL: dourado suave (está perto, mas ainda não é rei)
     const pl=await DB.placar();if(!(pl||[]).length)return;
     const cc=coroaCriterio();if(cc.crit===2)return;
-    const ord=[...pl].sort((a,b)=>cc.medir(b)-cc.medir(a));
+    const ord=[...pl].sort((a,b)=>cc.medir(b)-cc.medir(a)||(+b.valor_novos)-(+a.valor_novos));
     if(!ord[0]||cc.medir(ord[0])<=0)return;
     if(ord[0].pessoa!==eu)return;
     // líder da corrida (suspense): nome dourado + coroinha NA INICIAL —
@@ -3839,7 +3839,8 @@ async function telaComercial(){
       // coroado da semana ganha a ficha extra (regra do programa)
       const fichasCom=r=>fichasSemana(r)+((reinado&&reinado.pessoa===r.pessoa)?1:0);
       const ordF=[...pl].sort((a,b)=>fichasCom(b)-fichasCom(a)||(+b.valor_novos)-(+a.valor_novos));
-      const ordC=[...pl].sort((a,b)=>cc.medir(b)-cc.medir(a));
+      // empate no critério da semana → decide o MAIOR VALOR (Bruna, 25/08)
+      const ordC=[...pl].sort((a,b)=>cc.medir(b)-cc.medir(a)||(+b.valor_novos)-(+a.valor_novos));
       const lider=(cc.crit!==2&&ordC[0]&&cc.medir(ordC[0])>0)?ordC[0]:null;
       placarHtml=`<div class="painel" style="background:linear-gradient(135deg,#2C6E8A,#447F98);color:white">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
