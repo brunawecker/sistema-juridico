@@ -3147,7 +3147,7 @@ async function fazerReabrir(id,linha){
 // =================================================== TELA: CLIENTES (completa)
 async function telaClientes(){
   setNav("cli",E.perfil.head_sim?"Gestão de Clientes":"Buscar Clientes"); carregando();
-  E._fSit="TODOS";E._fReg="TODOS";E._fAtivo="TODOS";E._clPag=0;
+  E._fSit="TODOS";E._fReg="TODOS";E._fAtivo="TODOS";E._fHead="TODOS";E._clPag=0;
   let cs,ops;try{[cs,ops]=await Promise.all([DB.clientes(""),DB.tarefas()]);}catch(e){return erro(e.message);}
   E._clsTodos=cs||[];E._cli={};E._clsTodos.forEach(c=>E._cli[c.id_cliente]=c);
   E._temTarefa={};E._minhaTarefa={};E._minhaQtd={};
@@ -3188,7 +3188,12 @@ function desenhaPills(){
       <option value="TODOS">Tarefas: todas</option><option value="SEM">&#10060; Sem tarefa ativa</option>
       <option value="COM">&#10003; Com tarefa ativa</option>
       <option value="MINHAS">&#128100; Sob minha responsabilidade</option>
-      <option value="SEMRESP">&#9888; Sem responsável vinculado</option></select>`;
+      <option value="SEMRESP">&#9888; Sem responsável vinculado</option></select>
+    <select class="fsel" onchange="E._fHead=this.value;E._clPag=0;desenhaClientes()">
+      <option value="TODOS">&#9878; Head: todas</option>
+      ${[...new Set((E._clsTodos||[]).map(c=>String(c.head||"").trim()).filter(Boolean))].sort((x,y)=>x.localeCompare(y))
+        .map(n=>`<option ${E._fHead===n?"selected":""}>${esc(n)}</option>`).join("")}
+      <option value="SEMHEAD" ${E._fHead==="SEMHEAD"?"selected":""}>&#9888; Sem head definida</option></select>`;
 }
 function modoClientes(m){
   ge("tabcli").className="btn "+(m==="cli"?"btp":"bts")+" btsm";
@@ -3208,6 +3213,10 @@ function buscaPorOperacao(){
     +(f.length?f.map(t=>cardTarefa(t,true)).join(""):`<div class="vazio">Nenhuma${adv?` de ${esc(adv)}`:""}.</div>`);
 }
 function filtroCliente(c){
+  if(E._fHead&&E._fHead!=="TODOS"){
+    const h=String(c.head||"").trim();
+    if(E._fHead==="SEMHEAD"){if(h)return false;}
+    else if(h!==E._fHead)return false;}
   if(E._fSit==="OFICIAL"&&String(c.situacao||"")==="PROSPECCAO")return false;
   if(E._fSit==="PROSPECCAO"&&String(c.situacao||"")!=="PROSPECCAO")return false;
   const rg=String(c.regime||"").toUpperCase();
