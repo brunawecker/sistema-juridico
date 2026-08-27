@@ -1321,7 +1321,8 @@ async function telaMinhas(){
       const ra=pBR(a.data_retorno),rb=pBR(b.data_retorno);
       const va=ra&&ra<=hj0?0:1,vb=rb&&rb<=hj0?0:1;
       if(va!==vb)return va-vb;
-      return String(a.data_proposta_dt||"9999").localeCompare(String(b.data_proposta_dt||"9999"));});
+      const ua=ultMovProp(a),ub=ultMovProp(b);
+      return (ua?ua.getTime():0)-(ub?ub.getTime():0);});
     E._propMap=E._propMap||{};ordFu.forEach(p=>{E._propMap[p.id_proposta]=p;});
     E._fuCard={min:reservaFu,naRua:propsFu.length,
       fila:ordFu.map(p=>({id:p.id_proposta,cliente:p.cliente,valor:p.valor,status:p.status,
@@ -1420,6 +1421,14 @@ function fuCardHtml(){
       <div class="tco">${f.naRua} proposta(s) na rua · bloco de ${fmtMin(f.min)} — toque para abrir a fila e ligar o relógio</div></div>
       <div style="font-family:'DM Mono';font-size:11px;color:#1F4E79">&#9201; ~${f.min}min</div></div>`;
 }
+// última movimentação da proposta: a rodada mais recente do log (as linhas
+// novas entram no topo) ou, sem rodadas, a data de lançamento — pedido do
+// Ygor, 27/08/2026: registrar andamento tem que zerar o "tempo parado"
+function ultMovProp(p){
+  const m=String(String(p.negociacao_log||"").split("\n")[0]||"").match(/^(\d{2})\/(\d{2})\/(\d{2,4})/);
+  if(m){const a=+m[3]<100?2000+ +m[3]:+m[3];return new Date(a,+m[2]-1,+m[1],12);}
+  const d=String(p.data_proposta_dt||"").slice(0,10);
+  return d?new Date(d+"T12:00:00"):null;}
 function abrirFollowupDia(){
   const f=E._fuCard;if(!f)return;
   modal2("&#128222; Follow-up de propostas — hoje",
@@ -3536,11 +3545,13 @@ function desenhaProps(){
   ge("pp-lista").innerHTML=f.length?f.map(p=>{
     const cor={Aceita:"var(--green)",Recusada:"var(--red)"}[p.status]||"var(--amber)";
     const val=(parseFloat(p.valor_num)||0).toLocaleString("pt-BR",{minimumFractionDigits:2});
-    // dias "na rua" sem resposta
+    // dias "na rua" sem movimento (rodada registrada zera a contagem)
     let naRua="";
-    if(propNaRua(p)&&p.data_proposta_dt){
-      const d=-diasAte(String(p.data_proposta_dt).slice(0,10));
-      if(d>=7)naRua=`<span class="tag" style="background:${d>=15?"var(--red)":"var(--amber)"};color:white">&#9203; ${d} dias sem resposta</span>`;}
+    if(propNaRua(p)){
+      const um=ultMovProp(p);
+      if(um){const hj0=new Date();hj0.setHours(12,0,0,0);
+        const d=Math.round((hj0-um)/86400000);
+        if(d>=7)naRua=`<span class="tag" style="background:${d>=15?"var(--red)":"var(--amber)"};color:white">&#9203; ${d} dias sem movimento</span>`;}}
     const prosp=p.prospeccao==="SIM"?'<span class="tag ts">PROSPECÇÃO</span>':"";
     const nLog=p.negociacao_log?String(p.negociacao_log).split("\n").length:0;
     const cnpj=(E._cnpjMap||{})[p.id_cliente]||"";
