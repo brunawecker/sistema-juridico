@@ -181,6 +181,25 @@ def main():
                               f"andamento, conclua e siga para outra tarefa. O cartão "
                               f"volta no próximo dia útil da janela (dia {ultimo-13} a "
                               f"{ultimo-4}). [meta:{tempo}min]")
+                else:
+                    # FORA da janela o cartão aberto dorme até ela abrir de novo
+                    # (concluir um DIÁRIO puxa +1 dia e furava a janela — caso
+                    # da Laura, 03/09/2026)
+                    if hoje.day < ultimo - 13:
+                        alvo = hoje.replace(day=ultimo - 13)
+                    else:
+                        u2 = ((prox_mes.replace(day=28) + timedelta(days=4))
+                              .replace(day=1) - timedelta(days=1)).day
+                        alvo = prox_mes.replace(day=u2 - 13)
+                    cur.execute("""update juridico.operacional
+                        set data_revisao = %s, data_revisao_dt = %s
+                        where cliente = %s and assessor = %s
+                          and status_tarefa = 'TAREFA FIXA'
+                          and data_revisao_dt < %s""",
+                        (alvo.strftime("%d/%m/%Y"), alvo,
+                         "📌 " + (titulo or ""), assessor or "", alvo))
+                    if cur.rowcount:
+                        print(f"4. fixa '{titulo}' fora da janela → dorme até {alvo}")
             if not deve:
                 continue
             # cartão pendente da MESMA fixa? reaproveita (puxa a data para
