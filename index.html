@@ -3949,7 +3949,7 @@ async function telaComercial(){
           &#128081; <b>Coroado(a) da semana: ${esc(reinado.pessoa)}</b> — sistema dourado até sexta${reinado.ficha_usada?" · <span style=\'opacity:.85\'>ficha da coroa já girada na roleta</span>":" e +1 ficha"} <span style="opacity:.8">(critério: ${esc(reinado.criterio||"—")})</span></div>`:""}
         ${desafios.map(desafio=>`<div style="background:rgba(255,255,255,.15);border:1px dashed rgba(255,255,255,.6);border-radius:10px;padding:7px 12px;margin-top:8px;font-size:12.5px">
           &#9889; <b>${esc(desafio.nome)}</b> — ${esc(desafio.descricao||"")}${desafio.vencedor
-            ?`<br>&#127937; <b>Conquistado por ${esc(desafio.vencedor)}!</b> (${fmtR$(+desafio.valor)} · ${new Date(desafio.quando).toLocaleString("pt-BR",{weekday:"short",hour:"2-digit",minute:"2-digit"})}) — ficha extra já no placar`
+            ?`<br>&#127937; <b>Conquistado por ${esc(desafio.vencedor)}!</b>${desafio.valor?` (${fmtR$(+desafio.valor)} · ${new Date(desafio.quando).toLocaleString("pt-BR",{weekday:"short",hour:"2-digit",minute:"2-digit"})})`:" (confirmado pela head)"} — ficha extra já no placar`
             :" · <span style=\'opacity:.85\'>ainda em aberto — corre!</span>"}</div>`).join("")}
         <div style="background:rgba(255,255,255,.12);border-radius:10px;padding:8px 12px;margin-top:9px;font-size:12.5px">
           &#128081; <b>Corrida da PRÓXIMA coroa: ${cc.rotulo}</b> <span style="opacity:.85">(${cc.desc})</span><br>
