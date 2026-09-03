@@ -1601,6 +1601,7 @@ function desenharCard(t,hist){
       <button class="btn btp btsm" onclick="salvarProcesso()">&#128190;</button></span></div>
     ${t.vara?`<div>Vara:<br><b>${esc(t.vara)}</b></div>`:""}${t.tribunal?`<div>Tribunal:<br><b>${esc(t.tribunal)}</b></div>`:""}
     ${t.estado?`<div>Estado:<br><b>${esc(t.estado)}</b></div>`:""}
+    ${t._impedimento&&!t.queda_impedimento_dt?`<div class="aviso erro" style="margin-bottom:6px">&#9888; Este MS Impedimento está <b>sem data de queda</b> — o painel das heads não consegue avisar antes de o impedimento cair. Informe no campo abaixo (ou registre num andamento por que ainda não existe).</div>`:""}
     ${t._impedimento?`<div>Queda do impedimento:<br><span id="qi-ver">${t.queda_impedimento_dt
         ?`<b style="color:${t._quedaDias!==null&&t._quedaDias<=1?"var(--red)":"var(--navy)"}">${brData(t.queda_impedimento_dt)}</b>${t._quedaDias!==null&&t._quedaDias<=0?' <span class="tag ti">CAIU</span>':""} `
         :`<span class="tag ti">PREENCHER</span> `}
@@ -1777,8 +1778,14 @@ async function salvarTempo(){
   toast(`Tempo salvo: ${min} min`,"ok");E.timerIni=Date.now();}
 function impulsoTemRegistro(){
   return (E._hist||[]).some(h=>!h._daOrigem&&h.tipo==="ASSESSOR");}
+function travaImpedimento(t){
+  if(t&&t._impedimento&&!t.queda_impedimento_dt){
+    toast("Antes de seguir, informe a data de queda do impedimento (campo no topo do cartão). Se ainda não existe data, registre o porquê num andamento e fale com a head.","erro");
+    editarQueda();return true;}
+  return false;}
 async function salvarFreqData(){
   const t=E.atual,check=ge("conc-check").value,dm=ge("conc-data").value;
+  if(travaImpedimento(t))return;
   let notaImp=null;
   if(t._impulso){
     if(!impulsoTemRegistro()){
@@ -1925,6 +1932,7 @@ async function gatePropJustificar(){
 }
 async function colocarAguardando(){
   const t=E.atual,freq=parseInt(ge("ag2-freq").value)||7,fatal=ge("ag2-fatal").value;
+  if(travaImpedimento(t))return;
   const prox=new Date();prox.setDate(prox.getDate()+freq);const pISO=prox.toISOString().slice(0,10);
   try{await DB.tarefaUpdate(t,{campos:{check_:"AGUARDANDO"},data_revisao:pISO,...(fatal?{prazo_fatal:fatal}:{}),
     hist_texto:`Tarefa definida como AGUARDANDO. Follow-up a cada ${freq} dias. Prazo fatal: ${fatal?brData(fatal):"não definido"}. Próximo retorno: ${brData(pISO)}.`});}
@@ -1932,6 +1940,7 @@ async function colocarAguardando(){
   toast(`Aguardando! Próximo follow-up em ${freq} dias.`,"ok");fecharModal();recarregar();}
 async function avancarFollowUp(){
   const t=E.atual,freq=parseInt(ge("ag-freq").value)||7;
+  if(travaImpedimento(t))return;
   const prox=new Date();prox.setDate(prox.getDate()+freq);const pISO=prox.toISOString().slice(0,10);
   try{await DB.tarefaUpdate(t,{campos:{check_:"AGUARDANDO"},data_revisao:pISO,
     hist_texto:`Follow-up realizado. Próximo retorno em ${freq} dias (${brData(pISO)}).`});}
