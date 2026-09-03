@@ -417,7 +417,7 @@ const urlPasta=v=>{v=String(v||"").trim();
 const alvosDelegacao=nome=>{const l=DELEGA_PARA[nome]||[];
   return (E.perfil&&E.perfil.head_sim&&nome===E.perfil.nome_sistema)||!l.length
     ?OPERACIONAIS.filter(a=>a!==nome):l.filter(a=>a!==nome);};
-const PROP_PRODUTOS=["MANDADO DE SEGURANÇA","MS MIGRAÇÃO","TIS","ÊXITO TRANSAÇÃO","HT","HT MUNICIPAL","LAUDO CAPAG","GARANTIAS","SCORE","ASSESSORIA","TAX","FGTS","BANCÁRIO","CONTABILIZE"];
+const PROP_PRODUTOS=["MANDADO DE SEGURANÇA","MS MIGRAÇÃO","TIS","ÊXITO TRANSAÇÃO","HT","HT MUNICIPAL","LAUDO CAPAG","GARANTIAS","SCORE","ASSESSORIA","TAX","FGTS","BANCÁRIO","CONTABILIZE","RENEGOCIAÇÃO"];
 const PROP_VERTICAIS=["REGULARIZE","AUDITE","BACARIZE","CONCILIE","CONTABILIZE","RECUPERE","RENEGOCIE","RNC","VILLELA IP","VBB"];
 const VERTICAIS_CLIENTE=["REGULARIZE","RECUPERE","RENEGOCIE","GOLDEN","CONTABILIZE","A PREENCHER"];
 const REGIMES=["Simples Nacional","Lucro Presumido","Lucro Real","MEI","Inativa"];
@@ -1172,7 +1172,8 @@ function cardTarefa(t,mostrarAssessor,mostrarTempo){
   const tmp=mostrarTempo?`<span class="tco" style="font-family:'DM Mono'">&#9201;${t._tempo}min</span>`:"";
   return `<div class="tc u${t._g||5}" onclick="abrirTarefa('${esc(t.id_tarefa)}')"><div style="flex:1;min-width:0">
     <div class="tcc">${esc(t.cliente)}${fin}</div>
-    <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${ec}${es}${hd}${pf}${ass}${tmp}</div></div>${dt}</div>`;
+    <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${ec}${es}${hd}${pf}${ass}${tmp}</div></div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">${dt}${t.prazo_fatal_dt?`<span class="tdy ov" style="font-weight:700">FATAL: ${brData(t.prazo_fatal_dt)}</span>`:""}</div></div>`;
 }
 // Banner de prazos fatais desta semana (clicável)
 function bannerPrazoFatal(ts){
@@ -2166,8 +2167,12 @@ function rascunhoLiga(elId,chave){const el=ge(elId);if(!el)return;
 function rascunhoLimpa(){for(const k of arguments){try{localStorage.removeItem(rKey(k));}catch(e){}}}
 function modalTemTexto(rootId){
   const raiz=document.getElementById(rootId);if(!raiz)return false;
-  const els=raiz.querySelectorAll("textarea");
-  for(const el of els){if((el.value||"").trim().length>0)return true;}
+  for(const el of raiz.querySelectorAll("textarea")){if((el.value||"").trim().length>0)return true;}
+  for(const el of raiz.querySelectorAll("input")){
+    const tipo=(el.type||"text").toLowerCase();
+    if(tipo==="checkbox"||tipo==="radio"){if(el.checked!==el.defaultChecked)return true;}
+    else if(tipo!=="file"&&tipo!=="hidden"&&tipo!=="button"&&tipo!=="submit"){
+      if((el.value||"").trim()!==(el.defaultValue||"").trim())return true;}}
   return false;}
 // 🗂 modo minimizado (pedido da equipe, 25/08/2026): recolhe o cartão para
 // uma barrinha no canto, o relógio segue contando e dá para navegar à vontade
