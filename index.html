@@ -361,6 +361,24 @@ const propostasDe=(lista,nome)=>(lista||[]).filter(p=>propNaRua(p)&&(
 const minhasNaRua=(lista,nome)=>(lista||[]).filter(p=>propNaRua(p)&&String(p.responsavel||p.quem_pediu||p.executor||"").trim()===nome);
 // 👑 critério rotativo da coroa (Programa de Engajamento): semana 1 operação,
 // 2 voto do time, 3 valor, 4 volume; 5ª semana volta à operação
+function abrirFichaExtra(){
+  modal2("&#127903;&#65039; Ficha extra da head","Vale para a semana atual — fica registrado quem deu e o motivo",`
+    <div class="bloco-t">Para quem *</div>
+    <select class="fsel" id="fx-quem" style="width:100%">${(E._plPessoas||[]).map(n=>`<option>${esc(n)}</option>`).join("")}</select>
+    <div class="bloco-t" style="margin-top:8px">Quantas</div>
+    <select class="fsel" id="fx-qtd"><option>1</option><option>2</option><option value="-1">-1 (corrigir excesso)</option></select>
+    <div class="bloco-t" style="margin-top:8px">Motivo * (aparece para todos no placar)</div>
+    <input class="fi" id="fx-motivo" placeholder="Ex: Contrato 6+ meses — CLIENTE X · Contrato por indicação">
+    <button class="btn btp btw" style="margin-top:10px" onclick="darFichaExtra()">&#127903;&#65039; Dar ficha</button>`);}
+async function darFichaExtra(){
+  const quem=ge("fx-quem").value,qtd=parseInt(ge("fx-qtd").value)||1,mot=(ge("fx-motivo").value||"").trim();
+  if(!mot){toast("Escreva o motivo — ele aparece no placar para todos.","erro");return;}
+  try{await DB.fichaExtraDar(quem,qtd,mot);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Ficha extra registrada!","ok");fecharModal2();telaComercial();}
+async function apagarFichaExtra(id){
+  if(!confirm("Apagar esta ficha extra?"))return;
+  try{await DB.fichaExtraApagar(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Apagada.","ok");telaComercial();}
 function coroaCriterio(){
   const hj=new Date();const semanaMes=Math.floor((hj.getDate()-1)/7)+1;
   const crit=[1,2,3,4,1][Math.min(semanaMes,5)-1];
@@ -568,6 +586,9 @@ const S = {
   async snapshots(){return okS(await supa.from("snapshot_diario").select("*"))||[];},
   async placar(){return okS(await supa.rpc("placar_semana"))||[];},
   async desafioSemana(){return okS(await supa.rpc("desafio_semana"))||[];},
+  async fichasExtras(){return okS(await supa.rpc("fichas_extras_semana"))||[];},
+  async fichaExtraDar(p,q,m){return rpcS("ficha_extra_dar",{p_pessoa:p,p_qtd:q,p_motivo:m});},
+  async fichaExtraApagar(id){return rpcS("ficha_extra_apagar",{p_id:id});},
   async coroaAtual(){const r=okS(await supa.from("coroa").select("*"))||[];
     // dourado FORTE acende NA HORA da coroação (sexta) e vale até o fim da
     // semana do reinado; um reinado novo substitui o anterior na hora.
@@ -3944,10 +3965,14 @@ async function telaComercial(){
       const cc=coroaCriterio();E._critRotulo=cc.rotulo;
       let reinado=null;try{reinado=await DB.coroaAtual();}catch(e){}
       let desafios=[];try{desafios=await DB.desafioSemana()||[];}catch(e){}
-      // fichas extras: coroa da semana (se ainda não girada) e desafios-relâmpago
+      let extras=[];try{extras=await DB.fichasExtras()||[];}catch(e){}
+      E._fxLista=extras;const fx={};extras.forEach(e2=>{fx[e2.pessoa]=(fx[e2.pessoa]||0)+(+e2.qtd||0);});
+      E._plPessoas=pl.map(r=>r.pessoa);
+      // fichas extras: coroa (se ainda não girada), desafios-relâmpago e as da head
       const fichasCom=r=>fichasSemana(r)
         +((reinado&&reinado.pessoa===r.pessoa&&!reinado.ficha_usada)?1:0)
-        +desafios.filter(d=>d.vencedor===r.pessoa).length;
+        +desafios.filter(d=>d.vencedor===r.pessoa).length
+        +(fx[r.pessoa]||0);
       const ordF=[...pl].sort((a,b)=>fichasCom(b)-fichasCom(a)||(+b.valor_novos)-(+a.valor_novos));
       // empate no critério da semana → decide o MAIOR VALOR (Bruna, 25/08)
       const ordC=[...pl].sort((a,b)=>cc.medir(b)-cc.medir(a)||(+b.valor_novos)-(+a.valor_novos));
@@ -3965,6 +3990,9 @@ async function telaComercial(){
           &#9889; <b>${esc(desafio.nome)}</b> — ${esc(desafio.descricao||"")}${desafio.vencedor
             ?`<br>&#127937; <b>Conquistado por ${esc(desafio.vencedor)}!</b>${desafio.valor?` (${fmtR$(+desafio.valor)} · ${new Date(desafio.quando).toLocaleString("pt-BR",{weekday:"short",hour:"2-digit",minute:"2-digit"})})`:" (confirmado pela head)"} — ficha extra já no placar`
             :" · <span style=\'opacity:.85\'>ainda em aberto — corre!</span>"}</div>`).join("")}
+        ${extras.length||E.perfil.head_sim?`<div style="background:rgba(255,255,255,.15);border-radius:10px;padding:7px 12px;margin-top:8px;font-size:12px">
+          &#127903;&#65039; <b>Fichas extras da head:</b> ${extras.length?extras.map(e2=>`${esc(e2.pessoa)} ${e2.qtd>0?"+":""}${e2.qtd} <span style="opacity:.85">(${esc(e2.motivo)})</span>${E.perfil.head_sim?` <span style="cursor:pointer" title="apagar" onclick="apagarFichaExtra(${e2.id})">&#10005;</span>`:""}`).join(" &nbsp;·&nbsp; "):"nenhuma nesta semana"}
+          ${E.perfil.head_sim?` &nbsp;<button class="btn bts btsm" style="padding:1px 8px;font-size:10px" onclick="abrirFichaExtra()">+ dar ficha</button>`:""}</div>`:""}
         <div style="background:rgba(255,255,255,.12);border-radius:10px;padding:8px 12px;margin-top:9px;font-size:12.5px">
           &#128081; <b>Corrida da PRÓXIMA coroa: ${cc.rotulo}</b> <span style="opacity:.85">(${cc.desc})</span><br>
           ${lider?`Na frente agora: <b>${esc(lider.pessoa)}</b> — ${cc.fmt(lider)}${ordC[1]&&cc.medir(ordC[1])>0?` · na cola: ${esc(ordC[1].pessoa)} (${cc.fmt(ordC[1])})`:""} <span style="opacity:.8">· o líder vê o sistema coroado em dourado &#128081;</span>`
