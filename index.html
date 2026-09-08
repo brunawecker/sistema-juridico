@@ -361,6 +361,54 @@ const propostasDe=(lista,nome)=>(lista||[]).filter(p=>propNaRua(p)&&(
 const minhasNaRua=(lista,nome)=>(lista||[]).filter(p=>propNaRua(p)&&String(p.responsavel||p.quem_pediu||p.executor||"").trim()===nome);
 // 👑 critério rotativo da coroa (Programa de Engajamento): semana 1 operação,
 // 2 voto do time, 3 valor, 4 volume; 5ª semana volta à operação
+const EH_FOLGA=/home office|dia de folga|mais tarde|mais cedo/i;
+async function quadroPremios(){
+  const ps=await DB.premios()||[];
+  if(!ps.length)return "";
+  const pend=ps.filter(x=>!x.entregue),ent=ps.filter(x=>x.entregue);
+  const porP={};ps.forEach(x=>{(porP[x.pessoa]=porP[x.pessoa]||[]).push(x);});
+  const chip=n=>{const meus=porP[n],pd=meus.filter(x=>!x.entregue);
+    const fol=pd.filter(x=>EH_FOLGA.test(x.premio)).length;
+    return `<span style="background:${fol?"var(--amber-lt)":"var(--gray-lt)"};border-radius:10px;padding:4px 10px;font-size:12px">
+      <b>${esc(n)}</b> · ${pd.length} pendente(s)${fol?` · <b style="color:var(--amber)">&#127958;&#65039; ${fol} folga(s)</b>`:""}</span>`;};
+  const linha=x=>`<div class="linha-item"><span style="font-size:12px">
+      <span class="mono" style="color:var(--gray)">${brData(x.semana)}</span> · <b>${esc(x.pessoa)}</b>
+      ${x.numero?`<span class="tag tz">nº ${x.numero}</span>`:""} ${EH_FOLGA.test(x.premio)?"&#127958;&#65039; ":""}${esc(x.premio)}</span>
+    <span><button class="btn ${x.entregue?"bts":"btg"} btsm" onclick="togglePremio(${x.id})">${x.entregue?"desfazer":"&#10003; entregue"}</button>
+      <button class="btn bts btsm" title="apagar" onclick="apagarPremio(${x.id})">&#10005;</button></span></div>`;
+  return `<div class="painel"><div class="bloco-t">&#127873; Prêmios da roleta — visão das heads
+      <button class="btn btp btsm" style="margin-left:8px" onclick="abrirPremioNovo()">+ prêmio</button></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${Object.keys(porP).sort().map(chip).join("")}</div>
+    <div class="bloco-t" style="color:var(--amber)">A entregar / usufruir (${pend.length})</div>
+    ${pend.map(linha).join("")||'<div class="vazio">Nada pendente 🎉</div>'}
+    <details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px;color:var(--gray)">&#10003; Já entregues (${ent.length}) — toque para ver</summary>
+    ${ent.map(linha).join("")}</details>
+    <div style="font-size:10.5px;color:var(--gray);margin-top:6px">&#127958;&#65039; = folga (home office, chegar tarde, sair cedo, dia de folga) — combine a data antes de marcar como entregue. Assessores não veem este quadro.</div></div>`;
+}
+async function togglePremio(id){
+  try{await DB.premioToggle(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Atualizado!","ok");telaComercial();}
+async function apagarPremio(id){
+  if(!confirm("Apagar este prêmio do controle?"))return;
+  try{await DB.premioApagar(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Apagado.","ok");telaComercial();}
+function abrirPremioNovo(){
+  const nomes=[...new Set((E.equipe||[]).filter(m=>String(m.status||"").toUpperCase()==="ATIVO").map(m=>m.nome_sistema))].sort();
+  modal2("&#127873; Registrar prêmio da roleta","Entra no controle das heads como pendente",`
+    <div class="bloco-t">Pessoa *</div>
+    <select class="fsel" id="pm-quem" style="width:100%">${nomes.map(n=>`<option>${esc(n)}</option>`).join("")}</select>
+    <div class="linha-acao" style="margin-top:8px">
+      <label style="font-size:11px">Sexta da roleta:</label><input type="date" class="fsel" id="pm-sem">
+      <label style="font-size:11px">Nº:</label><input type="number" class="fsel" id="pm-num" style="width:70px"></div>
+    <div class="bloco-t" style="margin-top:8px">Prêmio *</div>
+    <input class="fi" id="pm-desc" placeholder="Ex: Vale iFood · Home office · Pix de R$50...">
+    <button class="btn btp btw" style="margin-top:10px" onclick="salvarPremioNovo()">&#127873; Registrar</button>`);}
+async function salvarPremioNovo(){
+  const quem=ge("pm-quem").value,sem=ge("pm-sem").value||null,
+    num=parseInt(ge("pm-num").value)||null,desc=(ge("pm-desc").value||"").trim();
+  if(!desc){toast("Descreva o prêmio.","erro");return;}
+  try{await DB.premioAdd(sem,quem,num,desc);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Prêmio registrado!","ok");fecharModal2();telaComercial();}
 function abrirFichaExtra(){
   modal2("&#127903;&#65039; Ficha extra da head","Vale para a semana atual — fica registrado quem deu e o motivo",`
     <div class="bloco-t">Para quem *</div>
@@ -587,6 +635,10 @@ const S = {
   async placar(){return okS(await supa.rpc("placar_semana"))||[];},
   async desafioSemana(){return okS(await supa.rpc("desafio_semana"))||[];},
   async fichasExtras(){return okS(await supa.rpc("fichas_extras_semana"))||[];},
+  async premios(){return okS(await supa.rpc("premios_listar"))||[];},
+  async premioAdd(sem,p,n,pr){return rpcS("premio_add",{p_semana:sem||null,p_pessoa:p,p_numero:n||null,p_premio:pr});},
+  async premioToggle(id){return rpcS("premio_toggle",{p_id:id});},
+  async premioApagar(id){return rpcS("premio_apagar",{p_id:id});},
   async fichaExtraDar(p,q,m){return rpcS("ficha_extra_dar",{p_pessoa:p,p_qtd:q,p_motivo:m});},
   async fichaExtraApagar(id){return rpcS("ficha_extra_apagar",{p_id:id});},
   async coroaAtual(){const r=okS(await supa.from("coroa").select("*"))||[];
@@ -4017,7 +4069,9 @@ async function telaComercial(){
   let h;
   if(!ehHead){
     const c=calc(eu);
-    h=placarHtml+`<div class="painel"><div class="bloco-t">&#128188; Comercial — ${esc(mesNome)}</div>`;
+    let premiosHtml="";
+    if(E.perfil.head_sim){try{premiosHtml=await quadroPremios();}catch(e){}}
+    h=placarHtml+premiosHtml+`<div class="painel"><div class="bloco-t">&#128188; Comercial — ${esc(mesNome)}</div>`;
     if(!c.liberada)h+=`<div class="aviso info" style="margin-bottom:8px">&#128274; A meta deste mês ainda não foi liberada pelas heads — os demais números já são ao vivo.</div>`;
     h+=visaoPessoal(eu,c.liberada);
   }else{
@@ -4026,7 +4080,9 @@ async function telaComercial(){
     const pessoas=[...new Set([...metas.map(m=>m.pessoa),...pags.map(p=>p.credito).filter(Boolean),
       ...fechs.map(f=>f.pessoa)])].filter(Boolean).sort((a,b)=>a.localeCompare(b));
     const rotAlvo=alvo==="__EQUIPE__"?"Equipe":(alvo===eu?"Meu Comercial":esc(alvo));
-    h=placarHtml+`<div class="painel"><div class="bloco-t">&#128188; Comercial — ${rotAlvo} — ${esc(mesNome)}</div>
+    let premiosHtml2="";
+    if(E.perfil.head_sim){try{premiosHtml2=await quadroPremios();}catch(e){}}
+    h=placarHtml+premiosHtml2+`<div class="painel"><div class="bloco-t">&#128188; Comercial — ${rotAlvo} — ${esc(mesNome)}</div>
       <div class="linha-acao" style="margin-bottom:8px;align-items:center">
         <select class="fsel" id="com-alvo" onchange="E._comAlvo=this.value;telaComercial()">
           <option value="__EQUIPE__" ${alvo==="__EQUIPE__"?"selected":""}>&#128101; Equipe (geral)</option>
