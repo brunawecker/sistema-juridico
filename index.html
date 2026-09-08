@@ -1633,7 +1633,10 @@ function desenharCard(t,hist){
     <div>Próxima revisão:<br><b>${brData(t.data_revisao_dt)||"—"}</b></div>
     ${t.prazo_fatal_dt?`<div>Prazo fatal:<br><b style="color:${t._prazoAlerta?"var(--red)":"var(--navy)"}">${brData(t.prazo_fatal_dt)}</b>
       ${(isHead||ehMeuNome(t.assessor))?` <button class="btn bts btsm" style="padding:1px 8px;font-size:10px" title="O prazo foi cumprido — limpar o alerta" onclick="marcarPrazoCumprido()">&#10003; cumprido</button>`:""}</div>`:""}
-    <div>Responsável:<br><b>${esc(t.assessor||"—")}</b></div></div>
+    <div>Responsável:<br><b>${esc(t.assessor||"—")}</b></div>
+    <div>Criada em:<br><b>${(()=>{if(t.data_inclusao_dt)return brData(String(t.data_inclusao_dt).slice(0,10));
+      const v=String(t.data_inclusao||"").trim().split(" ")[0];
+      return v.includes("-")?brData(v):esc(v)||"—";})()}</b></div></div>
     <div id="cli-extra" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"></div>
     <div class="bloco" style="margin-top:10px"><div class="bloco-t">&#128206; Documentos</div>
       <div id="docs-box" style="font-size:12px;color:var(--gray)">carregando…</div>
