@@ -365,7 +365,11 @@ const EH_FOLGA=/home office|dia de folga|mais tarde|mais cedo/i;
 async function quadroPremios(){
   const ps=await DB.premios()||[];
   if(!ps.length)return "";
-  const pend=ps.filter(x=>!x.entregue),ent=ps.filter(x=>x.entregue);
+  // filtro por pessoa + ordem alfabética (pedido da Bruna, 08/09/2026)
+  const filtro=E._premFiltro||"";
+  const ordP=(a,b)=>a.pessoa.localeCompare(b.pessoa)||String(b.semana).localeCompare(String(a.semana))||(a.numero||0)-(b.numero||0);
+  const psF=(filtro?ps.filter(x=>x.pessoa===filtro):ps).slice().sort(ordP);
+  const pend=psF.filter(x=>!x.entregue),ent=psF.filter(x=>x.entregue);
   const porP={};ps.forEach(x=>{(porP[x.pessoa]=porP[x.pessoa]||[]).push(x);});
   const chip=n=>{const meus=porP[n],pd=meus.filter(x=>!x.entregue);
     const fol=pd.filter(x=>EH_FOLGA.test(x.premio)).length;
@@ -397,7 +401,10 @@ async function quadroPremios(){
   const agendaHtml=agenda.length?`<div style="background:var(--amber-lt);border-radius:9px;padding:6px 11px;margin-bottom:7px;font-size:12px">
       &#128197; <b>Próximas folgas combinadas:</b> ${agenda.map(x=>`${brData(x.data_uso)} — <b>${esc(x.pessoa)}</b> (${esc(x.premio)})`).join(" · ")}</div>`:"";
   return `<div class="painel"><div class="bloco-t">&#127873; Prêmios da roleta — visão das heads
-      <button class="btn btp btsm" style="margin-left:8px" onclick="abrirPremioNovo()">+ prêmio</button></div>
+      <button class="btn btp btsm" style="margin-left:8px" onclick="abrirPremioNovo()">+ prêmio</button>
+      <select class="fsel" style="margin-left:8px;font-size:11px" onchange="E._premFiltro=this.value;telaComercial()">
+        <option value="">&#128100; Todos</option>
+        ${Object.keys(porP).sort((x,y)=>x.localeCompare(y)).map(n=>`<option ${filtro===n?"selected":""}>${esc(n)}</option>`).join("")}</select></div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${Object.keys(porP).sort().map(chip).join("")}</div>
     ${gastoHtml}${agendaHtml}
     <div class="bloco-t" style="color:var(--amber)">A entregar / usufruir (${pend.length})</div>
