@@ -381,9 +381,15 @@ async function quadroPremios(){
       <button class="btn bts btsm" title="apagar" onclick="apagarPremio(${x.id})">&#10005;</button></span></div>`;
   E._premMap={};ps.forEach(x=>{E._premMap[x.id]=x;});
   const gastoPor={};ps.forEach(x=>{if(x.valor&&x.pago_por)gastoPor[x.pago_por]=(gastoPor[x.pago_por]||0)+(+x.valor);});
-  const gastoHtml=Object.keys(gastoPor).length?`<div style="background:var(--green-lt);border-radius:9px;padding:6px 11px;margin-bottom:7px;font-size:12px">
+  const comCusto=ps.filter(x=>+x.valor>0);
+  const media=comCusto.length?comCusto.reduce((a,x)=>a+(+x.valor),0)/comCusto.length:0;
+  const aPagar=ps.filter(x=>!x.entregue&&+x.valor>0).reduce((a,x)=>a+(+x.valor),0);
+  const custoHtml=comCusto.length?`<div style="background:var(--dani-lt);border-radius:9px;padding:6px 11px;margin-bottom:7px;font-size:12px">
+      &#128202; <b>Investimento no programa:</b> média de <b>${fmtR$(media)}</b> por prêmio com custo (${comCusto.length} precificados)
+      · pendentes a pagar: <b>${fmtR$(aPagar)}</b> <span style="color:var(--gray)">— ajuste qualquer valor no &#9998; de cada prêmio</span></div>`:"";
+  const gastoHtml=custoHtml+(Object.keys(gastoPor).length?`<div style="background:var(--green-lt);border-radius:9px;padding:6px 11px;margin-bottom:7px;font-size:12px">
       &#128176; <b>Gasto por head:</b> ${Object.entries(gastoPor).sort((a,b)=>b[1]-a[1]).map(([n,v])=>`${esc(n)} ${fmtR$(v)}`).join(" · ")}
-      <span style="color:var(--gray)"> — some ${fmtR$(Object.values(gastoPor).reduce((a,b)=>a+b,0))}; acertem a diferença entre si</span></div>`:"";
+      <span style="color:var(--gray)"> — some ${fmtR$(Object.values(gastoPor).reduce((a,b)=>a+b,0))}; acertem a diferença entre si</span></div>`:"");
   const agenda=ps.filter(x=>x.data_uso&&x.data_uso>=hojeISO()).sort((a,b)=>a.data_uso.localeCompare(b.data_uso));
   const agendaHtml=agenda.length?`<div style="background:var(--amber-lt);border-radius:9px;padding:6px 11px;margin-bottom:7px;font-size:12px">
       &#128197; <b>Próximas folgas combinadas:</b> ${agenda.map(x=>`${brData(x.data_uso)} — <b>${esc(x.pessoa)}</b> (${esc(x.premio)})`).join(" · ")}</div>`:"";
