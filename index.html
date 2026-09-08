@@ -373,18 +373,48 @@ async function quadroPremios(){
       <b>${esc(n)}</b> · ${pd.length} pendente(s)${fol?` · <b style="color:var(--amber)">&#127958;&#65039; ${fol} folga(s)</b>`:""}</span>`;};
   const linha=x=>`<div class="linha-item"><span style="font-size:12px">
       <span class="mono" style="color:var(--gray)">${brData(x.semana)}</span> · <b>${esc(x.pessoa)}</b>
-      ${x.numero?`<span class="tag tz">nº ${x.numero}</span>`:""} ${EH_FOLGA.test(x.premio)?"&#127958;&#65039; ":""}${esc(x.premio)}</span>
-    <span><button class="btn ${x.entregue?"bts":"btg"} btsm" onclick="togglePremio(${x.id})">${x.entregue?"desfazer":"&#10003; entregue"}</button>
+      ${x.numero?`<span class="tag tz">nº ${x.numero}</span>`:""} ${EH_FOLGA.test(x.premio)?"&#127958;&#65039; ":""}${esc(x.premio)}
+      ${x.valor?`<span class="tag tv">${fmtR$(+x.valor)}${x.pago_por?" · pagou "+esc(x.pago_por):""}</span>`:x.pago_por?`<span class="tag tv">pagou ${esc(x.pago_por)}</span>`:""}
+      ${x.data_uso?`<span class="tag ${x.data_uso>=hojeISO()?"ta":"tm"}">&#128197; ${x.data_uso>=hojeISO()?"usufrui":"usufruiu"} ${brData(x.data_uso)}</span>`:""}</span>
+    <span><button class="btn bts btsm" title="valor, quem pagou e data de usufruto" onclick="abrirPremioEditar(${x.id})">&#9998;</button>
+      <button class="btn ${x.entregue?"bts":"btg"} btsm" onclick="togglePremio(${x.id})">${x.entregue?"desfazer":"&#10003; entregue"}</button>
       <button class="btn bts btsm" title="apagar" onclick="apagarPremio(${x.id})">&#10005;</button></span></div>`;
+  E._premMap={};ps.forEach(x=>{E._premMap[x.id]=x;});
+  const gastoPor={};ps.forEach(x=>{if(x.valor&&x.pago_por)gastoPor[x.pago_por]=(gastoPor[x.pago_por]||0)+(+x.valor);});
+  const gastoHtml=Object.keys(gastoPor).length?`<div style="background:var(--green-lt);border-radius:9px;padding:6px 11px;margin-bottom:7px;font-size:12px">
+      &#128176; <b>Gasto por head:</b> ${Object.entries(gastoPor).sort((a,b)=>b[1]-a[1]).map(([n,v])=>`${esc(n)} ${fmtR$(v)}`).join(" · ")}
+      <span style="color:var(--gray)"> — some ${fmtR$(Object.values(gastoPor).reduce((a,b)=>a+b,0))}; acertem a diferença entre si</span></div>`:"";
+  const agenda=ps.filter(x=>x.data_uso&&x.data_uso>=hojeISO()).sort((a,b)=>a.data_uso.localeCompare(b.data_uso));
+  const agendaHtml=agenda.length?`<div style="background:var(--amber-lt);border-radius:9px;padding:6px 11px;margin-bottom:7px;font-size:12px">
+      &#128197; <b>Próximas folgas combinadas:</b> ${agenda.map(x=>`${brData(x.data_uso)} — <b>${esc(x.pessoa)}</b> (${esc(x.premio)})`).join(" · ")}</div>`:"";
   return `<div class="painel"><div class="bloco-t">&#127873; Prêmios da roleta — visão das heads
       <button class="btn btp btsm" style="margin-left:8px" onclick="abrirPremioNovo()">+ prêmio</button></div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${Object.keys(porP).sort().map(chip).join("")}</div>
+    ${gastoHtml}${agendaHtml}
     <div class="bloco-t" style="color:var(--amber)">A entregar / usufruir (${pend.length})</div>
     ${pend.map(linha).join("")||'<div class="vazio">Nada pendente 🎉</div>'}
     <details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px;color:var(--gray)">&#10003; Já entregues (${ent.length}) — toque para ver</summary>
     ${ent.map(linha).join("")}</details>
     <div style="font-size:10.5px;color:var(--gray);margin-top:6px">&#127958;&#65039; = folga (home office, chegar tarde, sair cedo, dia de folga) — combine a data antes de marcar como entregue. Assessores não veem este quadro.</div></div>`;
 }
+function abrirPremioEditar(id){
+  const x=(E._premMap||{})[id];if(!x)return;
+  const folga=EH_FOLGA.test(x.premio);
+  modal2("&#9998; "+esc(x.premio),esc(x.pessoa)+" · roleta de "+brData(x.semana),`
+    <div class="bloco-t">&#128176; Quanto custou (R$)</div>
+    <input class="fsel" id="pe-valor" style="width:120px" placeholder="0,00" value="${x.valor?String(x.valor).replace(".",","):""}">
+    <div class="bloco-t" style="margin-top:8px">Qual head pagou</div>
+    <select class="fsel" id="pe-quem" style="width:100%">
+      <option value="">(ainda não pago / não se aplica)</option>
+      ${["Bruna","Danielly","Eduarda"].map(n=>`<option ${x.pago_por===n?"selected":""}>${n}</option>`).join("")}</select>
+    <div class="bloco-t" style="margin-top:8px">&#128197; Data ${folga?"combinada para usufruir (folga/home/horário)":"de usufruto (se for o caso)"}</div>
+    <input type="date" class="fsel" id="pe-data" value="${x.data_uso||""}">
+    <button class="btn btp btw" style="margin-top:10px" onclick="salvarPremioEditar(${id})">&#128190; Salvar</button>`);}
+async function salvarPremioEditar(id){
+  const v=numBR((ge("pe-valor").value||"").trim())||null;
+  const quem=ge("pe-quem").value,dt=ge("pe-data").value||null;
+  try{await DB.premioEditar(id,v,quem,dt);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Salvo!","ok");fecharModal2();telaComercial();}
 async function togglePremio(id){
   try{await DB.premioToggle(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Atualizado!","ok");telaComercial();}
@@ -639,6 +669,7 @@ const S = {
   async premioAdd(sem,p,n,pr){return rpcS("premio_add",{p_semana:sem||null,p_pessoa:p,p_numero:n||null,p_premio:pr});},
   async premioToggle(id){return rpcS("premio_toggle",{p_id:id});},
   async premioApagar(id){return rpcS("premio_apagar",{p_id:id});},
+  async premioEditar(id,v,quem,dt){return rpcS("premio_editar",{p_id:id,p_valor:v,p_pago_por:quem||"",p_data_uso:dt||null});},
   async fichaExtraDar(p,q,m){return rpcS("ficha_extra_dar",{p_pessoa:p,p_qtd:q,p_motivo:m});},
   async fichaExtraApagar(id){return rpcS("ficha_extra_apagar",{p_id:id});},
   async coroaAtual(){const r=okS(await supa.from("coroa").select("*"))||[];
