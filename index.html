@@ -374,13 +374,16 @@ async function quadroPremios(){
   const linha=x=>`<div class="linha-item"><span style="font-size:12px">
       <span class="mono" style="color:var(--gray)">${brData(x.semana)}</span> · <b>${esc(x.pessoa)}</b>
       ${x.numero?`<span class="tag tz">nº ${x.numero}</span>`:""} ${EH_FOLGA.test(x.premio)?"&#127958;&#65039; ":""}${esc(x.premio)}
-      ${x.valor?`<span class="tag tv">${fmtR$(+x.valor)}${x.pago_por?" · pagou "+esc(x.pago_por):""}</span>`:x.pago_por?`<span class="tag tv">pagou ${esc(x.pago_por)}</span>`:""}
+      ${(()=>{const rot=x.pago_por?(/ratead|todas/i.test(x.pago_por)?"&#129309; rateado entre as heads":"pagou "+esc(x.pago_por)):"";
+        return x.valor?`<span class="tag tv">${fmtR$(+x.valor)}${rot?" · "+rot:""}</span>`:rot?`<span class="tag tv">${rot}</span>`:"";})()}
       ${x.data_uso?`<span class="tag ${x.data_uso>=hojeISO()?"ta":"tm"}">&#128197; ${x.data_uso>=hojeISO()?"usufrui":"usufruiu"} ${brData(x.data_uso)}</span>`:""}</span>
     <span><button class="btn bts btsm" title="valor, quem pagou e data de usufruto" onclick="abrirPremioEditar(${x.id})">&#9998;</button>
       <button class="btn ${x.entregue?"bts":"btg"} btsm" onclick="togglePremio(${x.id})">${x.entregue?"desfazer":"&#10003; entregue"}</button>
       <button class="btn bts btsm" title="apagar" onclick="apagarPremio(${x.id})">&#10005;</button></span></div>`;
   E._premMap={};ps.forEach(x=>{E._premMap[x.id]=x;});
-  const gastoPor={};ps.forEach(x=>{if(x.valor&&x.pago_por)gastoPor[x.pago_por]=(gastoPor[x.pago_por]||0)+(+x.valor);});
+  const gastoPor={};ps.forEach(x=>{if(!(+x.valor)||!x.pago_por)return;
+    if(/ratead|todas/i.test(x.pago_por))["Bruna","Danielly","Eduarda"].forEach(n=>gastoPor[n]=(gastoPor[n]||0)+(+x.valor)/3);
+    else gastoPor[x.pago_por]=(gastoPor[x.pago_por]||0)+(+x.valor);});
   const comCusto=ps.filter(x=>+x.valor>0);
   const media=comCusto.length?comCusto.reduce((a,x)=>a+(+x.valor),0)/comCusto.length:0;
   const aPagar=ps.filter(x=>!x.entregue&&+x.valor>0).reduce((a,x)=>a+(+x.valor),0);
@@ -412,7 +415,8 @@ function abrirPremioEditar(id){
     <div class="bloco-t" style="margin-top:8px">Qual head pagou</div>
     <select class="fsel" id="pe-quem" style="width:100%">
       <option value="">(ainda não pago / não se aplica)</option>
-      ${["Bruna","Danielly","Eduarda"].map(n=>`<option ${x.pago_por===n?"selected":""}>${n}</option>`).join("")}</select>
+      ${["Bruna","Danielly","Eduarda"].map(n=>`<option ${x.pago_por===n?"selected":""}>${n}</option>`).join("")}
+      <option value="Rateado entre as heads" ${/ratead/i.test(x.pago_por||"")?"selected":""}>&#129309; Todas — rateado na hora do pagamento</option></select>
     <div class="bloco-t" style="margin-top:8px">&#128197; Data ${folga?"combinada para usufruir (folga/home/horário)":"de usufruto (se for o caso)"}</div>
     <input type="date" class="fsel" id="pe-data" value="${x.data_uso||""}">
     <button class="btn btp btw" style="margin-top:10px" onclick="salvarPremioEditar(${id})">&#128190; Salvar</button>`);}
