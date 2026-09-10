@@ -2702,7 +2702,11 @@ async function telaDiario(dia){
     <button class="btn bts btsm" onclick="diarioNavegar(1)" ${ehHoje?"disabled":""} title="Dia seguinte">&#9654;</button>
     ${ehHoje?`<b style="font-size:12px;color:var(--green)">&#9679; Hoje</b>`
       :`<button class="btn btp btsm" onclick="telaDiario()">Voltar para hoje</button>
-        <span style="font-size:12px;color:var(--gray)">Mostrando <b>${brData(d)}</b></span>`}</div>`;
+        <span style="font-size:12px;color:var(--gray)">Mostrando <b>${brData(d)}</b></span>`}
+    <select class="fsel" onchange="E._diarioAdv=this.value;telaDiario(E.diaSel)" title="Filtra as tarefas de cada assessor pela advogada da carteira">
+      <option value="">&#9878; Advogada: todas</option>
+      ${[...new Set(ts.map(t=>String(t.advogada||"").trim()).filter(Boolean))].sort((x,y)=>x.localeCompare(y))
+        .map(n=>`<option ${(E._diarioAdv||"")===n?"selected":""}>${esc(n)}</option>`).join("")}</select></div>`;
   // resumo do dia: fotografia do robô + conclusões por pessoa
   const sn=(snap||[])[0];
   // conclusões do dia: cartões concluídos + impulsos finalizados (📥 evita
@@ -2763,8 +2767,8 @@ async function telaDiario(dia){
     if(r.tipo==="TIMER"){const m=parseInt((String(r.texto||"").match(/(\d+)\s*min/)||[0,0])[1]);o.min+=m;trf.min+=m;}
     else if(r.tipo!=="HISTORICO"){o.upd++;if(r.texto)trf.and.push({tipo:r.tipo,texto:r.texto});}
     const mt=mapa[k],enc=mapaEnc[k];
-    if(mt){trf.cliente=mt.cliente;trf.op=mt.operacao||"";trf.impulso=!!mt._impulso;}
-    else if(enc){trf.cliente=enc.cliente||"";trf.op=enc.operacao||"";trf.encerrada=true;}
+    if(mt){trf.cliente=mt.cliente;trf.op=mt.operacao||"";trf.impulso=!!mt._impulso;trf.adv=String(mt.advogada||"").trim();}
+    else if(enc){trf.cliente=enc.cliente||"";trf.op=enc.operacao||"";trf.encerrada=true;trf.adv=String(enc.head||"").trim();}
     else if(String(k).startsWith("OP-")&&r.id_cliente){
       // impulso finalizado hoje: a subtarefa já não existe — resolve o nome
       // do cliente pelo id e marca como impulso devolvido
@@ -2798,8 +2802,12 @@ async function telaDiario(dia){
   if(!lista.length){h+=`<div class="vazio"><div style="font-size:28px">&#9200;</div><p>Sem atividade registrada ${ehHoje?"hoje ainda":"em "+brData(d)}.</p></div>`;
     ge("conteudo").innerHTML=h;return;}
   const mx=Math.max(1,...lista.map(([,d])=>d.upd));
+  const fAdv=(E._diarioAdv||"").trim();
   h+=lista.map(([nome,d],di)=>{const nc=nomeCompletoDe(nome);
-    const tar=Object.entries(d.tarefas).map(([tid,t],ti)=>{
+    const entradas=Object.entries(d.tarefas).filter(([tid,t])=>!fAdv||String(t.adv||"").trim()===fAdv);
+    if(fAdv&&!entradas.length)return "";
+    const minF=entradas.reduce((ac,[,t])=>ac+(t.min||0),0);
+    const tar=entradas.map(([tid,t],ti)=>{
       const temAnd=t.and.length>0;
       const and=temAnd?`<div id="and-${di}-${ti}" style="display:none;margin:4px 0 6px 14px;padding:8px 12px;background:var(--ice);border-radius:8px;border-left:3px solid var(--dani)">
         ${t.and.map(a=>`<div style="font-size:12px;margin-bottom:4px"><span class="htipo">${esc(a.tipo)}</span> ${esc(a.texto)}</div>`).join("")}</div>`:"";
@@ -2811,7 +2819,7 @@ async function telaDiario(dia){
     const badgeDia=totDia?` <span style="font-weight:700;color:${corDia};font-size:12px">&#9989; ${fz} de ${totDia} do dia</span>`:"";
     return `<div class="painel"><div style="display:flex;justify-content:space-between;margin-bottom:6px">
       <span style="font-weight:700;color:var(--navy)">${esc(nome)}${nc?` <span style="font-weight:400;color:var(--gray);font-size:12px">(${esc(nc)})</span>`:""}${badgeDia}</span>
-      <span style="font-size:12px;color:var(--gray)">${d.upd} atualizações · ${fmtMin(d.min)}</span></div>
+      <span style="font-size:12px;color:var(--gray)">${fAdv?`${entradas.length} tarefa(s) da carteira ${esc(fAdv)} · ${fmtMin(minF)}`:`${d.upd} atualizações · ${fmtMin(d.min)}`}</span></div>
       <div class="cap"><div style="width:${Math.round(d.upd/mx*100)}%;background:var(--navy)"></div></div>${tar}</div>`;}).join("");
   ge("conteudo").innerHTML=h;
 }
