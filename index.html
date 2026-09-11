@@ -1272,6 +1272,22 @@ function classificar(t){
   else t._g=4;
   return t;
 }
+function dataLanc(t){
+  if(t.data_inclusao_dt)return brData(String(t.data_inclusao_dt).slice(0,10));
+  const v=String(t.data_inclusao||"").trim().split(" ")[0];
+  if(!v)return "";
+  if(v.includes("-"))return brData(v);
+  const m=v.match(/^(\d{2})\/(\d{2})\/(\d{2,4})$/);
+  return m?(m[3].length===2?`${m[1]}/${m[2]}/20${m[3]}`:v):v;
+}
+// etiqueta "lançada em" das imediatas: imediata é para o DIA do lançamento —
+// azul se lançada hoje, vermelha se está rolando de um dia para o outro
+function tagLanc(t){
+  if(String(t._chk||t.check_||"").toUpperCase()!=="IMEDIATO")return "";
+  const d=dataLanc(t);if(!d)return "";
+  const hojeBr=brData(hojeISO());
+  return `<span class="tag ${d===hojeBr?"tz":"ti"}" title="Imediata deve ser cumprida no dia do lançamento">lançada ${d}</span>`;
+}
 function cardTarefa(t,mostrarAssessor,mostrarTempo){
   const ec={IMEDIATO:'<span class="tag ti">IMEDIATO</span>',"DIÁRIO":'<span class="tag td2">DIÁRIO</span>',
     DIARIO:'<span class="tag td2">DIÁRIO</span>',SEMANAL:'<span class="tag ts">SEMANAL</span>',
@@ -1293,7 +1309,7 @@ function cardTarefa(t,mostrarAssessor,mostrarTempo){
   const tmp=mostrarTempo?`<span class="tco" style="font-family:'DM Mono'">&#9201;${t._tempo}min</span>`:"";
   return `<div class="tc u${t._g||5}" onclick="abrirTarefa('${esc(t.id_tarefa)}')"><div style="flex:1;min-width:0">
     <div class="tcc">${esc(t.cliente)}${fin}</div>
-    <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${ec}${es}${hd}${pf}${ass}${tmp}</div></div>
+    <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${ec}${tagLanc(t)}${es}${hd}${pf}${ass}${tmp}</div></div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">${dt}${t.prazo_fatal_dt?`<span class="tdy ov" style="font-weight:700">FATAL: ${brData(t.prazo_fatal_dt)}</span>`:""}</div></div>`;
 }
 // Banner de prazos fatais desta semana (clicável)
@@ -1574,6 +1590,7 @@ function renderKanban(lista){
       ${ct.map(t=>`<div class="tc u${k}" style="margin-bottom:6px" onclick="abrirTarefa('${esc(t.id_tarefa)}')">
         <div style="flex:1;min-width:0"><div class="tcc">${esc(t.cliente)}</div>
         <div class="tco">${esc(t.operacao||"")}</div>
+        ${k===1&&dataLanc(t)?`<div class="tco" style="color:${dataLanc(t)===brData(hojeISO())?"var(--dani)":"var(--red)"};font-weight:700">lançada ${dataLanc(t)}</div>`:""}
         <div class="tco" style="font-family:'DM Mono';margin-top:4px">&#9201; ~${t._tempo}min</div></div></div>`).join("")}</div>`;
   }).join("")+`</div>`;
 }
@@ -3127,7 +3144,7 @@ async function verDia(k){
         <span style="font-size:11px;color:${c.text};font-weight:600">${grupo.length} tarefa(s) · &asymp;${fmtMin(min)}</span></div>
       ${grupo.map((x,i)=>{const rot=x.tipo==="agendado"?"data marcada":x.tipo==="estimado"?"estimado":"&#8635; recorrente";
         return `<div class="linha-item" style="cursor:pointer;background:white;border-radius:8px;margin-bottom:4px;padding:6px 10px" onclick="abrirTarefa('${esc(x.t.id_tarefa)}')">
-        <span><b style="color:${c.text}">${i+1}.</b> ${esc(String(x.t.cliente||"").slice(0,42))} · ${esc(x.t.operacao||"")}${x.t._g===1?' <span class="tag ti">IMEDIATO</span>':x.t._g===2?' <span class="tag" style="background:var(--amber);color:white">atrasada</span>':""}</span>
+        <span><b style="color:${c.text}">${i+1}.</b> ${esc(String(x.t.cliente||"").slice(0,42))} · ${esc(x.t.operacao||"")}${x.t._g===1?' <span class="tag ti">IMEDIATO</span>'+(dataLanc(x.t)?` <span class="tag ${dataLanc(x.t)===brData(hojeISO())?"tz":"ti"}">lançada ${dataLanc(x.t)}</span>`:""):x.t._g===2?' <span class="tag" style="background:var(--amber);color:white">atrasada</span>':""}</span>
         <span style="font-size:10px;color:var(--gray)">${rot}</span></div>`;}).join("")}
     </div>`;});
   if(!h)h=`<div class="vazio">Nada previsto.</div>`;
