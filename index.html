@@ -2014,7 +2014,7 @@ async function concluirTarefa(){
   // parecer/proposta comercial: portão com verificação REAL no banco —
   // ou existe proposta do cliente, ou lança agora, ou justifica por escrito
   if(String(t.operacao||"").includes("Proposta Comercial")&&!E._propGateOk){
-    abrirGateProposta();return;}
+    E._gateDepois="concluir";abrirGateProposta();return;}
   let prox;if(dm)prox=dm;else{const d=new Date();d.setDate(d.getDate()+(/SEMANAL/.test(check)?7:/MENSAL/.test(check)?30:1));prox=d.toISOString().slice(0,10);}
   if(!confirm(dm?`Concluir? A tarefa volta em ${brData(dm)}.`:`Concluir? Volta sozinha pela frequência (${check}).`))return;
   try{const contaC=minutosDaSessao(t);await DB.concluir(t,{check,proximo:prox});await DB.sessaoConcluir(contaC.min);
@@ -2053,7 +2053,8 @@ async function abrirGateProposta(){
     <textarea class="fta" id="gate-just" placeholder="Ex: cliente desistiu antes do envio; parecer negativo — sem viabilidade; proposta será feita pela head..."></textarea>
     <button class="btn bts btw" style="margin-top:6px" onclick="gatePropJustificar()">Concluir sem proposta (a justificativa fica no histórico)</button>`);
 }
-function gatePropOk(){E._propGateOk=true;fecharModal2();concluirTarefa();}
+function gatePropOk(){E._propGateOk=true;fecharModal2();
+  (E._gateDepois==="encerrar"?abrirEncerrar:concluirTarefa)();}
 async function gatePropLancar(){
   const t=E.atual;fecharModal2();
   await abrirProposta();
@@ -2069,7 +2070,8 @@ async function gatePropJustificar(){
   try{await DB.nota({id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,tipo:"HISTORICO",
     texto:"🚫 Parecer/proposta comercial concluído SEM lançar proposta — justificativa: "+j});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
-  E._propGateOk=true;fecharModal2();concluirTarefa();
+  E._propGateOk=true;fecharModal2();
+  (E._gateDepois==="encerrar"?abrirEncerrar:concluirTarefa)();
 }
 async function colocarAguardando(){
   const t=E.atual,freq=parseInt(ge("ag2-freq").value)||7,fatal=ge("ag2-fatal").value;
@@ -2234,6 +2236,10 @@ async function enviarCorrecao(){
   catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Enviada para correção! Retorno "+brData(ret),"ok");fecharModal2();fecharModal();recarregar();}
 function abrirEncerrar(){const t=E.atual;
+  // o portão da proposta vale TAMBÉM no encerrar — sem isso, arquivar era
+  // uma porta lateral para fechar parecer sem proposta (fechada em 11/09/2026)
+  if(String(t.operacao||"").includes("Proposta Comercial")&&!E._propGateOk){
+    E._gateDepois="encerrar";abrirGateProposta();return;}
   modal2("&#128193; Encerrar: "+esc(t.cliente),"Esta ação move para Casos Encerrados",`
     <div class="bloco-t">Motivo *</div>
     <select class="fsel" id="en-mot" style="width:100%">${["CONCLUÍDO","RENÚNCIA","PREJUDICADO","CANCELADO","MONITORAMENTO"].map(m=>`<option>${m}</option>`).join("")}</select>
