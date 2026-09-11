@@ -3004,6 +3004,8 @@ async function telaPrevisao(mesRef){
   const mesAtual=(ano===hoje.getFullYear()&&mes===hoje.getMonth());
   const porDia={},chave=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
   const usoDia={},iniMes=new Date(ano,mes,1),fimMes=new Date(ano,mes+1,0);
+  // tarefa que cai em sáb/dom conta na SEGUNDA (ninguém trabalha no fim de semana)
+  const rola=d=>{const w=d.getDay();if(w===6)d.setDate(d.getDate()+2);else if(w===0)d.setDate(d.getDate()+1);return d;};
   const poe=(k,t,tipo)=>{(porDia[k]=porDia[k]||[]).push({t,tipo});const a=t.assessor||"?";usoDia[k+a]=(usoDia[k+a]||0)+1;};
   // repetições previstas pela frequência (a partir de uma data-âncora),
   // pintando só os dias que caem DENTRO do mês visitado
@@ -3011,13 +3013,13 @@ async function telaPrevisao(mesRef){
     if(/DIÁRIO|DIARIO/.test(f)){const d=new Date(dAncora);d.setDate(d.getDate()+1);
       while(d<=fimMes){if(d>=iniMes&&d.getDay()!==0&&d.getDay()!==6)poe(chave(d),t,"recorrente");d.setDate(d.getDate()+1);}}
     else if(/SEMANAL/.test(f)){const d=new Date(dAncora);d.setDate(d.getDate()+7);
-      while(d<=fimMes){if(d>=iniMes)poe(chave(d),t,"recorrente");d.setDate(d.getDate()+7);}}};
+      while(d<=fimMes){const dr=rola(new Date(d));if(dr>=iniMes&&dr<=fimMes)poe(chave(dr),t,"recorrente");d.setDate(d.getDate()+7);}}};
     // MENSAL: sem repetição projetada além da própria data
   // 1) tarefas com data DENTRO do mês visitado ficam no dia delas + repetições
   //    (repetições também entram vindas de âncoras de meses anteriores)
   const semData=[];
   ts.forEach(t=>{const dt=t.data_revisao_dt?new Date(t.data_revisao_dt+"T00:00:00"):null;
-    if(dt&&dt>=iniMes&&dt<=fimMes&&(dt>=hoje||!mesAtual)){poe(chave(dt),t,"agendado");repete(t,dt);}
+    if(dt&&dt>=iniMes&&dt<=fimMes&&(dt>=hoje||!mesAtual)){const dr=rola(new Date(dt));if(dr<=fimMes)poe(chave(dr),t,"agendado");repete(t,dt);}
     else if(dt&&dt>hoje&&dt<iniMes){repete(t,dt);}          // âncora antes do mês → só repetições
     else if(!t._concluida&&(dt===null||dt<=hoje))semData.push(t);});
   // 2) sem data / atrasadas: só faz sentido no MÊS ATUAL (é a fila de agora);
@@ -3035,6 +3037,7 @@ async function telaPrevisao(mesRef){
   Object.values(porDia).forEach(l=>l.sort((a,b)=>({agendado:0,estimado:1,recorrente:2}[a.tipo]-{agendado:0,estimado:1,recorrente:2}[b.tipo])));
   E._prevDias=porDia;E._prevMeta={ano,mes,foraMes,mesAtual};
   if(!E._prevFiltro)E._prevFiltro="todos";
+  if(!E._prevHead)E._prevHead="todas";
   desenhaPrevisao();
 }
 function filtraPrev(n){E._prevFiltro=n;desenhaPrevisao();}
@@ -3044,12 +3047,18 @@ function desenhaPrevisao(){
   const nomeMes=new Date(ano,mes,1).toLocaleDateString("pt-BR",{month:"long",year:"numeric"});
   const mRef=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
   const mAnt=mRef(new Date(ano,mes-1,1)),mProx=mRef(new Date(ano,mes+1,1));
-  const passa=t=>f==="todos"||primeiroNome(t.assessor||"")===f;
+  const hf=E._prevHead||"todas";
+  const passa=t=>(f==="todos"||primeiroNome(t.assessor||"")===f)
+    &&(hf==="todas"||String(t.advogada||"").trim()===hf);
   // pílulas de filtro por assessor (cores do sistema antigo)
   let pills=`<button class="btn btsm" onclick="filtraPrev('todos')" style="border-radius:20px;font-weight:700;border:2px solid ${f==="todos"?"var(--navy);background:var(--navy);color:white":"var(--border);background:white;color:var(--gray)"}">Todos</button>`;
   OPERACIONAIS.forEach(n=>{const c=corDe(n),sel=f===n;
     pills+=`<button class="btn btsm" onclick="filtraPrev('${n}')" style="border-radius:20px;font-weight:700;border:2px solid ${c.border};background:${sel?c.border:"white"};color:${sel?"white":c.text}">
       <span style="background:${c.dot};width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px;vertical-align:middle"></span>${n}</button>`;});
+  pills+=`<select class="fsel" onchange="E._prevHead=this.value;desenhaPrevisao()" title="Só as tarefas da carteira desta head">
+    <option value="todas">&#9878; Head: todas</option>
+    ${[...new Set((E.tarefas||[]).map(t=>String(t.advogada||"").trim()).filter(Boolean))].sort((x,y)=>x.localeCompare(y))
+      .map(n=>`<option ${hf===n?"selected":""}>${esc(n)}</option>`).join("")}</select>`;
   // calendário
   const prim=new Date(ano,mes,1),ini=(prim.getDay()+6)%7,nd=new Date(ano,mes+1,0).getDate();
   let cel=["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"].map(d=>`<div style="text-align:center;font-size:10px;font-weight:700;color:var(--gray);padding:4px">${d}</div>`).join("");
@@ -3060,7 +3069,8 @@ function desenhaPrevisao(){
     cel+=`<div class="cald ${ehHoje?"hoje":""}" onclick="verDia('${k}')">
       <div style="font-weight:700;font-size:12px;color:${ehHoje?"var(--dani)":"var(--text)"}">${dia}${ehHoje?' <span style="font-size:8px;background:var(--dani);color:white;border-radius:8px;padding:0 4px">HOJE</span>':""}</div>
       ${lst.slice(0,4).map(({t,tipo})=>{const c=corDe(t.assessor);
-        return `<div class="calpin" style="background:${c.bg};border-left-color:${c.border};color:${c.text};${tipo!=="agendado"?"opacity:.65;border-left-style:dashed":""}">${tipo==="recorrente"?"&#8635; ":""}${esc(primeiroNome(t.assessor))} · ${esc(String(t.cliente||"").split(" ")[0])}</div>`;}).join("")}
+        const imed=t._g===1||String(t.check_||"").toUpperCase()==="IMEDIATO";
+        return `<div class="calpin" style="background:${c.bg};border-left-color:${imed?"var(--red)":c.border};color:${c.text};${tipo!=="agendado"?"opacity:.65;border-left-style:dashed":""}">${imed?"&#9889; ":""}${tipo==="recorrente"?"&#8635; ":""}${esc(primeiroNome(t.assessor))} · ${esc(String(t.cliente||"").split(" ")[0])}</div>`;}).join("")}
       ${lst.length>4?`<div style="color:var(--dani);font-weight:700;margin-top:2px">+${lst.length-4}</div>`:""}</div>`;}
   // resumo por assessor: hoje / esta semana / no mês (igual ao antigo)
   const kHoje=hojeISO();
@@ -3069,6 +3079,7 @@ function desenhaPrevisao(){
   const kIni=segS.toISOString().slice(0,10),kFim=domS.toISOString().slice(0,10);
   const res={};OPERACIONAIS.forEach(n=>res[n]={hoje:0,sem:0,mes:0});
   Object.entries(porDia).forEach(([k,l])=>l.forEach(({t})=>{const n=primeiroNome(t.assessor||"");if(!res[n])return;
+    if(hf!=="todas"&&String(t.advogada||"").trim()!==hf)return;
     res[n].mes++;if(k===kHoje)res[n].hoje++;if(k>=kIni&&k<=kFim)res[n].sem++;}));
   const cards=OPERACIONAIS.filter(n=>f==="todos"||f===n).map(n=>{const c=corDe(n),r=res[n];
     return `<div style="background:${c.bg};border:1.5px solid ${c.border};border-radius:10px;padding:10px 13px">
@@ -3085,7 +3096,7 @@ function desenhaPrevisao(){
       <button class="btn bts btsm" onclick="telaPrevisao('${mProx}')" title="Mês seguinte">&#9654;</button>
       ${mesAtual?"":`<button class="btn btp btsm" onclick="telaPrevisao()">Voltar para hoje</button>`}</div>
     <div style="font-size:11px;color:var(--gray);margin-bottom:8px">${mesAtual
-      ?`Cheio = data definida · tracejado = estimado pela capacidade · &#8635; = repetição prevista pela frequência (semanal volta a cada 7 dias, diária todo dia útil) · clique num dia para detalhes${foraMes?` · ${foraMes} além do mês`:""}`
+      ?`Cheio = data definida · tracejado = estimado pela capacidade · &#8635; = repetição prevista · &#9889; = imediata · fim de semana conta na segunda · clique num dia para detalhes${foraMes?` · ${foraMes} além do mês`:""}`
       :`Mês ${new Date(ano,mes,1)<hoje?"passado — mostra o que estava com data marcada (clique num dia para ver o que foi feito)":"futuro — mostra datas marcadas e repetições previstas pela frequência; a fila estimada do acumulado só aparece no mês atual"}`}</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">${pills}</div></div>
     <div class="calgrid">${cel}</div>
@@ -3093,9 +3104,11 @@ function desenhaPrevisao(){
 }
 async function verDia(k){
   const f=E._prevFiltro||"todos";
-  const lst=((E._prevDias||{})[k]||[]).filter(({t})=>f==="todos"||primeiroNome(t.assessor||"")===f);
+  const hf=E._prevHead||"todas";
+  const lst=((E._prevDias||{})[k]||[]).filter(({t})=>(f==="todos"||primeiroNome(t.assessor||"")===f)
+    &&(hf==="todas"||String(t.advogada||"").trim()===hf));
   const d=k.split("-");
-  ge("m-titulo").textContent=`${d[2]}/${d[1]}/${d[0]}`+(f!=="todos"?` · ${f}`:"");
+  ge("m-titulo").textContent=`${d[2]}/${d[1]}/${d[0]}`+(f!=="todos"?` · ${f}`:"")+(hf!=="todas"?` · carteira ${hf}`:"");
   ge("m-sub").textContent=`${lst.length} tarefa(s) prevista(s)`;
   // um bloco por assessor, na MESMA ordem que o sistema mostra para a pessoa
   // (urgência primeiro: imediatas → atrasadas → do dia → janela da semana/mês)
