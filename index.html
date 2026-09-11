@@ -2735,6 +2735,20 @@ async function telaDiario(dia){
     const k=(r.autor||"")+"|"+(mi?mi[1]:r.id_tarefa);
     if(vistoC.has(k))return false;vistoC.add(k);return true;});
   const conclPor={};concl.forEach(r=>{const a=loginDe(r.autor);if(a)conclPor[a]=(conclPor[a]||0)+1;});
+  // ⚡ imediatas: feitas no dia; pendentes = lançadas HOJE ainda abertas;
+  // estouradas = imediatas lançadas em dias anteriores (a regra é cumprir no
+  // dia do lançamento) — pendência/estouro só faz sentido no HOJE
+  const imedPor={};const imed0=n=>imedPor[n]=imedPor[n]||{feitas:0,pend:0,atras:0};
+  concl.forEach(r=>{const a=loginDe(r.autor);if(!a)return;
+    const mi=String(r.texto||"").match(/📥 Retorno do impulso \((OP-\d+)\)/);
+    const mt=mapa[mi?mi[1]:r.id_tarefa];
+    if(mt&&String(mt.check_||"").toUpperCase()==="IMEDIATO")imed0(a).feitas++;});
+  if(ehHoje){const hojeBr=brData(hojeISO());
+    ts.forEach(t=>{if(!t.id_tarefa||t._delegada||t._emCorrecao||t._concluida)return;
+      if(String(t.check_||"").toUpperCase()!=="IMEDIATO")return;
+      const a=loginDe(t.assessor);if(!a)return;
+      if(dataLanc(t)===hojeBr)imed0(a).pend++;else imed0(a).atras++;});}
+  const imedTot=Object.values(imedPor).reduce((ac,x)=>({feitas:ac.feitas+x.feitas,pend:ac.pend+x.pend,atras:ac.atras+x.atras}),{feitas:0,pend:0,atras:0});
   if(sn||concl.length||!ehHoje){
     h+=`<div class="painel" style="background:#F6F9F6;border-color:#CFE3CF">
       <div class="bloco-t">&#128248; Resumo do dia ${brData(d)}</div>`;
@@ -2748,6 +2762,8 @@ async function telaDiario(dia){
     const nomesC=Object.entries(conclPor).sort((a,b)=>b[1]-a[1]);
     h+=nomesC.length?`<div style="font-size:12px">&#9989; Tarefas concluídas no dia (${concl.length}, impulsos devolvidos incluídos): ${nomesC.map(([n,q])=>`<b>${esc(n)}</b> ${q}`).join(" · ")}</div>`
       :`<div style="font-size:12px;color:var(--gray)">&#9989; Nenhuma conclusão de tarefa registrada neste dia.</div>`;
+    if(imedTot.feitas||imedTot.pend||imedTot.atras)
+      h+=`<div style="font-size:12px;margin-top:4px">&#9889; Imediatas: <b style="color:var(--green)">${imedTot.feitas} feita(s)</b>${ehHoje?` · <b style="color:var(--amber)">${imedTot.pend} lançada(s) hoje em aberto</b> · <b style="color:var(--red)">${imedTot.atras} estourada(s) de dias anteriores</b>`:""}</div>`;
     // casos encerrados/arquivados no dia, por pessoa (quadro próprio — não se
     // misturam com as concluídas, que voltam pela frequência)
     const encV=new Set(),encPor={};
@@ -2834,8 +2850,11 @@ async function telaDiario(dia){
     const fz=feitoPor[nome]||0,pd=pendPor[nome]||0,totDia=fz+pd;
     const corDia=totDia&&fz>=totDia?"var(--green)":pd&&fz?"var(--amber)":"var(--gray)";
     const badgeDia=totDia?` <span style="font-weight:700;color:${corDia};font-size:12px">&#9989; ${fz} de ${totDia} do dia</span>`:"";
+    const im=imedPor[nome];
+    const badgeImed=(im&&(im.feitas||im.pend||im.atras))
+      ?` <span style="font-size:11px;font-weight:700">&#9889; <span style="color:var(--green)">${im.feitas}&#10003;</span>${ehHoje?` · <span style="color:var(--amber)">${im.pend} hoje</span> · <span style="color:${im.atras?"var(--red)":"var(--gray)"}">${im.atras} estourada(s)</span>`:""}</span>`:"";
     return `<div class="painel"><div style="display:flex;justify-content:space-between;margin-bottom:6px">
-      <span style="font-weight:700;color:var(--navy)">${esc(nome)}${nc?` <span style="font-weight:400;color:var(--gray);font-size:12px">(${esc(nc)})</span>`:""}${badgeDia}</span>
+      <span style="font-weight:700;color:var(--navy)">${esc(nome)}${nc?` <span style="font-weight:400;color:var(--gray);font-size:12px">(${esc(nc)})</span>`:""}${badgeDia}${badgeImed}</span>
       <span style="font-size:12px;color:var(--gray)">${fAdv?`${entradas.length} tarefa(s) da carteira ${esc(fAdv)} · ${fmtMin(minF)}`:`${d.upd} atualizações · ${fmtMin(d.min)}`}</span></div>
       <div class="cap"><div style="width:${Math.round(d.upd/mx*100)}%;background:var(--navy)"></div></div>${tar}</div>`;}).join("");
   ge("conteudo").innerHTML=h;
