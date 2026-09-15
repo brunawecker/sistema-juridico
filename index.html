@@ -3923,8 +3923,8 @@ function toggleEd(id){
     <div><label style="font-size:11px">e-CAC</label>${inp("e_cac",c.e_cac)}</div>
     <div><label style="font-size:11px">Franqueado</label>${inp("franqueado",c.franqueado)}</div>
     <div><label style="font-size:11px">Contrato</label>${inp("contrato",c.contrato)}</div>
-    <div><label style="font-size:11px">Município</label>${inp("municipio",c.municipio)}</div>
-    <div><label style="font-size:11px">UF</label>${inp("uf",c.uf,"SP")}</div></div>
+    <div><label style="font-size:11px">UF</label>${selUF(`ed-uf-${id}`,c.uf,`ed-municipio-${id}`,"width:100%;margin-bottom:6px")}</div>
+    <div><label style="font-size:11px">Município</label><select class="fsel" id="ed-municipio-${id}" disabled style="width:100%;margin-bottom:6px"><option>${esc(c.municipio||"")}</option></select></div></div>
     <label style="font-size:11px">Resumo da situação</label>
     <textarea class="fta" id="ed-resumo_da_venda-${id}" style="margin-bottom:8px">${esc(c.resumo_da_venda||"")}</textarea>
     <button class="btn btp btsm" onclick="salvarCliente('${esc(id)}')">&#128190; Salvar alterações</button>
@@ -3939,6 +3939,8 @@ function toggleEd(id){
     <div style="font-size:11px;color:var(--gray);margin-bottom:4px">Tudo do duplicado (tarefas, histórico, casos, documentos, propostas) migra para ESTE cliente e o duplicado é apagado. Fica registrado no histórico. Para mais de um duplicado, repita.</div>
     <input class="fi" id="mg-q-${id}" placeholder="&#128269; Digite 2+ letras do nome do duplicado..." oninput="buscaMescla('${esc(id)}')">
     <div id="mg-res-${id}"></div>`:""}</div>`;
+  // cidades do estado atual já carregadas (cidade só habilita com estado)
+  if(String(c.uf||"").trim())carregarCidades(`ed-uf-${id}`,`ed-municipio-${id}`,c.municipio);
 }
 async function salvarCadastroHead(id){
   const c=E._cli[id];
@@ -4877,6 +4879,39 @@ function toggleNTInterna(on){
   if(on){E._ntCli={id_cliente:"",cnpj_cpf:"",interna:true};formNTCorpo("",true);}
   else{E._ntCli=null;ge("nt-form").innerHTML="";const r=ge("nt-res");if(r)r.innerHTML="";}
 }
+// ===== UF/cidade oficiais (IBGE) + busca automática por CNPJ (BrasilAPI) —
+// pedido da Bruna, 15/09/26: estado primeiro, cidade depois (menu), grafia
+// oficial com acento; CNPJ preenchido busca razão social/cidade sozinho.
+const UFS=["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
+const normTxt=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ").trim();
+async function cidadesDe(uf){
+  E._cidades=E._cidades||{};
+  if(E._cidades[uf])return E._cidades[uf];
+  const r=await fetch("https://servicodados.ibge.gov.br/api/v1/localidades/estados/"+uf+"/municipios");
+  if(!r.ok)throw new Error("IBGE indisponível");
+  E._cidades[uf]=(await r.json()).map(m=>m.nome);
+  return E._cidades[uf];
+}
+async function carregarCidades(ufId,munId,preSel){
+  const uf=ge(ufId)?ge(ufId).value:"",m=ge(munId);if(!m)return;
+  if(!uf){m.innerHTML='<option value="">— escolha o estado antes —</option>';m.disabled=true;return;}
+  m.disabled=true;m.innerHTML='<option value="">carregando cidades…</option>';
+  let nomes;try{nomes=await cidadesDe(uf);}
+  catch(e){m.innerHTML='<option value="">(IBGE fora do ar — tente de novo)</option>';return;}
+  const alvo=normTxt(preSel);
+  m.innerHTML='<option value="">— cidade —</option>'+nomes.map(n=>`<option${alvo&&normTxt(n)===alvo?" selected":""}>${esc(n)}</option>`).join("");
+  m.disabled=false;
+}
+const selUF=(id,val,munId,st)=>`<select class="fsel" id="${id}" style="${st||""}" onchange="carregarCidades('${id}','${munId}')"><option value="">UF</option>${UFS.map(u=>`<option${u===String(val||"").toUpperCase().trim()?" selected":""}>${u}</option>`).join("")}</select>`;
+// CNPJ preenchido -> consulta a Receita (BrasilAPI) e preenche o resto
+async function buscarCNPJ(cnpjId,nomeId,ufId,munId){
+  const dig=String((ge(cnpjId)||{}).value||"").replace(/\D/g,"");
+  if(dig.length!==14)return;
+  let d;try{const r=await fetch("https://brasilapi.com.br/api/cnpj/v1/"+dig);if(!r.ok)return;d=await r.json();}catch(e){return;}
+  if(d.razao_social&&ge(nomeId)&&!(ge(nomeId).value||"").trim())ge(nomeId).value=d.razao_social;
+  if(d.uf&&ge(ufId)){ge(ufId).value=d.uf;await carregarCidades(ufId,munId,d.municipio||"");}
+  toast("✓ Receita: "+(d.razao_social||"")+(d.municipio?" — "+d.municipio+"/"+(d.uf||""):""),"ok");
+}
 // ===== e-CAC obrigatório ao SOLICITAR levantamento/parecer (Bruna, 15/09/26):
 // ou se informa em qual e-CAC está liberado, ou que ainda NÃO está — e a
 // resposta grava na ficha do cliente (aparece em todos os cards dele).
@@ -4981,14 +5016,16 @@ async function criarTarefaNova(){
 function abrirNovoCliente(){
   modal2("&#128100; Novo cliente + tarefa","Cadastro mínimo obrigatório · extras opcionais",`
     <div class="linha-acao"><input class="fi" id="nc-nome" placeholder="Nome / Razão Social *" style="flex:2;margin:0">
-      <input class="fi" id="nc-cnpj" placeholder="CNPJ / CPF *" style="flex:1;margin:0"></div>
+      <input class="fi" id="nc-cnpj" placeholder="CNPJ / CPF *" style="flex:1;margin:0" onblur="buscarCNPJ('nc-cnpj','nc-nome','nc-uf','nc-mun')"></div>
+    <div style="font-size:10px;color:var(--gray);margin-top:2px">&#128269; Preencheu o CNPJ? Nome, estado e cidade vêm sozinhos da Receita.</div>
     <div class="linha-acao" style="margin-top:6px">
       <select class="fsel" id="nc-head"><option>Danielly</option><option>Bruna</option><option>Eduarda</option></select>
       <select class="fsel" id="nc-vert">${VERTICAIS_CLIENTE.map(v=>`<option ${v==="A PREENCHER"?"selected":""}>${v}</option>`).join("")}</select>
       <select class="fsel" id="nc-sit"><option value="OFICIAL">&#10003; Cliente oficial</option><option value="PROSPECCAO">&#128270; Prospecção</option></select></div>
     <div class="linha-acao" style="margin-top:6px">
       <select class="fsel" id="nc-reg"><option value="">Regime</option>${REGIMES.map(r=>`<option>${r}</option>`).join("")}</select>
-      <input class="fsel" id="nc-mun" placeholder="Município"><input class="fsel" id="nc-uf" placeholder="UF" style="width:60px"></div>
+      ${selUF("nc-uf","","nc-mun","width:70px")}
+      <select class="fsel" id="nc-mun" disabled style="flex:1"><option value="">— escolha o estado antes —</option></select></div>
     <textarea class="fta" id="nc-res" style="margin-top:6px" placeholder="Resumo inicial (opcional)"></textarea>
     <label style="font-size:12px;display:flex;gap:7px;align-items:center;margin-top:8px;cursor:pointer">
       <input type="checkbox" id="nc-semtarefa" style="width:15px;height:15px" onchange="ge('nc-tarefa-w').style.display=this.checked?'none':'block'">
