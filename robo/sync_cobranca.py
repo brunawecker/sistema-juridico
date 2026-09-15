@@ -307,17 +307,20 @@ def sincronizar_metas(sess):
         return
     metas = []
     for r in rows:
-        a1 = (str(r[0]).strip().upper() if len(r) > 0 else "")
-        if a1 == "META OFICIAL" and len(r) > 1:
-            v = _num_br(r[1])
-            if v:
-                metas.append(("EQUIPE", v))
         e1 = (str(r[4]).strip().upper() if len(r) > 4 else "")
-        if e1 and e1 not in ("PARTICIPAÇÕES", "PARTICIPACOES", "TOTAIS:", "OUTROS"):
-            v = _num_br(r[5] if len(r) > 5 else "")
-            if not v:
-                continue
-            pessoa = "HEADS" if e1 == "HEADS" else _quem(e1)
+        if not e1 or e1 in ("PARTICIPAÇÕES", "PARTICIPACOES", "OUTROS"):
+            continue
+        v = _num_br(r[5] if len(r) > 5 else "")
+        if not v:
+            continue
+        if e1 in ("TOTAIS:", "TOTAIS"):
+            # META ALVO do mês = soma das participações (heads + apoio) —
+            # é ESSA que vale como meta da equipe (Bruna, 15/09/2026)
+            metas.append(("EQUIPE", v))
+        elif e1 == "HEADS":
+            metas.append(("HEADS", v))
+        else:
+            pessoa = _quem(e1)
             if pessoa:
                 metas.append((pessoa, v))
     if not metas:
