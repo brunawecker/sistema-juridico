@@ -284,6 +284,57 @@ def bater_coracao():
         conn.commit()
 
 
+def sincronizar_metas(sess):
+    """Metas do mês direto da aba PROJEÇÕES (pedido da Bruna, 15/09/2026):
+    'META OFICIAL' vira pessoa=EQUIPE (meta conjunta), a linha HEADS vira a
+    meta conjunta das heads e as PARTICIPAÇÕES viram metas individuais.
+    Tudo entra liberado — a planilha é a fonte oficial; o lançamento manual
+    nas Configurações segue valendo só para mês sem aba de projeções."""
+    hoje = date.today()
+    ano2 = str(hoje.year)[-2:]
+    m = hoje.month - 1
+    candidatas = [f"PROJEÇÕES {MESES[m]} {ano2}", f"PROJEÇÕES {MESES[m]} {ano2}'",
+                  f"PROJEÇÕES {ABREV[m]} {ano2}", f"PROJEÇÕES {ABREV[m]} {ano2}'"]
+    rows = None
+    for aba in candidatas:
+        try:
+            rows = ler_aba(sess, aba)
+            break
+        except Exception:
+            continue
+    if not rows:
+        print(f"metas: aba de projeções não encontrada ({candidatas[0]}) — mantendo as atuais")
+        return
+    metas = []
+    for r in rows:
+        a1 = (str(r[0]).strip().upper() if len(r) > 0 else "")
+        if a1 == "META OFICIAL" and len(r) > 1:
+            v = _num_br(r[1])
+            if v:
+                metas.append(("EQUIPE", v))
+        e1 = (str(r[4]).strip().upper() if len(r) > 4 else "")
+        if e1 and e1 not in ("PARTICIPAÇÕES", "PARTICIPACOES", "TOTAIS:", "OUTROS"):
+            v = _num_br(r[5] if len(r) > 5 else "")
+            if not v:
+                continue
+            pessoa = "HEADS" if e1 == "HEADS" else _quem(e1)
+            if pessoa:
+                metas.append((pessoa, v))
+    if not metas:
+        print("metas: aba achada mas sem valores reconhecidos — mantendo as atuais")
+        return
+    mes_iso = hoje.replace(day=1).isoformat()
+    with psycopg.connect() as conn, conn.cursor() as cur:
+        for pessoa, v in metas:
+            cur.execute("""insert into juridico.config_metas (mes, pessoa, meta, liberada)
+                values (%s, %s, %s, true)
+                on conflict (mes, pessoa) do update set meta = excluded.meta, liberada = true""",
+                (mes_iso, pessoa, v))
+        conn.commit()
+    print(f"metas: {len(metas)} atualizadas da planilha "
+          f"(EQUIPE={dict(metas).get('EQUIPE', 0):.2f})")
+
+
 def sincronizar_agendas(sess):
     """Lê as agendas do Google configuradas e espelha os eventos (hoje → +7d)
     na tabela juridico.reunioes (id GCAL-...). Some evento, some a reunião."""
@@ -448,6 +499,11 @@ def main():
         sincronizar_comercial(sess, aba_usada, hoje.replace(day=1).isoformat())
     except Exception as e:
         print(f"comercial: falhou sem afetar a cobrança — {e}")
+    # metas do mês (aba PROJEÇÕES) — meta conjunta + individuais
+    try:
+        sincronizar_metas(sess)
+    except Exception as e:
+        print(f"metas: falhou sem afetar o resto — {e}")
     # agenda do Google → reuniões do sistema (métrica do dia do Nicholas)
     try:
         sincronizar_agendas(sess)
