@@ -2877,10 +2877,10 @@ async function telaCentral(){
   setNav("central","Central do Dia"); carregando();
   const eu=E.perfil.nome_sistema;
   const mesISO=hojeISO().slice(0,7)+"-01";
-  let ops,cob,pags,metas,props;
-  try{[ops,cob,pags,metas,props]=await Promise.all([
+  let ops,cob,pags,metas,props,tm;
+  try{[ops,cob,pags,metas,props,tm]=await Promise.all([
     DB.tarefas(),DB.cobranca(),DB.comercialPagamentos(mesISO),
-    DB.metasMes(mesISO),DB.propostas()]);}catch(e){return erro(e.message);}
+    DB.metasMes(mesISO),DB.propostas(),DB.historicoTimers(16).catch(()=>[])]);}catch(e){return erro(e.message);}
   const ts=(ops||[]).map(classificar);E.tarefas=ts;
   E._propMap=E._propMap||{};(props||[]).forEach(x=>{E._propMap[x.id_proposta]=x;});
   // ---- metas × pago (líquido do mês corrente; filtro no navegador por garantia)
@@ -2888,8 +2888,19 @@ async function telaCentral(){
   const pagoTot=pagosMes.reduce((a2,x)=>a2+(+x.valor_liquido||0),0);
   const pagoMeu=pagosMes.filter(x=>String(x.credito||"").trim()===eu).reduce((a2,x)=>a2+(+x.valor_liquido||0),0);
   const metasMes2=(metas||[]).filter(x=>String(x.mes||"").slice(0,10)===mesISO);
-  const metaTot=metasMes2.reduce((a2,x)=>a2+(+x.meta||0),0);
+  // meta conjunta (EQUIPE) e das HEADS vêm da aba PROJEÇÕES da planilha (robô 5min)
+  const mEquipe=metasMes2.find(x=>String(x.pessoa||"").trim()==="EQUIPE");
+  const mHeads=metasMes2.find(x=>String(x.pessoa||"").trim()==="HEADS");
+  const metaTot=mEquipe?+mEquipe.meta:metasMes2.filter(x=>!["EQUIPE","HEADS"].includes(String(x.pessoa||"").trim())).reduce((a2,x)=>a2+(+x.meta||0),0);
   const metaMinha=+((metasMes2.find(x=>String(x.pessoa||"").trim()===eu)||{}).meta||0);
+  const HEADS3=["Bruna","Danielly","Eduarda"];
+  const pagoHeads=pagosMes.filter(x=>HEADS3.includes(String(x.credito||"").trim())).reduce((a2,x)=>a2+(+x.valor_liquido||0),0);
+  // 🧠 aprendizado do follow-up: cada head vê só a si; admin vê as três
+  const fuAp={};(tm||[]).forEach(r=>{if(String(r.texto||"").indexOf("📞 Follow-up")<0)return;
+    const mnum=parseInt((String(r.texto).match(/(\d+)\s*min/)||[0,0])[1]);if(!mnum)return;
+    const a3=loginDe(r.autor);if(!HEADS3.includes(a3))return;
+    (fuAp[a3]=fuAp[a3]||{min:0,dias:new Set()});fuAp[a3].min+=mnum;fuAp[a3].dias.add(String(r.data_dt).slice(0,10));});
+  const apVisiveis=E.perfil.admin_sim?HEADS3:[eu];
   const tarjaMeta=(rot,alvo,feito)=>{
     if(!alvo)return `<div class="painel" style="background:var(--amber-lt)">
       <div class="bloco-t">&#127919; ${rot}</div>
@@ -2926,8 +2937,10 @@ async function telaCentral(){
   const diasParada=p2=>{const u=ultMovProp(p2);if(!u)return null;
     const h0=new Date();h0.setHours(12,0,0,0);return Math.round((h0-u)/86400000);};
   ge("conteudo").innerHTML=`
-    ${tarjaMeta("Meta da EQUIPE — "+new Date().toLocaleDateString("pt-BR",{month:"long"}),metaTot,pagoTot)}
-    ${tarjaMeta("MINHA meta",metaMinha,pagoMeu)}
+    ${tarjaMeta("Meta da EQUIPE — "+new Date().toLocaleDateString("pt-BR",{month:"long"})+(mEquipe?" (conjunta, da planilha)":""),metaTot,pagoTot)}
+    ${metaMinha?tarjaMeta("MINHA meta",metaMinha,pagoMeu)
+      :mHeads?tarjaMeta("Meta das HEADS — conjunta de vocês três",+mHeads.meta,pagoHeads)
+      :tarjaMeta("MINHA meta",0,pagoMeu)}
     <div class="painel" style="border-left:4px solid var(--red)">
       <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;cursor:pointer" onclick="telaCobranca()">
         <div class="bloco-t" style="color:var(--red)">&#128184; Inadimplência da semana</div>
@@ -2948,7 +2961,11 @@ async function telaCentral(){
           <div style="padding:4px 8px">${lst.map(t=>cardTarefa(t,false)).join("")}</div></details>`;}).join("")
         :'<div class="vazio">Nada da sua carteira vencendo hoje. 🎉</div>'}</div>
     <div class="painel">
-      <div class="bloco-t">&#128222; Follow-up do meu dia — minhas propostas na rua (${minhasProps.length})</div>
+      <div class="bloco-t">&#128222; Follow-up do meu dia — minhas propostas na rua (${minhasProps.length})
+        <button class="btn btg btsm" style="margin-left:8px" onclick="iniciarFollowup()">&#128222; Medir follow-up (liga o relógio)</button></div>
+      <div style="font-size:11px;background:var(--dani-lt);border-radius:8px;padding:5px 10px;margin-bottom:6px">
+        &#129504; <b>Modo aprendizado:</b> o relógio mede quanto tempo o follow-up de head realmente pede — sem tempo reservado por enquanto; quando houver medição suficiente, o sistema proporá a janela ideal.
+        ${apVisiveis.map(n=>{const d2=fuAp[n];return `<br>&#8226; <b>${esc(n)}</b>: ${d2?`${fmtMin(d2.min)} em ${d2.dias.size} dia(s) — média ${fmtMin(Math.round(d2.min/Math.max(1,d2.dias.size)))}/dia ativo`:"ainda sem medições (16 dias)"}`;}).join("")}</div>
       ${minhasProps.length?minhasProps.slice(0,10).map(p2=>{const dp=diasParada(p2);
         return `<div class="linha-item" style="cursor:pointer" onclick='abrirNegociacao(${JSON.stringify(p2.id_proposta)})'>
         <span><b>${esc(p2.cliente)}</b> · R$ ${esc(p2.valor||"0")} · ${esc(p2.status||"")}</span>
