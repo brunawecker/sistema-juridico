@@ -704,6 +704,9 @@ const S = {
   async lembreteAdd(cli,txt,dt,alvo){return rpcS("lembrete_add",{p_cliente:cli,p_texto:txt,p_data:dt,p_alvo:alvo||"para mim"});},
   async lembreteFeito(id){return rpcS("lembrete_feito",{p_id:id});},
   async lembreteApagar(id){return rpcS("lembrete_apagar",{p_id:id});},
+  async franqueados(){return okS(await supa.from("franqueados").select("*").order("franqueado"))||[];},
+  async franqueadoContato(id,status){return rpcS("franqueado_contato",{p_id:id,p_status:status||""});},
+  async franqueadoResp(id,resp){return rpcS("franqueado_resp",{p_id:id,p_resp:resp});},
   async fichaExtraDar(p,q,m){return rpcS("ficha_extra_dar",{p_pessoa:p,p_qtd:q,p_motivo:m});},
   async fichaExtraApagar(id){return rpcS("ficha_extra_apagar",{p_id:id});},
   async coroaAtual(){const r=okS(await supa.from("coroa").select("*"))||[];
@@ -1085,6 +1088,7 @@ function montarMenu(){
     ["rel","&#128200;","Relatório Semanal",telaRelatorio],
     ["metrica","&#128640;","Impacto do Sistema",telaImpacto],
     ["laudos","&#129514;","Laudos em Andamento",telaLaudos],
+    ["franq","&#129309;","Franqueados",telaFranqueados],
     ["enc","&#128193;","Casos Encerrados",telaCasos],
     ["bill","&#128176;","Cobrança",telaCobranca],
     ["cli","&#127970;","Gestão de Clientes",telaClientes],
@@ -3571,6 +3575,52 @@ async function telaImpacto(){
   ge("conteudo").innerHTML=h;
 }
 // =================================================== TELA: CASOS (head)
+async function telaFranqueados(){
+  setNav("franq","Franqueados"); carregando();
+  if(!E.perfil.head_sim){erro("Esta tela é só para heads.");return;}
+  let fr;try{fr=await DB.franqueados();}catch(e){return erro(e.message);}
+  const eu=E.perfil.nome_sistema;
+  let lista=(fr||[]).filter(x=>x.ativo!==false);
+  if(escHead())lista=lista.filter(x=>String(x.responsavel||"").trim()===eu);
+  const diasSem=x=>x.ultimo_contato?(-diasAte(String(x.ultimo_contato).slice(0,10))):null;
+  lista.sort((a,b)=>{const da=diasSem(a),db=diasSem(b);
+    if(da===null&&db===null)return String(a.franqueado).localeCompare(String(b.franqueado));
+    if(da===null)return -1;if(db===null)return 1;return db-da;});
+  E._franqMap={};lista.forEach(x=>E._franqMap[x.id]=x);
+  const nuncaN=lista.filter(x=>!x.ultimo_contato).length;
+  const atrasadosN=lista.filter(x=>{const d=diasSem(x);return d!==null&&d>=7;}).length;
+  const nomes=[...new Set((E.equipe||[]).filter(m=>String(m.status||"").toUpperCase()==="ATIVO").map(m=>m.nome_sistema))].sort();
+  const linha=x=>{const d=diasSem(x);
+    const badge=d===null?'<span class="tag ta">nunca contatado</span>'
+      :d>=7?`<span class="tag ti">&#9888; ${d}d sem contato</span>`
+      :`<span class="tag tek">contato há ${d}d</span>`;
+    return `<div class="linha-item" style="align-items:flex-start">
+      <span style="font-size:12.5px"><b>${esc(x.franqueado)}</b> ${badge}<br>
+        <span style="font-size:11px;color:var(--gray)">&#9742; ${esc(x.telefone||"—")} · ${esc(x.estado||"")}${x.fp&&x.fp!==x.franqueado?" · FP: "+esc(x.fp):""}${x.status_semana?" · <i>"+esc(x.status_semana)+"</i>":""}</span></span>
+      <span style="white-space:nowrap"><button class="btn btg btsm" onclick="registrarContatoFranq(${x.id})">&#128222; registrei contato</button>
+        <button class="btn bts btsm" onclick="trocarRespFranq(${x.id})" title="trocar responsável">&#128100;${esc(x.responsavel||"?")}</button></span></div>`;};
+  ge("conteudo").innerHTML=`
+    <div class="painel"><div class="bloco-t">&#129309; Franqueados${escHead()?" — meus":" — todos"} (${lista.length})</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+        <div style="background:var(--red-lt);border:1.5px solid var(--red);border-radius:11px;padding:8px 12px;flex:1;min-width:120px">
+          <div style="font-size:20px;font-weight:700;color:var(--red);font-family:'DM Mono'">${atrasadosN}</div><div style="font-size:11px;color:var(--gray)">7+ dias sem contato</div></div>
+        <div style="background:var(--amber-lt);border:1.5px solid var(--amber);border-radius:11px;padding:8px 12px;flex:1;min-width:120px">
+          <div style="font-size:20px;font-weight:700;color:var(--amber);font-family:'DM Mono'">${nuncaN}</div><div style="font-size:11px;color:var(--gray)">nunca contatados</div></div></div>
+      <div style="font-size:11px;color:var(--gray)">Contato semanal. Os mais tempo sem falar aparecem primeiro. Registre o contato para zerar o contador.</div></div>
+    <div class="painel">${lista.map(linha).join("")||'<div class="vazio">Nenhum franqueado.</div>'}</div>`;
+  E._franqNomes=nomes;
+}
+async function registrarContatoFranq(id){
+  const st=prompt("Registrar contato de HOJE.\n\nComo foi? (opcional — vira o status da semana)\nEx: Atendeu, sem novidades · Sem retorno · Pediu proposta...");
+  if(st===null)return;
+  try{await DB.franqueadoContato(id,String(st).trim());}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Contato registrado — contador zerado!","ok");telaFranqueados();}
+async function trocarRespFranq(id){
+  const x=(E._franqMap||{})[id];if(!x)return;
+  const novo=prompt("Trocar responsável de "+x.franqueado+" (atual: "+(x.responsavel||"?")+")\n\nDigite o nome: "+(E._franqNomes||[]).join(", "),x.responsavel||"");
+  if(novo===null||!novo.trim())return;
+  try{await DB.franqueadoResp(id,novo.trim());}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Responsável atualizado.","ok");telaFranqueados();}
 async function telaLaudos(){
   setNav("laudos","Laudos em Andamento"); carregando();
   if(!E.perfil.head_sim){erro("Esta tela é só para heads.");return;}
