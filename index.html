@@ -3023,7 +3023,9 @@ async function telaCentral(){
     const doc=soDig(x.cnpj_cpf);const key=doc||String(x.cliente||"").trim().toUpperCase();
     if(!key||vistoNovo[key])return;vistoNovo[key]=true;
     const c=(doc&&cliPorDoc[doc])||cliPorNome[String(x.cliente||"").trim().toUpperCase()];
-    const headDono=(c&&String(c.head||"").trim())||String(x.secao_head||"").trim();
+    // a SEÇÃO do pagamento manda (quem vendeu); cadastro é só reserva —
+    // evita erro quando a head do cadastro está desatualizada (KCC, 16/09)
+    const headDono=String(x.secao_head||"").trim()||(c&&String(c.head||"").trim())||"";
     if(headDono!==eu)return;                          // quadro pessoal
     const idc=c&&c.id_cliente;
     if(idc&&temTarefaAtiva[idc])return;                // já tem tarefa → ok
