@@ -13,7 +13,7 @@ Credenciais por variáveis de ambiente (segredos do GitHub): PG*.
 import os
 import re
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
 
 import psycopg
@@ -403,6 +403,75 @@ def main():
                     group by p.credito
                     on conflict (mes,pessoa) do nothing""", (mes_ant, mes_ant, mes_ant))
                 print(f"7. fechamento comercial de {mes_ant}: {cur.rowcount} pessoa(s)")
+
+        # 9) ESTEIRA DO CONTRATO NOVO (Bloco D, 16/09/2026): 1ª parcela paga
+        # de NOVO → cartão "Parecer de Novo Cliente" (prazo fatal +7d) para o
+        # assessor com menos imediatas. Desarmada até a Bruna validar o ensaio
+        # (armar = insert esteira_novos id_lanc='__ARMADA__').
+        cur.execute("select 1 from juridico.esteira_novos where id_lanc='__ARMADA__'")
+        armada = cur.fetchone() is not None
+        cur.execute("""
+          with prim as (select id_lanc, min(data_pgto) d1 from juridico.comercial_pagamentos
+            where status='PAGO' and tipo='NOVO' and coalesce(id_lanc,'')<>'' and data_pgto is not null
+            group by id_lanc)
+          select p.id_lanc, p.cliente, p.cnpj_cpf, p.credito, p.secao_head,
+                 p.valor_liquido, p.data_pgto
+          from juridico.comercial_pagamentos p
+          join prim on prim.id_lanc=p.id_lanc and prim.d1=p.data_pgto
+          where p.status='PAGO' and p.tipo='NOVO' and p.data_pgto >= current_date - 7
+            and not exists (select 1 from juridico.esteira_novos e where e.id_lanc=p.id_lanc)
+          order by p.data_pgto""")
+        novos_est = cur.fetchall()
+        for (lanc, cli, cnpj, cred, sec, vliq, dpg) in novos_est:
+            if not armada:
+                print(f"9. esteira (ENSAIO — desarmada): criaria parecer p/ {cli} ({lanc})")
+                continue
+            # assessor com menos imediatas abertas (Madu fora — só recebe de head)
+            cur.execute("""
+              select e.nome_sistema from juridico.equipe e
+              where upper(coalesce(e.status,''))='ATIVO'
+                and e.cargo not ilike '%%head%%' and e.cargo not ilike '%%vendedor%%'
+                and e.nome_sistema <> 'Madu'
+              order by (select count(*) from juridico.operacional o
+                        where o.assessor=e.nome_sistema
+                          and upper(coalesce(o.check_,''))='IMEDIATO'
+                          and o.status_tarefa not ilike '%%EM DIA%%'
+                          and coalesce(o.correcao_head,'')=''),
+                       (select count(*) from juridico.operacional o2
+                        where o2.assessor=e.nome_sistema) limit 1""")
+            alvo = (cur.fetchone() or ["João"])[0]
+            cur.execute("""select id_cliente, head from juridico.clientes
+              where cnpj_cpf=%s or upper(nome)=upper(%s) limit 1""", (cnpj or "", cli))
+            r = cur.fetchone()
+            idc, headc = (r[0], r[1]) if r else (None, sec or "")
+            oid = novo_id(cur, "OP", 4)
+            # regra: 7 dias após o pagamento; leva atrasada de 1º arranque
+            # nunca nasce já estourada — mínimo de 2 dias úteis à frente
+            fatal = max(dpg + timedelta(days=7), date.today() + timedelta(days=2))
+            sup = (f"🧾 ESTEIRA DE NOVO CLIENTE — 1ª parcela paga em "
+                   f"{dpg.strftime('%d/%m/%Y')} (R$ {vliq:.2f} líq., crédito {cred}). "
+                   f"Fazer o parecer de boas-vindas do novo contrato e, com ele "
+                   f"pronto, AGENDAR a reunião de 1º atendimento — a conclusão "
+                   f"do cartão pede essa confirmação. Prazo máximo: 7 dias.")
+            cur.execute("""insert into juridico.operacional
+                (id_tarefa, id_cliente, advogada, data_inclusao, data_inclusao_dt,
+                 cliente, cnpj_cpf, check_, operacao, assessor, status_tarefa,
+                 data_revisao, data_revisao_dt, prazo_fatal, prazo_fatal_dt, supervisao)
+                values (%s,%s,%s,to_char(current_date,'DD/MM/YYYY'),current_date,
+                        %s,%s,'IMEDIATO','Parecer de Novo Cliente',%s,'AGUARDANDO',
+                        to_char(current_date,'DD/MM/YYYY'),current_date,
+                        to_char(%s::date,'DD/MM/YYYY'),%s,%s)""",
+                (oid, idc, headc or (sec or ""), cli, cnpj or "", alvo, fatal, fatal, sup))
+            hid = novo_id(cur, "HIS", 5)
+            cur.execute("""insert into juridico.historico
+                (id_historico,id_tarefa,id_cliente,data,data_dt,autor,tipo,texto,origem)
+                values (%s,%s,%s,to_char(current_date,'DD/MM/YY'),current_date,
+                        'Sistema','SUPERVISÃO',%s,'ROBO')""", (hid, oid, idc, sup))
+            cur.execute("""insert into juridico.esteira_novos (id_lanc, id_tarefa, cliente)
+                values (%s,%s,%s)""", (lanc, oid, cli))
+            print(f"9. esteira: {oid} Parecer de Novo Cliente → {alvo} ({cli}, fatal {fatal})")
+        if not novos_est:
+            print("9. esteira: nenhum contrato novo pendente")
 
         # 8) janelas públicas congeladas (família do defeito de 19/08/2026):
         # tabela ganhou coluna nova e a view espelho "select *" não a expôe —
