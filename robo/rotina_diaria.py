@@ -473,6 +473,72 @@ def main():
         if not novos_est:
             print("9. esteira: nenhum contrato novo pendente")
 
+        # 10) TURNOS MENSAIS DAS HEADS (Eduarda 11, 16/09/2026): DRE + ajustes
+        # de comissão e correção do relatório, prazo fatal dia 8, em rodízio
+        # entre as 3 heads (uma no DRE, outra no relatório, a terceira livre).
+        # Criados uma vez por mês (dia 1 a 8) e o turno é reservado na agenda.
+        if hoje.day <= 8:
+            ordem = ["Bruna", "Danielly", "Eduarda"]
+            m = hoje.month
+            dre_head = ordem[(m - 1) % 3]
+            rel_head = ordem[m % 3]
+            livre = ordem[(m + 1) % 3]
+            # dia do turno = primeiro dia útil do mês, de manhã
+            turno = prim
+            fatal = hoje.replace(day=8)
+            mesnome = hoje.strftime("%m/%Y")
+            fixos = [
+                ("📊 DRE + ajustes de comissão", dre_head,
+                 f"Fechar o DRE e os ajustes de comissão do mês (prazo fatal dia 8). "
+                 f"Turno reservado na agenda: {turno.strftime('%d/%m')} de manhã. "
+                 f"Rodízio deste mês — DRE: {dre_head} · relatório: {rel_head} · "
+                 f"livre p/ apoiar o time: {livre}."),
+                ("📝 Correção do relatório", rel_head,
+                 f"Revisar/corrigir o relatório do mês (prazo fatal dia 8). "
+                 f"Turno reservado na agenda: {turno.strftime('%d/%m')} de manhã. "
+                 f"Rodízio deste mês — DRE: {dre_head} · relatório: {rel_head} · "
+                 f"livre p/ apoiar o time: {livre}."),
+            ]
+            # limpa turnos de meses ANTERIORES ainda abertos (admin efêmero)
+            cur.execute("""delete from juridico.reunioes r
+                using juridico.operacional o
+                where o.operacao = 'Fechamento Mensal (heads)'
+                  and o.cliente not like %s
+                  and r.assessor = o.assessor and r.titulo like '🔒%%'""",
+                (f"%({mesnome})",))
+            cur.execute("""delete from juridico.operacional
+                where operacao = 'Fechamento Mensal (heads)'
+                  and cliente not like %s""", (f"%({mesnome})",))
+            criados_dre = 0
+            for titulo, quem, sup in fixos:
+                cli = f"{titulo} ({mesnome})"
+                cur.execute("""select 1 from juridico.operacional
+                    where cliente = %s and assessor = %s""", (cli, quem))
+                if cur.fetchone():
+                    continue
+                oid = novo_id(cur, "OP", 4)
+                cur.execute("""insert into juridico.operacional
+                    (id_tarefa, advogada, data_inclusao, data_inclusao_dt, cliente,
+                     check_, operacao, assessor, status_tarefa, data_revisao,
+                     data_revisao_dt, prazo_fatal, prazo_fatal_dt, supervisao)
+                    values (%s,%s,to_char(current_date,'DD/MM/YYYY'),current_date,%s,
+                            'MENSAL','Fechamento Mensal (heads)',%s,'AGUARDANDO',
+                            to_char(current_date,'DD/MM/YYYY'),current_date,
+                            to_char(%s::date,'DD/MM/YYYY'),%s,%s)""",
+                    (oid, quem, cli, quem, fatal, fatal, sup))
+                # reserva o turno na agenda (aparece como ocupada p/ quem delega)
+                rid = novo_id(cur, "REU", 4)
+                cur.execute("""insert into juridico.reunioes
+                    (id_reuniao, data, data_dt, assessor, titulo, horario, duracao_min, obs)
+                    values (%s, to_char(%s::date,'DD/MM/YYYY'), %s, %s, %s, '09:00', 240,
+                            'Turno reservado — fechamento mensal das heads')""",
+                    (rid, turno, turno, quem, "🔒 " + titulo))
+                criados_dre += 1
+            if criados_dre:
+                print(f"10. turnos das heads criados: {criados_dre} (DRE {dre_head}, relatório {rel_head})")
+            else:
+                print("10. turnos das heads: já criados neste mês")
+
         # 8) janelas públicas congeladas (família do defeito de 19/08/2026):
         # tabela ganhou coluna nova e a view espelho "select *" não a expôe —
         # o site quebra em silêncio. Detecta e recria a view no ato.
