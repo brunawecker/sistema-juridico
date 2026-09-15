@@ -4739,6 +4739,40 @@ function toggleNTInterna(on){
   if(on){E._ntCli={id_cliente:"",cnpj_cpf:"",interna:true};formNTCorpo("",true);}
   else{E._ntCli=null;ge("nt-form").innerHTML="";const r=ge("nt-res");if(r)r.innerHTML="";}
 }
+// ===== e-CAC obrigatório ao SOLICITAR levantamento/parecer (Bruna, 15/09/26):
+// ou se informa em qual e-CAC está liberado, ou que ainda NÃO está — e a
+// resposta grava na ficha do cliente (aparece em todos os cards dele).
+const OP_EXIGE_ECAC=op=>/Levantamento|Proposta Comercial/.test(String(op||""));
+function ecacBlocoHTML(pref){
+  pref=String(pref||"").trim();
+  const lib=pref&&!/^N[ÃA]O LIBERADO$/i.test(pref);
+  return `<div id="ec-w" style="display:none;margin-top:6px;background:var(--amber-lt);border-radius:9px;padding:8px 10px">
+    <div class="bloco-t" style="color:#7F6000">&#128273; Situação do e-CAC deste cliente *</div>
+    <div class="linha-acao">
+      <select class="fsel" id="ec-st" onchange="ge('ec-qual').style.display=this.value==='LIB'?'block':'none'">
+        <option value=""${pref?"":" selected"}>— escolher —</option>
+        <option value="LIB"${lib?" selected":""}>&#9989; Liberado — em qual?</option>
+        <option value="NAO"${pref&&!lib?" selected":""}>&#128683; Ainda NÃO liberado</option></select>
+      <input class="fsel" id="ec-qual" placeholder="Em qual? Ex: 07-95, GOV" value="${esc(lib?pref:"")}" style="flex:1;display:${lib?"block":"none"}">
+    </div>
+    <div style="font-size:10px;color:var(--gray);margin-top:3px">Grava na ficha do cliente e aparece em todos os cards dele.</div></div>`;
+}
+function ecacToggle(opSelId){const w=ge("ec-w");if(!w)return;
+  if(E._ntCli&&E._ntCli.interna){w.style.display="none";return;}
+  w.style.display=OP_EXIGE_ECAC(ge(opSelId).value)?"block":"none";}
+// devolve: "" = não exigido · texto = gravar · null = faltou preencher (já avisou)
+function ecacValor(){
+  const w=ge("ec-w");if(!w||w.style.display==="none")return "";
+  const st=ge("ec-st").value;
+  if(!st){toast("Informe a situação do e-CAC — obrigatório para levantamento/parecer.","erro");return null;}
+  if(st==="NAO")return "NÃO LIBERADO";
+  const q=(ge("ec-qual").value||"").trim();
+  if(!q){toast("Diga em qual e-CAC está liberado (ex: 07-95, GOV).","erro");return null;}
+  return q;}
+async function ecacGravar(idCli,valor,atual){
+  if(!valor||!idCli||valor===(atual||"").trim())return;
+  await DB.clienteUpdate(idCli,{e_cac:valor});
+  if(E._cli&&E._cli[idCli])E._cli[idCli].e_cac=valor;}
 function formNT(id){
   const c=E._cli[id];E._ntCli=c;ge("nt-res").innerHTML="";ge("nt-q").value=c.nome;
   const alvosNT=alvosCriacao();
@@ -4752,13 +4786,14 @@ function formNTCorpo(resp,interna){
   ge("nt-form").innerHTML=`
     ${resp?`<div class="aviso info" style="margin:6px 0">&#128100; Responsável deste cliente: <b>${esc(resp)}</b> (já selecionado)</div>`:""}
     <div class="linha-acao" style="margin-top:6px">
-      <select class="fsel" id="nt-op"><option value="">Tipo de operação *</option>${OPERACOES.map(o=>`<option>${esc(o)}</option>`).join("")}</select>
+      <select class="fsel" id="nt-op" onchange="ecacToggle('nt-op')"><option value="">Tipo de operação *</option>${OPERACOES.map(o=>`<option>${esc(o)}</option>`).join("")}</select>
       <select class="fsel" id="nt-chk">${["IMEDIATO","DIÁRIO","SEMANAL","MENSAL"].map(x=>`<option>${x}</option>`).join("")}</select></div>
     <div class="linha-acao"><select class="fsel" id="nt-ass">${alvosNT.map(a=>`<option ${a===resp?"selected":""}>${a}</option>`).join("")}</select>
       <label style="font-size:11px">Prazo fatal:</label><input type="date" class="fsel" id="nt-pf"></div>
     <div class="linha-acao"><input class="fsel" id="nt-proc" placeholder="Nº processual (opcional)" style="flex:1">
       <input class="fsel" id="nt-uf" placeholder="UF" style="width:64px"></div>
     <textarea class="fta" id="nt-sup" style="margin-top:6px" placeholder="Orientação inicial para o assessor (opcional)"></textarea>
+    ${ecacBlocoHTML((E._ntCli&&E._ntCli.e_cac)||"")}
     ${EXIGE_PEDIDO_HEAD.includes(E.perfil.nome_sistema)?`<label style="font-size:12px;display:flex;gap:7px;align-items:center;margin-top:6px;cursor:pointer"><input type="checkbox" id="nt-headflag" style="width:15px;height:15px"> &#127963;&#65039; Tarefa por <b>pedido direto de uma das heads</b> <span style="color:var(--gray)">(obrigatório se for para ${EXIGE_PEDIDO_HEAD.filter(x=>x!==E.perfil.nome_sistema).join(" ou ")})</span></label>`:""}
     <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px">&#128206; Documentos iniciais (opcional — pode selecionar v&aacute;rios):</label>
       <input type="file" id="nt-doc" class="fsel" multiple style="max-width:240px"></div>
@@ -4786,13 +4821,15 @@ async function criarTarefaNova(){
   const flagNT=precisaPedidoHead(E.perfil.nome_sistema,ge("nt-ass").value);
   if(flagNT&&!(ge("nt-headflag")||{}).checked){toast("Para direcionar a "+ge("nt-ass").value+", marque que a tarefa é por pedido direto de uma das heads.","erro");return;}
   const op=ge("nt-op").value;if(!op){toast("Selecione a operação.","erro");return;}
+  const ecacNT=ecacValor();if(ecacNT===null)return;
   const chk=ge("nt-chk").value;
   const rev=new Date();if(!["IMEDIATO","DIÁRIO"].includes(chk))rev.setDate(rev.getDate()+7);
   let revISO=rev.toISOString().slice(0,10);
   if(chk==="IMEDIATO"&&ge("nt-ass").value!==E.perfil.nome_sistema){
     const q=perguntarQuandoDelegar("IMEDIATO");if(q)revISO=q;}
   let r;
-  try{r=await DB.criarTarefa({id_cliente:c.id_cliente,cliente:c.nome,cnpj:c.cnpj_cpf,head:c.head||"",
+  try{await ecacGravar(c.id_cliente,ecacNT,c.e_cac);if(ecacNT)c.e_cac=ecacNT;
+    r=await DB.criarTarefa({id_cliente:c.id_cliente,cliente:c.nome,cnpj:c.cnpj_cpf,head:c.head||"",
     operacao:op,check:chk,assessor:ge("nt-ass").value,prazo_fatal:ge("nt-pf").value||"",
     numero_proc:ge("nt-proc").value||"",estado:ge("nt-uf").value||"",
     supervisao:(flagNT?MARCA_PEDIDO_HEAD+". ":"")+(ge("nt-sup").value||""),
@@ -4820,10 +4857,11 @@ function abrirNovoCliente(){
       Cadastrar <b>só o cliente</b>, sem lançar tarefa agora</label>
     <div id="nc-tarefa-w">
     <div class="bloco-t" style="margin-top:10px">Primeira tarefa</div>
-    <div class="linha-acao"><select class="fsel" id="nc-op"><option value="">Tipo de operação *</option>${OPERACOES.map(o=>`<option>${esc(o)}</option>`).join("")}</select>
+    <div class="linha-acao"><select class="fsel" id="nc-op" onchange="ecacToggle('nc-op')"><option value="">Tipo de operação *</option>${OPERACOES.map(o=>`<option>${esc(o)}</option>`).join("")}</select>
       <select class="fsel" id="nc-chk">${["IMEDIATO","DIÁRIO","SEMANAL","MENSAL"].map(x=>`<option>${x}</option>`).join("")}</select>
       <select class="fsel" id="nc-ass">${alvosCriacao().map(a=>`<option>${a}</option>`).join("")}</select></div>
     <textarea class="fta" id="nc-sup" style="margin-top:6px" placeholder="Orientação inicial (opcional)"></textarea>
+    ${ecacBlocoHTML("")}
     ${EXIGE_PEDIDO_HEAD.includes(E.perfil.nome_sistema)?`<label style="font-size:12px;display:flex;gap:7px;align-items:center;margin-top:6px;cursor:pointer"><input type="checkbox" id="nc-headflag" style="width:15px;height:15px"> &#127963;&#65039; Tarefa por <b>pedido direto de uma das heads</b> <span style="color:var(--gray)">(obrigatório se for para ${EXIGE_PEDIDO_HEAD.filter(x=>x!==E.perfil.nome_sistema).join(" ou ")})</span></label>`:""}
     <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px">&#128206; Documentos iniciais (opcional — pode selecionar v&aacute;rios):</label>
       <input type="file" id="nc-doc" class="fsel" multiple style="max-width:240px"></div>
@@ -4838,13 +4876,15 @@ async function criarTarefaParaExistente(cli){
   const flagNC=precisaPedidoHead(E.perfil.nome_sistema,ge("nc-ass").value);
   if(flagNC&&!(ge("nc-headflag")||{}).checked){toast("Para direcionar a "+ge("nc-ass").value+", marque que a tarefa é por pedido direto de uma das heads.","erro");return;}
   const op=ge("nc-op").value;if(!op){toast("Selecione a operação da primeira tarefa.","erro");return;}
+  const ecacEx=ecacValor();if(ecacEx===null)return;
   const chk=ge("nc-chk").value;
   const rev=new Date();if(!["IMEDIATO","DIÁRIO"].includes(chk))rev.setDate(rev.getDate()+7);
   let revISO=rev.toISOString().slice(0,10);
   if(chk==="IMEDIATO"&&ge("nc-ass").value!==E.perfil.nome_sistema){
     const q=perguntarQuandoDelegar("IMEDIATO");if(q)revISO=q;}
   let rt;
-  try{rt=await DB.criarTarefa({id_cliente:cli.id_cliente,cliente:cli.nome,cnpj:cli.cnpj_cpf||"",
+  try{await ecacGravar(cli.id_cliente,ecacEx,cli.e_cac);
+    rt=await DB.criarTarefa({id_cliente:cli.id_cliente,cliente:cli.nome,cnpj:cli.cnpj_cpf||"",
     head:cli.head||ge("nc-head").value,operacao:op,check:chk,assessor:ge("nc-ass").value,
     supervisao:(flagNC?MARCA_PEDIDO_HEAD+". ":"")+(ge("nc-sup").value||""),revisao:revISO});
     toast(`✓ Tarefa ${rt.id} criada no cliente existente "${cli.nome}".`,"ok");}
@@ -4884,6 +4924,7 @@ async function criarClienteTarefa(){
     catch(e){toast("Erro: "+e.message,"erro");return;}
     fecharModal2();recarregar();return;}
   const op=ge("nc-op").value;if(!op){toast("Selecione a operação da primeira tarefa.","erro");return;}
+  const ecacNC=ecacValor();if(ecacNC===null)return;
   if(!alvosCriacao().includes(ge("nc-ass").value)){toast("Você direciona tarefas só para: "+alvosCriacao().join(", ")+".","erro");return;}
   const flagNC2=precisaPedidoHead(E.perfil.nome_sistema,ge("nc-ass").value);
   if(flagNC2&&!(ge("nc-headflag")||{}).checked){toast("Para direcionar a "+ge("nc-ass").value+", marque que a tarefa é por pedido direto de uma das heads.","erro");return;}
@@ -4895,6 +4936,7 @@ async function criarClienteTarefa(){
     const rc=await DB.criarCliente({nome,cnpj,head:ge("nc-head").value,vertical:ge("nc-vert").value,
       situacao:ge("nc-sit").value,regime:ge("nc-reg").value,municipio:ge("nc-mun").value,uf:ge("nc-uf").value,
       resumo:ge("nc-res").value});
+    if(ecacNC)await DB.clienteUpdate(rc.id,{e_cac:ecacNC});
     const rt=await DB.criarTarefa({id_cliente:rc.id,cliente:nome,cnpj,head:ge("nc-head").value,
       operacao:op,check:chk,assessor:ge("nc-ass").value,
       supervisao:(flagNC2?MARCA_PEDIDO_HEAD+". ":"")+(ge("nc-sup").value||""),
