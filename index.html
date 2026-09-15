@@ -687,6 +687,10 @@ const S = {
   async premioToggle(id){return rpcS("premio_toggle",{p_id:id});},
   async premioApagar(id){return rpcS("premio_apagar",{p_id:id});},
   async premioEditar(id,v,quem,dt){return rpcS("premio_editar",{p_id:id,p_valor:v,p_pago_por:quem||"",p_data_uso:dt||null});},
+  async lembretes(){return okS(await supa.rpc("lembretes_listar"))||[];},
+  async lembreteAdd(cli,txt,dt,alvo){return rpcS("lembrete_add",{p_cliente:cli,p_texto:txt,p_data:dt,p_alvo:alvo||"para mim"});},
+  async lembreteFeito(id){return rpcS("lembrete_feito",{p_id:id});},
+  async lembreteApagar(id){return rpcS("lembrete_apagar",{p_id:id});},
   async fichaExtraDar(p,q,m){return rpcS("ficha_extra_dar",{p_pessoa:p,p_qtd:q,p_motivo:m});},
   async fichaExtraApagar(id){return rpcS("ficha_extra_apagar",{p_id:id});},
   async coroaAtual(){const r=okS(await supa.from("coroa").select("*"))||[];
@@ -2872,15 +2876,69 @@ async function telaDiario(dia){
 // carteira do dia por assessor, fila de follow-up da head e contatos
 // pré-pagamento. Lembretes e cobranças da esteira chegam nos blocos B e D.
 function pBRc(s2){const m=String(s2||"").match(/(\d{2})\/(\d{2})\/(\d{4})/);return m?new Date(+m[3],+m[2]-1,+m[1],12):null;}
+function quadroLembretes(lembs){
+  const hj2=hojeISO();
+  const pend=(lembs||[]).filter(l=>!l.feito);
+  const atras=pend.filter(l=>l.data_lembrete<hj2);
+  const deHoje=pend.filter(l=>l.data_lembrete===hj2);
+  const fut=pend.filter(l=>l.data_lembrete>hj2).slice(0,8);
+  const feitos=(lembs||[]).filter(l=>l.feito);
+  const linhaL=(l,cor)=>`<div class="linha-item"><span style="font-size:12.5px">
+      <b style="color:${cor}">${brData(l.data_lembrete)}</b> · <b>${esc(l.cliente)}</b> — ${esc(l.texto)}
+      ${l.alvo&&l.alvo!=="para mim"?`<span class="tag ta">cobrar ${esc(l.alvo)}</span>`:""}</span>
+    <span><button class="btn btg btsm" onclick="lembreteFeito(${l.id})">&#10003; feito</button>
+      <button class="btn bts btsm" title="apagar" onclick="lembreteApagar(${l.id})">&#10005;</button></span></div>`;
+  return `<div class="painel">
+    <div class="bloco-t">&#128276; Meus lembretes de combinado
+      <button class="btn btp btsm" style="margin-left:8px" onclick="abrirLembrete()">+ lembrete</button></div>
+    ${atras.length?`<div style="font-size:11px;font-weight:700;color:var(--red)">Atrasados (${atras.length})</div>`+atras.map(l=>linhaL(l,"var(--red)")).join(""):""}
+    ${deHoje.length?`<div style="font-size:11px;font-weight:700;color:var(--amber);margin-top:4px">Hoje (${deHoje.length})</div>`+deHoje.map(l=>linhaL(l,"var(--amber)")).join(""):""}
+    ${fut.length?`<div style="font-size:11px;font-weight:700;color:var(--gray);margin-top:4px">Próximos</div>`+fut.map(l=>linhaL(l,"var(--navy)")).join(""):""}
+    ${!pend.length?'<div class="vazio">Nenhum lembrete pendente — use o botão para registrar um combinado. 🎉</div>':""}
+    ${feitos.length?`<details style="margin-top:6px"><summary style="cursor:pointer;font-size:11.5px;color:var(--gray)">&#10003; Feitos nos últimos 7 dias (${feitos.length})</summary>
+      ${feitos.map(l=>`<div class="linha-item" style="opacity:.65"><span style="font-size:12px">${brData(l.data_lembrete)} · ${esc(l.cliente)} — ${esc(l.texto)}</span>
+        <button class="btn bts btsm" onclick="lembreteFeito(${l.id})">desfazer</button></div>`).join("")}</details>`:""}</div>`;
+}
+function abrirLembrete(){
+  const nomes=[...new Set((E.equipe||[]).filter(m=>String(m.status||"").toUpperCase()==="ATIVO").map(m=>m.nome_sistema))].filter(n=>n!==E.perfil.nome_sistema).sort();
+  const amanha=(()=>{const d=new Date();d.setDate(d.getDate()+1);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");})();
+  modal2("&#128276; Novo lembrete de combinado","Aparece na SUA Central no dia marcado — só você vê",`
+    <div class="bloco-t">Cliente / assunto *</div>
+    <input class="fi" id="lb-cli" placeholder="Ex: LAVOGA ALIMENTOS · reunião de alinhamento...">
+    <div class="bloco-t" style="margin-top:8px">O que foi combinado / o que cobrar *</div>
+    <textarea class="fta" id="lb-txt" placeholder="Ex: cliente pediu retorno sobre a proposta depois do dia 20; cobrar levantamento do assessor..."></textarea>
+    <div class="linha-acao" style="margin-top:8px">
+      <label style="font-size:11px">&#128197; Me lembrar em:</label><input type="date" class="fsel" id="lb-data" value="${amanha}">
+      <label style="font-size:11px">Tipo:</label><select class="fsel" id="lb-alvo">
+        <option value="para mim">recontatar cliente (eu mesma)</option>
+        ${nomes.map(n=>`<option value="${esc(n)}">cobrar ${esc(n)}</option>`).join("")}</select></div>
+    <button class="btn btp btw" style="margin-top:10px" onclick="salvarLembrete()">&#128276; Guardar lembrete</button>`);
+  rascunhoLiga("lb-txt","lb:novo");}
+async function salvarLembrete(){
+  const cli=(ge("lb-cli").value||"").trim(),txt=(ge("lb-txt").value||"").trim(),dt=ge("lb-data").value,alvo=ge("lb-alvo").value;
+  if(!cli){toast("Informe o cliente ou assunto.","erro");return;}
+  if(!txt){toast("Escreva o combinado.","erro");return;}
+  if(!dt){toast("Escolha a data.","erro");return;}
+  try{await DB.lembreteAdd(cli,txt,dt,alvo);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  rascunhoLimpa("lb:novo");
+  toast("Lembrete guardado — aparece na sua Central em "+brData(dt)+".","ok");fecharModal2();telaCentral();}
+async function lembreteFeito(id){
+  try{await DB.lembreteFeito(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Atualizado!","ok");telaCentral();}
+async function lembreteApagar(id){
+  if(!confirm("Apagar este lembrete?"))return;
+  try{await DB.lembreteApagar(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Apagado.","ok");telaCentral();}
 async function telaCentral(){
   if(!E.perfil.head_sim)return telaMinhas();
   setNav("central","Central do Dia"); carregando();
   const eu=E.perfil.nome_sistema;
   const mesISO=hojeISO().slice(0,7)+"-01";
-  let ops,cob,pags,metas,props,tm;
-  try{[ops,cob,pags,metas,props,tm]=await Promise.all([
+  let ops,cob,pags,metas,props,tm,lembs;
+  try{[ops,cob,pags,metas,props,tm,lembs]=await Promise.all([
     DB.tarefas(),DB.cobranca(),DB.comercialPagamentos(mesISO),
-    DB.metasMes(mesISO),DB.propostas(),DB.historicoTimers(16).catch(()=>[])]);}catch(e){return erro(e.message);}
+    DB.metasMes(mesISO),DB.propostas(),DB.historicoTimers(16).catch(()=>[]),
+    DB.lembretes().catch(()=>[])]);}catch(e){return erro(e.message);}
   const ts=(ops||[]).map(classificar);E.tarefas=ts;
   E._propMap=E._propMap||{};(props||[]).forEach(x=>{E._propMap[x.id_proposta]=x;});
   // ---- metas × pago (líquido do mês corrente; filtro no navegador por garantia)
@@ -2971,8 +3029,7 @@ async function telaCentral(){
         <span><b>${esc(p2.cliente)}</b> · R$ ${esc(p2.valor||"0")} · ${esc(p2.status||"")}</span>
         <span style="font-size:11px;color:${dp>=7?"var(--red)":"var(--gray)"}">${dp!==null?dp+"d sem movimento":""}</span></div>`;}).join("")
         :'<div class="vazio">Nenhuma proposta sua na rua.</div>'}</div>
-    <div class="painel" style="background:var(--gray-lt)">
-      <div style="font-size:12px;color:var(--gray)">&#128276; <b>Lembretes de combinado</b> chegam no próximo bloco do pacote — cliente + combinado + data, com aviso aqui na Central.</div></div>`;
+    ${quadroLembretes(lembs||[])}`;
 }
 // =================================================== TELA: CAPACIDADE (head)
 async function telaCapacidade(){
