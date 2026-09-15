@@ -432,7 +432,7 @@ def main():
               where upper(coalesce(e.status,''))='ATIVO'
                 and e.cargo not ilike '%%head%%' and e.cargo not ilike '%%vendedor%%'
                 and e.nome_sistema <> 'Madu'
-              order by (select count(*) from juridico.operacional o
+                and (e.ausente_ate is null or e.ausente_ate < current_date)               order by (select count(*) from juridico.operacional o
                         where o.assessor=e.nome_sistema
                           and upper(coalesce(o.check_,''))='IMEDIATO'
                           and o.status_tarefa not ilike '%%EM DIA%%'
