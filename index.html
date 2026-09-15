@@ -291,7 +291,18 @@ const CORES_ASSESSOR={
 const COR_PADRAO={bg:"#EEF2F5",border:"#90A4AE",text:"#455A64",dot:"#90A4AE"};
 const corDe=n=>CORES_ASSESSOR[primeiroNome(n||"")]||COR_PADRAO;
 // Listas do sistema antigo (Code.gs / Index.html)
-const LAUDO_ETAPAS=["Em elaboração","Protocolado","Em análise (procuradoria)","Exigência/Complementação","Deferido","Indeferido"];
+const LAUDO_ETAPAS=["Solicitação de documentos ao cliente","Confecção no setor de laudos","A protocolar","Em análise (procuradoria)","Complementação de documentos","Deferido","Indeferido"];
+// de quem depende cada etapa: nós · setor de laudos · procuradoria · fim
+const LAUDO_DEPENDE={
+  "Solicitação de documentos ao cliente":"nos",
+  "Confecção no setor de laudos":"setor",
+  "A protocolar":"nos",
+  "Em análise (procuradoria)":"procuradoria",
+  "Complementação de documentos":"nos",
+  "Deferido":"fim","Indeferido":"fim"};
+function laudoDepende(e){return LAUDO_DEPENDE[e]||"nos";}
+function laudoCor(e){return /Deferido/.test(e||"")?"var(--green)":/Indeferido/.test(e||"")?"var(--red)"
+  :laudoDepende(e)==="procuradoria"?"var(--amber)":laudoDepende(e)==="setor"?"var(--dani)":"var(--navy)";}
 const OPERACOES=["Audiência","Análise Prescricional","Cancelar transação","Cancelar negociação","Execução Fiscal","Estadual","Emissão CPEN","Embargos à Execução","ExcPreEx - Prescrição","E-Processo","FGTS","Laudo OPF","Laudo CAPAG","Levantamento - Cliente Villela","MS","MS Migração","MS Impedimento","MS laudo CAPAG","MS CND","Monitoramento","NJP","Negociação Estadual","Outros","Petição","Parcelar","Proposta Comercial - Parecer Tributário","Protesto","PRDI","Renegociação","Risco de bloqueio","Restituição SN","Revenda","Recurso","Simulação","TAX","TI - Transação Individual","Transacionar","TIS","Parecer de Novo Cliente","Contabilize","Contrato/Aditivo"];
 const TEMPOS_PADRAO={"Execução Fiscal":15,"Proposta Comercial - Parecer Tributário":25,"MS":35,"MS Migração":35,"MS Impedimento":35,"MS laudo CAPAG":35,"MS CND":35,"Transacionar":20,"Laudo CAPAG":25,"Laudo OPF":25,"Monitoramento":10,"Audiência":60,"NJP":20,"Renegociação":20,"Recurso":30,"Embargos à Execução":30,"Emissão CPEN":15,"PRDI":20,"Protesto":15,"Estadual":20,"E-Processo":15,"FGTS":20,"Petição":30,"Parcelar":15,"Simulação":20,"TAX":25,"TIS":20,"Contabilize":20,"Restituição SN":20,"Risco de bloqueio":15,"Revenda":15,"Cancelar transação":15,"Levantamento - Cliente Villela":30,"Parecer de Novo Cliente":30,"Outros":20,"Análise Prescricional":30,"ExcPreEx - Prescrição":25,"Negociação Estadual":20,_default:20};
 const tempoDe=op=>TEMPOS_PADRAO[op]||TEMPOS_PADRAO._default;
@@ -1795,7 +1806,7 @@ function desenharCard(t,hist){
     ${t.estado?`<div>Estado:<br><b>${esc(t.estado)}</b></div>`:""}
     ${t._impedimento&&!t.queda_impedimento_dt?`<div class="aviso erro" style="margin-bottom:6px">&#9888; Este MS Impedimento está <b>sem data de queda</b> — o painel das heads não consegue avisar antes de o impedimento cair. Informe no campo abaixo (ou registre num andamento por que ainda não existe).</div>`:""}
     ${t._laudo?`<div>Etapa do laudo:<br><span id="le-ver">${t.etapa_laudo
-        ?`<b style="color:${/Deferido/.test(t.etapa_laudo)?"var(--green)":/Indeferido/.test(t.etapa_laudo)?"var(--red)":/análise/.test(t.etapa_laudo)?"var(--amber)":"var(--navy)"}">${esc(t.etapa_laudo)}</b>${t._laudoDias!==null?` <span style="font-size:10px;color:${t._laudoDias>=30?"var(--red)":"var(--gray)"}">há ${t._laudoDias}d nesta etapa</span>`:""} `
+        ?`<b style="color:${laudoCor(t.etapa_laudo)}">${esc(t.etapa_laudo)}</b>${t._laudoDias!==null?` <span style="font-size:10px;color:${t._laudoDias>=30?"var(--red)":"var(--gray)"}">há ${t._laudoDias}d nesta etapa</span>`:""}${(laudoDepende(t.etapa_laudo)==="procuradoria"&&(t._laudoDias||0)>=30)?' <span class="tag ti">&#9878; 30d+ — cabe ação p/ obrigar análise</span>':""} `
         :`<span class="tag ta">definir</span> `}
       <button class="btn bts btsm" style="padding:1px 8px;font-size:10px" onclick="editarEtapaLaudo()">&#9998;</button></span>
       <span id="le-ed" style="display:none;margin-top:4px"><select class="fsel" id="le-in">${LAUDO_ETAPAS.map(e2=>`<option ${t.etapa_laudo===e2?"selected":""}>${e2}</option>`).join("")}</select>
@@ -3572,10 +3583,12 @@ async function telaLaudos(){
   const emAndamento=ts.filter(t=>!/Deferido|Indeferido/.test(t.etapa_laudo||"")).length;
   const def=cont["Deferido"]||0,indef=cont["Indeferido"]||0,decididos=def+indef;
   const taxa=decididos?Math.round(def/decididos*100):null;
-  // dependem de nós: elaboração/exigência (bola conosco) × análise (com a procuradoria)
-  const conosco=ts.filter(t=>/elabora|Exig/i.test(t.etapa_laudo||"")||!t.etapa_laudo);
-  const naProc=ts.filter(t=>/análise/i.test(t.etapa_laudo||"")).sort((a,b)=>(b._laudoDias||0)-(a._laudoDias||0));
-  const cor=e2=>/Deferido/.test(e2)?"var(--green)":/Indeferido/.test(e2)?"var(--red)":/análise/.test(e2)?"var(--amber)":/Exig/.test(e2)?"var(--roxo)":"var(--navy)";
+  // três baldes: NÓS (inclui sem etapa) · SETOR DE LAUDOS · PROCURADORIA
+  const conosco=ts.filter(t=>!t.etapa_laudo||laudoDepende(t.etapa_laudo)==="nos");
+  const noSetor=ts.filter(t=>laudoDepende(t.etapa_laudo)==="setor");
+  const naProc=ts.filter(t=>laudoDepende(t.etapa_laudo)==="procuradoria").sort((a,b)=>(b._laudoDias||0)-(a._laudoDias||0));
+  const impetrar=naProc.filter(t=>(t._laudoDias||0)>=30);
+  const cor=laudoCor;
   const card=(rot,val,c,sub)=>`<div style="background:${c}14;border:1.5px solid ${c};border-radius:11px;padding:10px 13px;flex:1;min-width:120px">
     <div style="font-size:22px;font-weight:700;color:${c};font-family:'DM Mono'">${val}</div>
     <div style="font-size:11px;color:var(--gray)">${rot}</div>${sub?`<div style="font-size:10px;color:var(--gray)">${sub}</div>`:""}</div>`;
@@ -3583,15 +3596,21 @@ async function telaLaudos(){
     <div class="painel"><div class="bloco-t">&#129514; Laudos em andamento${eh?" — sua carteira":" — toda a equipe"}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         ${card("em andamento",emAndamento,"var(--navy)")}
-        ${card("dependem de NÓS",conosco.length,"var(--roxo)","elaboração + exigência")}
+        ${card("dependem de NÓS",conosco.length,"var(--roxo)","docs ao cliente · protocolar · complementação")}
+        ${card("no setor de laudos",noSetor.length,"var(--dani)","aguardando confecção")}
         ${card("na procuradoria",naProc.length,"var(--amber)","aguardando análise")}
         ${card("deferidos",def,"var(--green)")}
         ${card("taxa de êxito",taxa===null?"—":taxa+"%","var(--green)",decididos+" decididos")}</div></div>
     <div class="painel"><div class="bloco-t">Por etapa</div>
       ${Object.entries(cont).filter(([,q])=>q>0).map(([e2,q])=>`<div class="linha-item" style="cursor:pointer" onclick="E._laudoEtapa='${esc(e2)}';desenhaLaudoLista()">
         <span style="font-size:12.5px"><b style="color:${cor(e2)}">${esc(e2)}</b></span><b>${q}</b></div>`).join("")||'<div class="vazio">Nenhum laudo em andamento.</div>'}</div>
+    ${impetrar.length?`<div class="painel" style="border-left:4px solid var(--red)">
+      <div class="bloco-t" style="color:var(--red)">&#9878; Cabe AÇÃO para obrigar a análise — 30 dias ou mais na procuradoria (${impetrar.length})</div>
+      ${impetrar.map(t=>`<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')">
+        <span style="font-size:12.5px">&#9888; <b>${esc(t.cliente)}</b> · ${esc(t.assessor||"—")}</span>
+        <b style="color:var(--red)">${t._laudoDias}d parado</b></div>`).join("")}</div>`:""}
     ${naProc.length?`<div class="painel" style="border-left:4px solid var(--amber)">
-      <div class="bloco-t" style="color:var(--amber)">&#9203; Parados na procuradoria — mais antigos primeiro</div>
+      <div class="bloco-t" style="color:var(--amber)">&#9203; Na procuradoria — mais antigos primeiro (${naProc.length})</div>
       ${naProc.slice(0,15).map(t=>`<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')">
         <span style="font-size:12.5px"><b>${esc(t.cliente)}</b> · ${esc(t.assessor||"—")}</span>
         <b style="color:${(t._laudoDias||0)>=30?"var(--red)":"var(--gray)"}">${t._laudoDias!==null?t._laudoDias+"d":"—"}</b></div>`).join("")}</div>`:""}
