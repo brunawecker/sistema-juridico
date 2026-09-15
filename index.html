@@ -194,6 +194,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div class="sbh"><div class="sbl">Villela Advogados</div><div class="sbt">Sistema Jurídico</div></div>
     <div class="sbu"><div class="sbav" id="sb-av">?</div>
       <div><div class="sbnm" id="sb-nm">—</div><div class="sbrl" id="sb-rl">—</div></div></div>
+    <div id="sb-escopo" style="padding:0 12px 8px"></div>
     <nav class="sbn" id="sb-nav"></nav>
     <div class="sbf">Sistema novo · em testes</div>
   </aside>
@@ -965,7 +966,8 @@ async function entrou(){
   ge("tela-login").style.display="none"; ge("app").style.display="block";
   ge("sb-av").textContent=(p.nome_sistema||"?").charAt(0);
   ge("sb-nm").textContent=p.nome_sistema; ge("sb-rl").textContent=p.cargo+(p.admin_sim?" · ADMIN":"");
-  await carregarConfig(); montarVerComo(); faixaVerComo(); montarMenu();
+  E._soMinha=(localStorage.getItem("escopoMinha")==="1");
+  await carregarConfig(); montarVerComo(); faixaVerComo(); montarMenu(); montarEscopo();
   // vigia de inatividade: só assessores de verdade — nunca heads/admin nem no "Ver como"
   if(OPERACIONAIS.includes(p.nome_sistema)&&!p.head_sim&&!p.admin_sim&&!p.vendo_como_outro)
     iniciarVigiaInatividade();
@@ -1029,6 +1031,30 @@ function faixaVerComo(){
 async function sairVerComo(){try{await DB.verComoSair();}catch(e){toast("Não deu: "+e.message,"erro");return;}location.reload();}
 
 // ================================================================= MENU
+// 👁 escopo global: "minha carteira" x "todos" (só heads). Semeia os filtros
+// por head que já existem nas telas e governa o Painel ao vivo (Eduarda 3).
+function escHead(){return (E.perfil&&E.perfil.head_sim&&E._soMinha)?E.perfil.nome_sistema:null;}
+function montarEscopo(){
+  const box=ge("sb-escopo");if(!box)return;
+  if(!E.perfil.head_sim){box.innerHTML="";return;}
+  const on=!!E._soMinha;
+  box.innerHTML=`<button onclick="alternarEscopo()" title="Filtra Painel, Clientes, Diário e Previsão pela sua carteira"
+    style="width:100%;border:1.5px solid ${on?"var(--navy)":"var(--border)"};background:${on?"var(--navy)":"white"};color:${on?"white":"var(--gray)"};border-radius:20px;padding:6px 10px;font-size:11.5px;font-weight:700;cursor:pointer">
+    ${on?"&#128100; Vendo: MINHA carteira":"&#128101; Vendo: TODOS"} <span style="opacity:.7;font-weight:400">· trocar</span></button>`;
+}
+function alternarEscopo(){
+  E._soMinha=!E._soMinha;
+  localStorage.setItem("escopoMinha",E._soMinha?"1":"0");
+  const eu=E.perfil.nome_sistema;
+  // semeia os seletores por head das telas que já têm filtro próprio
+  E._fHead=E._soMinha?eu:"TODOS";
+  E._diarioAdv=E._soMinha?eu:"";
+  E._prevHead=E._soMinha?eu:"todas";
+  montarEscopo();
+  const v=E.view,mapa={painel:telaPainel,cli:telaClientes,diario:telaDiario,prev:telaPrevisao,
+    central:telaCentral,com:telaComercial,minhas:telaMinhas,prop:telaPropostas,cap:telaCapacidade};
+  (mapa[v]||telaPainel)();
+}
 function montarMenu(){
   const p=E.perfil, vend=/vendedor|comercial/i.test(p.cargo||"");
   let itens;
@@ -2481,7 +2507,9 @@ async function telaPainel(){
   setNav("painel","Painel Geral"); carregando();
   let data,ses;try{[data,ses]=await Promise.all([DB.tarefas(),DB.sessoesHoje()]);await carregarFinanceiro();}
   catch(e){return erro(e.message);}
-  const ts=(data||[]).map(classificar);aplicarFinanceiro(ts);E.tarefas=ts;E._todasBanco=ts;
+  let ts=(data||[]).map(classificar);aplicarFinanceiro(ts);
+  const _eh=escHead();if(_eh)ts=ts.filter(t=>String(t.advogada||"").trim()===_eh);
+  E.tarefas=ts;E._todasBanco=ts;
   const at=ts.filter(t=>t.id_tarefa&&!t._delegada&&!t._emCorrecao);
   const total=at.length,atr=at.filter(t=>t._atrasada).length,imed=at.filter(t=>t._g===1).length;
   const porHead={Danielly:0,Bruna:0,Eduarda:0};
@@ -3301,7 +3329,7 @@ async function telaPrevisao(mesRef){
   Object.values(porDia).forEach(l=>l.sort((a,b)=>({agendado:0,estimado:1,recorrente:2}[a.tipo]-{agendado:0,estimado:1,recorrente:2}[b.tipo])));
   E._prevDias=porDia;E._prevMeta={ano,mes,foraMes,mesAtual};
   if(!E._prevFiltro)E._prevFiltro="todos";
-  if(!E._prevHead)E._prevHead="todas";
+  if(!E._prevHead)E._prevHead=escHead()||"todas";
   desenhaPrevisao();
 }
 function filtraPrev(n){E._prevFiltro=n;desenhaPrevisao();}
@@ -3579,7 +3607,8 @@ async function fazerReabrir(id,linha){
 // =================================================== TELA: CLIENTES (completa)
 async function telaClientes(){
   setNav("cli",E.perfil.head_sim?"Gestão de Clientes":"Buscar Clientes"); carregando();
-  E._fSit="TODOS";E._fReg="TODOS";E._fAtivo="TODOS";E._fHead="TODOS";E._clPag=0;
+  E._fSit="TODOS";E._fReg="TODOS";E._fAtivo="TODOS";E._clPag=0;
+  if(E._fHead===undefined)E._fHead=escHead()||"TODOS";
   let cs,ops;try{[cs,ops]=await Promise.all([DB.clientes(""),DB.tarefas()]);}catch(e){return erro(e.message);}
   E._clsTodos=cs||[];E._cli={};E._clsTodos.forEach(c=>E._cli[c.id_cliente]=c);
   E._temTarefa={};E._minhaTarefa={};E._minhaQtd={};
