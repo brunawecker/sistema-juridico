@@ -817,7 +817,7 @@ const S = {
       prospeccao:d.novo_cliente?"SIM":"NÃO",produtos:d.produtos||"",verticais:d.verticais||"",
       valor:String(d.valor||0),valor_num:d.valor||0,cond_pagamento:d.cond||"",origem:d.origem||"",
       forma_contato:d.contato||"",forma_parecer:d.parecer||"",link_sharepoint:d.sharepoint||"",
-      tempo_min:String(d.tempo||0),tempo_min_num:d.tempo||0,status:d.status||"Proposta enviada",obs:d.obs||"",fechada:"NÃO"}));
+      tempo_min:String(d.tempo||0),tempo_min_num:d.tempo||0,status:d.status||"Proposta enviada",obs:d.obs||"",fechada:"NÃO",data_reuniao:d.data_reuniao||null}));
     if(idc)await histS("",idc,"PROPOSTA","Proposta "+pr+" lançada — R$ "+(d.valor||0)+" ("+(d.status||"Proposta enviada")+")");
     return{ok:true,id:pr,id_cliente:idc};},
   async negociacao(d){const r=okS(await supa.from("propostas_visiveis").select("negociacao_log,id_cliente").eq("id_proposta",d.id_proposta));
@@ -827,6 +827,7 @@ const S = {
     if(d.cond)u.cond_atual=d.cond; if(d.valor)u.valor_atual=d.valor; if(d.perda)u.motivo_perda=d.perda;
     if(d.valor_mes!==undefined)u.valor_mes=d.valor_mes;
     if(d.data_pagto!==undefined)u.data_pagto_prevista=d.data_pagto;
+    if(d.data_reuniao!==undefined)u.data_reuniao=d.data_reuniao||null;
     if(d.etapa){u.status=d.etapa;if(d.etapa==="Aceita")u.fechada="SIM";}
     okS(await supa.from("propostas").update(u).eq("id_proposta",d.id_proposta));
     let conv=false;
@@ -3122,6 +3123,24 @@ async function telaCentral(){
         return `<details class="det"><summary><b>${esc(ass2)}</b> — ${lst.length} tarefa(s)${atr?` · <b style="color:var(--red)">${atr} atrasada(s)</b>`:""}</summary>
           <div style="padding:4px 8px">${lst.map(t=>cardTarefa(t,false)).join("")}</div></details>`;}).join("")
         :'<div class="vazio">Nada da sua carteira vencendo hoje. 🎉</div>'}</div>
+    ${(()=>{
+      const conduzo=(props||[]).filter(p2=>loginDe(String(p2.quem_pediu||p2.responsavel||""))===eu
+        &&String(p2.fechada||"NÃO")!=="SIM"&&!/recusad/i.test(String(p2.status||"")));
+      const aAgendar=conduzo.filter(p2=>!p2.data_reuniao);
+      const agendadas=conduzo.filter(p2=>p2.data_reuniao&&String(p2.data_reuniao).slice(0,10)>=hojeISO())
+        .sort((a2,b2)=>String(a2.data_reuniao).localeCompare(String(b2.data_reuniao)));
+      if(!aAgendar.length&&!agendadas.length)return "";
+      return `<div class="painel" style="border-left:4px solid var(--dani)">
+        <div class="bloco-t" style="color:var(--dani)">&#128197; Reuniões de apresentação — vendas que eu conduzo</div>
+        ${aAgendar.length?`<div style="font-size:11px;font-weight:700;color:var(--amber)">A AGENDAR (${aAgendar.length}) — defina a data da 1ª reunião</div>`
+          +aAgendar.map(p2=>`<div class="linha-item" style="cursor:pointer" onclick='abrirNegociacao(${JSON.stringify(p2.id_proposta)})'>
+            <span style="font-size:12.5px">&#9888; <b>${esc(p2.cliente)}</b> · ${esc(p2.status||"")}</span>
+            <span style="font-size:11px;color:var(--dani)">marcar reunião &#9656;</span></div>`).join(""):""}
+        ${agendadas.length?`<div style="font-size:11px;font-weight:700;color:var(--green);margin-top:5px">AGENDADAS</div>`
+          +agendadas.map(p2=>`<div class="linha-item" style="cursor:pointer" onclick='abrirNegociacao(${JSON.stringify(p2.id_proposta)})'>
+            <span style="font-size:12.5px">&#128197; <b>${esc(p2.cliente)}</b></span>
+            <b style="color:${String(p2.data_reuniao).slice(0,10)===hojeISO()?"var(--red)":"var(--navy)"}">${brData(String(p2.data_reuniao).slice(0,10))}${String(p2.data_reuniao).slice(0,10)===hojeISO()?" — HOJE":""}</b></div>`).join(""):""}</div>`;
+    })()}
     <div class="painel">
       <div class="bloco-t">&#128222; Follow-up do meu dia — minhas propostas na rua (${minhasProps.length})
         <button class="btn btg btsm" style="margin-left:8px" onclick="iniciarFollowup()">&#128222; Medir follow-up (liga o relógio)</button></div>
@@ -4232,6 +4251,10 @@ function abrirNegociacao(id){
       <label style="font-size:11px" title="Quanto deste negócio deve ser PAGO no mês corrente. Parcelado: só a parcela do mês. Cartão de crédito: valor integral (a empresa antecipa).">&#128181; Previsto p/ ESTE mês: R$</label>
       <input class="fsel" id="ng-vmes" placeholder="0,00" style="width:100px" value="${esc(p.valor_mes||"")}">
       <label style="font-size:11px">pagamento em:</label><input type="date" class="fsel" id="ng-dpag" value="${p.data_pagto_prevista||""}"></div>
+    <div class="linha-acao" style="margin-top:4px;background:#EEF3F9;border-radius:8px;padding:6px 8px">
+      <label style="font-size:11px" title="Reunião de apresentação com o cliente — aparece na Central de quem conduz a venda">&#128197; Reunião de apresentação:</label>
+      <input type="date" class="fsel" id="ng-reuniao" value="${p.data_reuniao||""}" style="width:150px">
+      <span style="font-size:10px;color:var(--gray)">vai para a agenda de quem conduz a venda (${esc(p.quem_pediu||p.responsavel||"—")})</span></div>
     <div style="font-size:10px;color:var(--gray);margin-top:2px">Parcelado conta só a parcela do mês · cartão de crédito conta integral · esses valores alimentam a cobertura da meta no Comercial.</div>
     <div id="ng-perda-w" style="display:none;margin-top:6px"><input class="fi" id="ng-perda" placeholder="Motivo da perda"></div>
     <div class="bloco-t" style="margin-top:10px">&#128206; Levantamento anexado</div>
@@ -4307,6 +4330,7 @@ async function salvarNegociacao(id){
   const passo=(ge("ng-passo").value||"").trim();let ret=ge("ng-ret").value||"";if(ret)ret=brData(ret);
   const perda=(ge("ng-perda")?.value||"").trim();
   const vmes=numBR((ge("ng-vmes")?.value||"").trim()),dpag=ge("ng-dpag")?.value||"";
+  const dreu=ge("ng-reuniao")?.value||"";
   if(etapa==="Recusada"&&!perda){toast("Informe o motivo da perda — é o dado que permite melhorar as próximas propostas.","erro");return;}
   // rodada viva exige próximo passo + data de retorno (pedido da Bruna,
   // 18/08/2026) — só fechamento (Aceita) e recusa dispensam
@@ -4317,7 +4341,7 @@ async function salvarNegociacao(id){
   if(val)ln+=" | 💰 Novo valor: R$ "+val;if(cond)ln+=" | 💳 Novas condições: "+cond;
   if(passo)ln+=" | ⏭ Próximo: "+passo;if(ret)ln+=" (retorno "+ret+")";if(perda)ln+=" | ✗ Motivo: "+perda;
   try{const r=await DB.negociacao({id_proposta:id,linha_log:ln,etapa,valor:val,cond,passo,retorno:ret,perda,
-      valor_mes:vmes||null,data_pagto:dpag||null});
+      valor_mes:vmes||null,data_pagto:dpag||null,data_reuniao:dreu||null});
     if(E._avulsa&&String(E._avulsa.desc||"").indexOf("📞")>-1)E._fuRodadasSessao=(E._fuRodadasSessao||0)+1;
     rascunhoLimpa("ng:"+id,"ngp:"+id);
     toast(r.convertido?"🎉 Rodada salva — cliente convertido em OFICIAL!":"Rodada registrada!","ok");}
@@ -5082,7 +5106,8 @@ async function abrirProposta(){
       <select class="fsel" id="pr-par" onchange="ge('pr-sp-w').style.display=this.value==='Word'?'block':'none'"><option value="">Parecer *</option><option value="Word">Word / levantamento</option><option value="Mensagem">Mensagem / ligação</option></select></div>
     <div id="pr-sp-w" style="display:none;margin-top:5px"><input class="fi" id="pr-sp" placeholder="Link do levantamento no SharePoint *"></div>
     <div class="linha-acao" style="margin-top:6px">
-      <label style="font-size:11px">Data:</label><input type="date" class="fsel" id="pr-data" value="${hojeISO()}"></div>
+      <label style="font-size:11px">Data:</label><input type="date" class="fsel" id="pr-data" value="${hojeISO()}">
+      <label style="font-size:11px" title="Se já combinou a reunião de apresentação com o cliente, informe — vai para a agenda de quem conduz a venda">&#128197; Reunião de apresentação:</label><input type="date" class="fsel" id="pr-reuniao"></div>
     <textarea class="fta" id="pr-obs" style="margin-top:6px" placeholder="Observações (opcional)"></textarea>
     <button class="btn btp btw" style="margin-top:8px" onclick="lancarProposta()">&#128221; Lançar proposta</button>`);
 }
@@ -5171,7 +5196,8 @@ async function lancarProposta(){
   try{const r=await DB.criarProposta({cliente,id_cliente:idc,cnpj,novo_cliente:novo,
     executor:exec,quem_pediu:pediu,responsavel:pediu||exec,produtos:prods.join(", "),verticais:verts.join(", "),
     valor:tot,cond,origem:orig,contato:cont,parecer:par,sharepoint:sp,tempo,
-    data:ge("pr-data").value||hojeISO(),obs:ge("pr-obs").value||"",status:"Proposta enviada"});
+    data:ge("pr-data").value||hojeISO(),obs:ge("pr-obs").value||"",status:"Proposta enviada",
+    data_reuniao:ge("pr-reuniao").value||null});
     toast("✓ Proposta lançada: "+r.id,"ok");}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   fecharModal2();if(E.view==="prop")telaPropostas();
