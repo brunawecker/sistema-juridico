@@ -1080,6 +1080,14 @@ function erro(m){ge("conteudo").innerHTML=`<div class="vazio">&#9888; ${esc(m)}<
 // ========================================================= CONFIGURAÇÕES
 // Tela de head: capacidades, permissões e tempos morarão no banco — mudar
 // aqui vale para todo mundo na próxima vez que abrirem o sistema.
+async function salvarAusencia(n){
+  const d=ge("cfg-aus-"+n).value;
+  if(!d){toast("Escolha a data de volta (último dia de ausência).","erro");return;}
+  try{await DB.equipeSet(n,{ausente_ate:d});}catch(e){toast("Erro: "+e.message,"erro");return;}
+  E.equipe=await DB.equipe();toast(n+" marcado(a) como ausente até "+brData(d)+".","ok");telaConfig();}
+async function limparAusencia(n){
+  try{await DB.equipeSet(n,{ausente_ate:null});}catch(e){toast("Erro: "+e.message,"erro");return;}
+  E.equipe=await DB.equipe();toast(n+" de volta ao jogo! 🎉","ok");telaConfig();}
 async function telaConfig(){setNav("cfg","Configurações");carregando();
   if(!E.perfil.head_sim){erro("Esta tela é só para heads.");return;}
   let cf;try{cf=await DB.config();}catch(e){erro(e.message);return;}
@@ -1099,6 +1107,15 @@ async function telaConfig(){setNav("cfg","Configurações");carregando();
     ${nomes.map(n=>`<div class="linha-item"><span>${esc(n)}</span>
       <input class="fsel" style="width:90px" type="number" min="60" max="720" id="cfg-cap-${esc(n)}" value="${capDeCfg(n)}" placeholder="420"></div>`).join("")}
     <div class="linha-acao"><button class="btn btp btsm" onclick="salvarConfigCap()">&#128190; Salvar capacidades</button></div></div>
+  <div class="painel"><div class="bloco-t">&#127958;&#65039; Férias / ausências</div>
+    <div style="font-size:11px;color:var(--gray);margin-bottom:6px">Quem está ausente sai da régua de recebimento, das sugestões de delegação e da esteira de novos clientes até a data de volta (inclusive). No dia seguinte à data, volta sozinho a tudo.</div>
+    ${nomes.map(n=>{const m=(E.equipe||[]).find(x=>x.nome_sistema===n)||{};
+      const d=m.ausente_ate?String(m.ausente_ate).slice(0,10):"";
+      const ativa=d&&d>=hojeISO();
+      return `<div class="linha-item"><span>${esc(n)} ${ativa?`<span class="tag ta">&#127958;&#65039; ausente até ${brData(d)}</span>`:""}</span>
+      <span><input type="date" class="fsel" id="cfg-aus-${esc(n)}" value="${ativa?d:""}">
+      <button class="btn btp btsm" onclick="salvarAusencia('${esc(n)}')">&#128190;</button>
+      ${ativa?`<button class="btn bts btsm" title="voltou antes" onclick="limparAusencia('${esc(n)}')">voltou</button>`:""}</span></div>`;}).join("")}</div>
   <div class="painel"><div class="bloco-t">Quem pode corrigir e delegar impulso</div>
     <div style="font-size:11px;color:var(--gray);margin-bottom:6px">Em "delega para", marque quem pode RECEBER impulsos dessa pessoa. Nenhum marcado = pode delegar para todos.</div>
     ${nomes.map(n=>{const p=perDe(n);const dp=String(p.delega_para||"").split(",").map(s=>s.trim()).filter(Boolean);
@@ -3099,7 +3116,7 @@ async function telaCapacidade(){
         <tr style="color:var(--gray);text-align:right"><th style="text-align:left">#</th><th style="text-align:left">Pessoa</th><th>Ativas</th><th>Diárias</th><th>Semanais</th><th>Do dia</th><th>Peso total</th></tr>`+
         rkSem.map((x,i)=>`<tr style="border-top:1px solid var(--gray-lt);text-align:right${i===0?";background:var(--green-lt)":""}">
           <td style="text-align:left;padding:4px 0">${i+1}º${i===0?" &#11088;":""}</td>
-          <td style="text-align:left"><b>${esc(x.n)}</b></td>
+          <td style="text-align:left"><b>${esc(x.n)}</b>${ausenteAte(x.n)?` <span class="tag ta">&#127958;&#65039; até ${brData(ausenteAte(x.n))}</span>`:""}</td>
           <td>${x.r.total_ativas}</td><td>${x.r.n_diarias}</td><td>${x.r.n_semanais}</td>
           <td>${x.r.pendentes}</td><td><b>${x.sc}</b></td></tr>`).join("")+
         (madu?`<tr style="border-top:2px solid var(--border);text-align:right;color:var(--gray)">
@@ -4628,6 +4645,11 @@ function montarFab(vend){
 // vendedor cria e direciona tarefas SÓ para o grupo configurado em
 // "delega para" (pedido da Bruna, 12/08/2026: João, Laura e Thiago —
 // nunca Malu, Ygor e Madu); demais perfis seguem com todos os operacionais
+// 🏖 férias/ausência: data de volta registrada na Equipe (Configurações)
+function ausenteAte(n){
+  const m=(E.equipe||[]).find(x=>x.nome_sistema===n);
+  const d=m&&m.ausente_ate?String(m.ausente_ate).slice(0,10):"";
+  return d&&d>=hojeISO()?d:null;}
 function alvosCriacao(){
   const p=E.perfil||{};
   if(!/vendedor|comercial/i.test(p.cargo||""))return OPERACIONAIS;
@@ -4647,12 +4669,16 @@ async function ordenarReceptores(selId){
   const score=n=>{const c=info(n);
     return c?((+c.n_diarias||0)*5+(+c.n_semanais||0)*2+(+c.total_ativas||0)):99999;};
   const maduFora=lista.includes("Madu");
-  const ord=[...lista].filter(n=>!(maduFora&&n==="Madu")).sort((a,b)=>score(a)-score(b));
+  const fora=n=>(maduFora&&n==="Madu")||ausenteAte(n);
+  const ord=[...lista].filter(n=>!fora(n)).sort((a,b)=>score(a)-score(b));
+  lista.filter(n=>ausenteAte(n)&&!(maduFora&&n==="Madu")).forEach(n=>ord.push(n));
   if(maduFora)ord.push("Madu");
   const atual=sel.value;
   sel.innerHTML=ord.map((n,i)=>{const c=info(n);
     const det=c?` — ${c.total_ativas} ativas · ${c.n_diarias} diárias · ${c.n_semanais} semanais`:"";
+    const aus=ausenteAte(n);
     const rot=(n==="Madu"&&maduFora)?`${n} (advogada — só tarefas diretas das heads)`
+      :aus?`${n} 🏖 AUSENTE até ${brData(aus)} — evite delegar`
       :`${n}${det}${i===0?" ✓ recomendado":""}`;
     return `<option value="${esc(n)}">${esc(rot)}</option>`;}).join("");
   if(atual&&ord.includes(atual))sel.value=atual;
