@@ -1030,6 +1030,7 @@ function montarMenu(){
   let itens;
   if(vend) itens=[["prop","&#128203;","Propostas",telaPropostas],["com","&#128188;","Comercial",telaComercial]];
   else if(p.head_sim) itens=[
+    ["central","&#127749;","Central do Dia",telaCentral],
     ["painel","&#128202;","Painel Geral",telaPainel],
     ["com","&#128188;","Comercial",telaComercial],
     ["diario","&#9200;","Acompanhamento Diário",telaDiario],
@@ -2866,6 +2867,96 @@ async function telaDiario(dia){
   ge("conteudo").innerHTML=h;
 }
 
+// =============================================== TELA: CENTRAL DO DIA (heads)
+// Pacote das heads (15/09/2026) — Bloco A: tarjas de meta e inadimplência,
+// carteira do dia por assessor, fila de follow-up da head e contatos
+// pré-pagamento. Lembretes e cobranças da esteira chegam nos blocos B e D.
+function pBRc(s2){const m=String(s2||"").match(/(\d{2})\/(\d{2})\/(\d{4})/);return m?new Date(+m[3],+m[2]-1,+m[1],12):null;}
+async function telaCentral(){
+  if(!E.perfil.head_sim)return telaMinhas();
+  setNav("central","Central do Dia"); carregando();
+  const eu=E.perfil.nome_sistema;
+  const mesISO=hojeISO().slice(0,7)+"-01";
+  let ops,cob,pags,metas,props;
+  try{[ops,cob,pags,metas,props]=await Promise.all([
+    DB.tarefas(),DB.cobranca(),DB.comercialPagamentos(mesISO),
+    DB.metasMes(mesISO),DB.propostas()]);}catch(e){return erro(e.message);}
+  const ts=(ops||[]).map(classificar);E.tarefas=ts;
+  E._propMap=E._propMap||{};(props||[]).forEach(x=>{E._propMap[x.id_proposta]=x;});
+  // ---- metas × pago (líquido do mês corrente; filtro no navegador por garantia)
+  const pagosMes=(pags||[]).filter(x=>String(x.mes||"").slice(0,10)===mesISO&&x.status==="PAGO");
+  const pagoTot=pagosMes.reduce((a2,x)=>a2+(+x.valor_liquido||0),0);
+  const pagoMeu=pagosMes.filter(x=>String(x.credito||"").trim()===eu).reduce((a2,x)=>a2+(+x.valor_liquido||0),0);
+  const metasMes2=(metas||[]).filter(x=>String(x.mes||"").slice(0,10)===mesISO);
+  const metaTot=metasMes2.reduce((a2,x)=>a2+(+x.meta||0),0);
+  const metaMinha=+((metasMes2.find(x=>String(x.pessoa||"").trim()===eu)||{}).meta||0);
+  const tarjaMeta=(rot,alvo,feito)=>{
+    if(!alvo)return `<div class="painel" style="background:var(--amber-lt)">
+      <div class="bloco-t">&#127919; ${rot}</div>
+      <div style="font-size:12.5px;color:#7A5C00">Metas do mês ainda não lançadas/liberadas — <a style="cursor:pointer;text-decoration:underline" onclick="telaConfig()">Configurações → Metas</a>. Feito até aqui: <b>${fmtR$(feito)}</b>.</div></div>`;
+    const pct=Math.min(100,Math.round(feito/alvo*100));
+    const falta=Math.max(0,alvo-feito);
+    return `<div class="painel">
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px">
+        <div class="bloco-t">&#127919; ${rot}</div>
+        <span style="font-size:12.5px"><b style="color:var(--green)">${fmtR$(feito)}</b> de ${fmtR$(alvo)} · ${falta?`falta <b style="color:var(--amber)">${fmtR$(falta)}</b>`:'<b style="color:var(--green)">META BATIDA! &#127881;</b>'}</span></div>
+      <div class="cap" style="margin-top:5px"><div style="width:${pct}%;background:${pct>=100?"var(--green)":pct>=60?"var(--navy)":"var(--amber)"}"></div></div></div>`;};
+  // ---- inadimplência da semana (cobrança: ATRASADO com vencimento nesta semana)
+  const hj=new Date();hj.setHours(12,0,0,0);
+  const segS=new Date(hj);segS.setDate(hj.getDate()-((hj.getDay()+6)%7));segS.setHours(0,0,0,0);
+  const domS=new Date(segS);domS.setDate(segS.getDate()+6);domS.setHours(23,59,0,0);
+  const abertas=(cob||[]).filter(x=>["ATRASADO","VENCIDO","VENC. HOJE"].includes(String(x.status_pgto||"").trim()));
+  const naSem=abertas.filter(x=>{const d=pBRc(x.data_venc);return d&&d>=segS&&d<=domS;});
+  const resumoInad=l=>({n:new Set(l.map(x=>x.cliente)).size,v:l.reduce((a2,x)=>a2+(+x.valor_bruto||0),0)});
+  const iSemMeu=resumoInad(naSem.filter(x=>String(x.head||"").trim()===eu)),iSemEq=resumoInad(naSem);
+  const iTotMeu=resumoInad(abertas.filter(x=>String(x.head||"").trim()===eu)),iTotEq=resumoInad(abertas);
+  // ---- contatos pré-pagamento: PENDENTE vencendo de hoje a +2 dias
+  const lim2=new Date(hj);lim2.setDate(hj.getDate()+2);
+  const prePag=(cob||[]).filter(x=>String(x.status_pgto||"").trim()==="PENDENTE")
+    .map(x=>({x,d:pBRc(x.data_venc)})).filter(o=>o.d&&o.d>=new Date(hj.getFullYear(),hj.getMonth(),hj.getDate())&&o.d<=lim2)
+    .sort((a2,b2)=>(String(b2.x.head||"").trim()===eu)-(String(a2.x.head||"").trim()===eu)||a2.d-b2.d);
+  // ---- minha carteira hoje: por assessor
+  const minhasHoje=ts.filter(t=>t.id_tarefa&&String(t.advogada||"").trim()===eu
+    &&!t._delegada&&!t._emCorrecao&&!t._concluida&&t._g>=1&&t._g<=3);
+  const porAss={};minhasHoje.forEach(t=>{(porAss[t.assessor||"(sem assessor)"]=porAss[t.assessor||"(sem assessor)"]||[]).push(t);});
+  // ---- follow-up da head: minhas propostas na rua, mais paradas primeiro
+  const minhasProps=(props||[]).filter(p2=>propNaRua(p2)
+    &&loginDe(String(p2.responsavel||p2.quem_pediu||p2.executor||""))===eu)
+    .sort((a2,b2)=>{const ua=ultMovProp(a2),ub=ultMovProp(b2);return (ua?ua.getTime():0)-(ub?ub.getTime():0);});
+  const diasParada=p2=>{const u=ultMovProp(p2);if(!u)return null;
+    const h0=new Date();h0.setHours(12,0,0,0);return Math.round((h0-u)/86400000);};
+  ge("conteudo").innerHTML=`
+    ${tarjaMeta("Meta da EQUIPE — "+new Date().toLocaleDateString("pt-BR",{month:"long"}),metaTot,pagoTot)}
+    ${tarjaMeta("MINHA meta",metaMinha,pagoMeu)}
+    <div class="painel" style="border-left:4px solid var(--red)">
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;cursor:pointer" onclick="telaCobranca()">
+        <div class="bloco-t" style="color:var(--red)">&#128184; Inadimplência da semana</div>
+        <span style="font-size:12.5px">minha carteira: <b style="color:var(--red)">${iSemMeu.n} cliente(s) · ${fmtR$(iSemMeu.v)}</b>
+          · equipe: <b>${iSemEq.n} · ${fmtR$(iSemEq.v)}</b></span></div>
+      <div style="font-size:11px;color:var(--gray);margin-top:3px">Em aberto no mês (toque para ver a cobrança): minha carteira ${iTotMeu.n} cliente(s) · ${fmtR$(iTotMeu.v)} — equipe ${iTotEq.n} · ${fmtR$(iTotEq.v)}</div></div>
+    ${prePag.length?`<div class="painel" style="border-left:4px solid var(--amber)">
+      <div class="bloco-t" style="color:var(--amber)">&#128222; Contatos pré-pagamento — boletos vencendo em até 2 dias (${prePag.length})</div>
+      ${prePag.slice(0,12).map(o=>`<div class="linha-item"><span style="font-size:12.5px">
+        <b>${esc(o.x.cliente)}</b> · vence ${esc(o.x.data_venc)} · ${fmtR$(+o.x.valor_bruto||0)}
+        ${String(o.x.head||"").trim()===eu?'<span class="tag" style="background:var(--amber);color:white">minha carteira</span>':`<span class="tag tm">${esc(o.x.head||"—")}</span>`}</span></div>`).join("")}
+      ${prePag.length>12?`<div style="font-size:11px;color:var(--gray)">+${prePag.length-12} — veja tudo na Cobrança</div>`:""}</div>`:""}
+    <div class="painel">
+      <div class="bloco-t">&#128203; Minha carteira HOJE — o que está na fila de cada assessor (${minhasHoje.length})</div>
+      ${Object.keys(porAss).length?Object.entries(porAss).sort((a2,b2)=>b2[1].length-a2[1].length).map(([ass2,lst])=>{
+        const atr=lst.filter(t=>t._atrasada).length;
+        return `<details class="det"><summary><b>${esc(ass2)}</b> — ${lst.length} tarefa(s)${atr?` · <b style="color:var(--red)">${atr} atrasada(s)</b>`:""}</summary>
+          <div style="padding:4px 8px">${lst.map(t=>cardTarefa(t,false)).join("")}</div></details>`;}).join("")
+        :'<div class="vazio">Nada da sua carteira vencendo hoje. 🎉</div>'}</div>
+    <div class="painel">
+      <div class="bloco-t">&#128222; Follow-up do meu dia — minhas propostas na rua (${minhasProps.length})</div>
+      ${minhasProps.length?minhasProps.slice(0,10).map(p2=>{const dp=diasParada(p2);
+        return `<div class="linha-item" style="cursor:pointer" onclick='abrirNegociacao(${JSON.stringify(p2.id_proposta)})'>
+        <span><b>${esc(p2.cliente)}</b> · R$ ${esc(p2.valor||"0")} · ${esc(p2.status||"")}</span>
+        <span style="font-size:11px;color:${dp>=7?"var(--red)":"var(--gray)"}">${dp!==null?dp+"d sem movimento":""}</span></div>`;}).join("")
+        :'<div class="vazio">Nenhuma proposta sua na rua.</div>'}</div>
+    <div class="painel" style="background:var(--gray-lt)">
+      <div style="font-size:12px;color:var(--gray)">&#128276; <b>Lembretes de combinado</b> chegam no próximo bloco do pacote — cliente + combinado + data, com aviso aqui na Central.</div></div>`;
+}
 // =================================================== TELA: CAPACIDADE (head)
 async function telaCapacidade(){
   setNav("cap","Capacidade da Equipe"); carregando();
