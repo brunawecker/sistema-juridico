@@ -2974,16 +2974,18 @@ async function telaCentral(){
   const hj=new Date();hj.setHours(12,0,0,0);
   const segS=new Date(hj);segS.setDate(hj.getDate()-((hj.getDay()+6)%7));segS.setHours(0,0,0,0);
   const domS=new Date(segS);domS.setDate(segS.getDate()+6);domS.setHours(23,59,0,0);
-  const abertas=(cob||[]).filter(x=>["ATRASADO","VENCIDO","VENC. HOJE"].includes(String(x.status_pgto||"").trim()));
+  // quadro é PESSOAL (Bruna, 16/09/2026): cada head vê SÓ a própria carteira
+  const abertas=(cob||[]).filter(x=>["ATRASADO","VENCIDO","VENC. HOJE"].includes(String(x.status_pgto||"").trim())
+    &&String(x.head||"").trim()===eu);
   const naSem=abertas.filter(x=>{const d=pBRc(x.data_venc);return d&&d>=segS&&d<=domS;});
   const resumoInad=l=>({n:new Set(l.map(x=>x.cliente)).size,v:l.reduce((a2,x)=>a2+(+x.valor_bruto||0),0)});
-  const iSemMeu=resumoInad(naSem.filter(x=>String(x.head||"").trim()===eu)),iSemEq=resumoInad(naSem);
-  const iTotMeu=resumoInad(abertas.filter(x=>String(x.head||"").trim()===eu)),iTotEq=resumoInad(abertas);
+  const iSemMeu=resumoInad(naSem),iTotMeu=resumoInad(abertas);
   // ---- contatos pré-pagamento: PENDENTE vencendo de hoje a +2 dias
   const lim2=new Date(hj);lim2.setDate(hj.getDate()+2);
-  const prePag=(cob||[]).filter(x=>String(x.status_pgto||"").trim()==="PENDENTE")
+  const prePag=(cob||[]).filter(x=>String(x.status_pgto||"").trim()==="PENDENTE"
+      &&String(x.head||"").trim()===eu)
     .map(x=>({x,d:pBRc(x.data_venc)})).filter(o=>o.d&&o.d>=new Date(hj.getFullYear(),hj.getMonth(),hj.getDate())&&o.d<=lim2)
-    .sort((a2,b2)=>(String(b2.x.head||"").trim()===eu)-(String(a2.x.head||"").trim()===eu)||a2.d-b2.d);
+    .sort((a2,b2)=>a2.d-b2.d);
   // ---- minha carteira hoje: por assessor
   const minhasHoje=ts.filter(t=>t.id_tarefa&&String(t.advogada||"").trim()===eu
     &&!t._delegada&&!t._emCorrecao&&!t._concluida&&t._g>=1&&t._g<=3);
@@ -3000,17 +3002,20 @@ async function telaCentral(){
       :mHeads?tarjaMeta("Meta das HEADS — conjunta de vocês três",+mHeads.meta,pagoHeads)
       :tarjaMeta("MINHA meta",0,pagoMeu)}
     <div class="painel" style="border-left:4px solid var(--red)">
-      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;cursor:pointer" onclick="telaCobranca()">
-        <div class="bloco-t" style="color:var(--red)">&#128184; Inadimplência da semana</div>
-        <span style="font-size:12.5px">minha carteira: <b style="color:var(--red)">${iSemMeu.n} cliente(s) · ${fmtR$(iSemMeu.v)}</b>
-          · equipe: <b>${iSemEq.n} · ${fmtR$(iSemEq.v)}</b></span></div>
-      <div style="font-size:11px;color:var(--gray);margin-top:3px">Em aberto no mês (toque para ver a cobrança): minha carteira ${iTotMeu.n} cliente(s) · ${fmtR$(iTotMeu.v)} — equipe ${iTotEq.n} · ${fmtR$(iTotEq.v)}</div></div>
+      <details><summary style="cursor:pointer;display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;list-style:none">
+        <span class="bloco-t" style="color:var(--red)">&#128184; Inadimplência — MINHA carteira</span>
+        <span style="font-size:12.5px">esta semana: <b style="color:var(--red)">${iSemMeu.n} cliente(s) · ${fmtR$(iSemMeu.v)}</b>
+          · em aberto: <b>${iTotMeu.n} · ${fmtR$(iTotMeu.v)}</b> <span style="color:var(--gray);font-size:10px">(toque para abrir a lista)</span></span></summary>
+      <div style="margin-top:6px">${abertas.length?abertas.slice().sort((x,y)=>(+y.valor_bruto||0)-(+x.valor_bruto||0)).map(x=>`
+        <div class="linha-item"><span style="font-size:12px"><b>${esc(x.cliente)}</b> · ${esc(x.produto||"")} · venceu ${esc(x.data_venc||"—")}</span>
+        <b style="color:var(--red)">${fmtR$(+x.valor_bruto||0)}</b></div>`).join("")
+        :'<div class="vazio">Nenhum inadimplente na sua carteira. 🎉</div>'}</div></details></div>
     ${prePag.length?`<div class="painel" style="border-left:4px solid var(--amber)">
-      <div class="bloco-t" style="color:var(--amber)">&#128222; Contatos pré-pagamento — boletos vencendo em até 2 dias (${prePag.length})</div>
+      <div class="bloco-t" style="color:var(--amber)">&#128222; Contatos pré-pagamento — MEUS clientes com boleto vencendo em até 2 dias (${prePag.length})</div>
       ${prePag.slice(0,12).map(o=>`<div class="linha-item"><span style="font-size:12.5px">
         <b>${esc(o.x.cliente)}</b> · vence ${esc(o.x.data_venc)} · ${fmtR$(+o.x.valor_bruto||0)}
-        ${String(o.x.head||"").trim()===eu?'<span class="tag" style="background:var(--amber);color:white">minha carteira</span>':`<span class="tag tm">${esc(o.x.head||"—")}</span>`}</span></div>`).join("")}
-      ${prePag.length>12?`<div style="font-size:11px;color:var(--gray)">+${prePag.length-12} — veja tudo na Cobrança</div>`:""}</div>`:""}
+        </span></div>`).join("")}
+      ${prePag.length>12?`<div style="font-size:11px;color:var(--gray)">+${prePag.length-12} boletos seus nos próximos 2 dias</div>`:""}</div>`:""}
     <div class="painel">
       <div class="bloco-t">&#128203; Minha carteira HOJE — o que está na fila de cada assessor (${minhasHoje.length})</div>
       ${Object.keys(porAss).length?Object.entries(porAss).sort((a2,b2)=>b2[1].length-a2[1].length).map(([ass2,lst])=>{
