@@ -290,8 +290,8 @@ const CORES_ASSESSOR={
 const COR_PADRAO={bg:"#EEF2F5",border:"#90A4AE",text:"#455A64",dot:"#90A4AE"};
 const corDe=n=>CORES_ASSESSOR[primeiroNome(n||"")]||COR_PADRAO;
 // Listas do sistema antigo (Code.gs / Index.html)
-const OPERACOES=["Audiência","Análise Prescricional","Cancelar transação","Cancelar negociação","Execução Fiscal","Estadual","Emissão CPEN","Embargos à Execução","ExcPreEx - Prescrição","E-Processo","FGTS","Laudo OPF","Laudo CAPAG","Levantamento - Cliente Villela","MS","MS Migração","MS Impedimento","MS laudo CAPAG","MS CND","Monitoramento","NJP","Negociação Estadual","Outros","Petição","Parcelar","Proposta Comercial - Parecer Tributário","Protesto","PRDI","Renegociação","Risco de bloqueio","Restituição SN","Revenda","Recurso","Simulação","TAX","TI - Transação Individual","Transacionar","TIS","Contabilize","Contrato/Aditivo"];
-const TEMPOS_PADRAO={"Execução Fiscal":15,"Proposta Comercial - Parecer Tributário":25,"MS":35,"MS Migração":35,"MS Impedimento":35,"MS laudo CAPAG":35,"MS CND":35,"Transacionar":20,"Laudo CAPAG":25,"Laudo OPF":25,"Monitoramento":10,"Audiência":60,"NJP":20,"Renegociação":20,"Recurso":30,"Embargos à Execução":30,"Emissão CPEN":15,"PRDI":20,"Protesto":15,"Estadual":20,"E-Processo":15,"FGTS":20,"Petição":30,"Parcelar":15,"Simulação":20,"TAX":25,"TIS":20,"Contabilize":20,"Restituição SN":20,"Risco de bloqueio":15,"Revenda":15,"Cancelar transação":15,"Levantamento - Cliente Villela":30,"Outros":20,"Análise Prescricional":30,"ExcPreEx - Prescrição":25,"Negociação Estadual":20,_default:20};
+const OPERACOES=["Audiência","Análise Prescricional","Cancelar transação","Cancelar negociação","Execução Fiscal","Estadual","Emissão CPEN","Embargos à Execução","ExcPreEx - Prescrição","E-Processo","FGTS","Laudo OPF","Laudo CAPAG","Levantamento - Cliente Villela","MS","MS Migração","MS Impedimento","MS laudo CAPAG","MS CND","Monitoramento","NJP","Negociação Estadual","Outros","Petição","Parcelar","Proposta Comercial - Parecer Tributário","Protesto","PRDI","Renegociação","Risco de bloqueio","Restituição SN","Revenda","Recurso","Simulação","TAX","TI - Transação Individual","Transacionar","TIS","Parecer de Novo Cliente","Contabilize","Contrato/Aditivo"];
+const TEMPOS_PADRAO={"Execução Fiscal":15,"Proposta Comercial - Parecer Tributário":25,"MS":35,"MS Migração":35,"MS Impedimento":35,"MS laudo CAPAG":35,"MS CND":35,"Transacionar":20,"Laudo CAPAG":25,"Laudo OPF":25,"Monitoramento":10,"Audiência":60,"NJP":20,"Renegociação":20,"Recurso":30,"Embargos à Execução":30,"Emissão CPEN":15,"PRDI":20,"Protesto":15,"Estadual":20,"E-Processo":15,"FGTS":20,"Petição":30,"Parcelar":15,"Simulação":20,"TAX":25,"TIS":20,"Contabilize":20,"Restituição SN":20,"Risco de bloqueio":15,"Revenda":15,"Cancelar transação":15,"Levantamento - Cliente Villela":30,"Parecer de Novo Cliente":30,"Outros":20,"Análise Prescricional":30,"ExcPreEx - Prescrição":25,"Negociação Estadual":20,_default:20};
 const tempoDe=op=>TEMPOS_PADRAO[op]||TEMPOS_PADRAO._default;
 // documento sempre num formato só (evita duplicar cliente por grafia):
 // repõe zeros à esquerda perdidos e aplica a pontuação padrão
@@ -1257,6 +1257,7 @@ function classificar(t){
   t._impulso=String(t.supervisao||"").includes("IMPULSO de");
   const pf=diasAte(t.prazo_fatal_dt); t._pfDias=pf; t._prazoAlerta=(pf!==null&&pf<=5);
   t._impedimento=/impedimento/i.test(String(t.operacao||""));
+  t._esteiraNovo=String(t.supervisao||"").includes("ESTEIRA DE NOVO CLIENTE");
   t._quedaDias=t._impedimento?diasAte(t.queda_impedimento_dt):null;
   // fixas de janela: a meta diária vem gravada na orientação ([meta:70min])
   t._meta=parseInt((String(t.supervisao||"").match(/\[meta:(\d+)min\]/)||[])[1])||null;
@@ -1825,6 +1826,9 @@ function desenharCard(t,hist){
     ${ehLevantamento(t)?`<label style="display:flex;align-items:center;gap:7px;font-size:12px;margin-top:6px;padding:8px 10px;background:#EEF3F9;border:1px solid #C9D8EA;border-radius:8px;cursor:pointer">
       <input type="checkbox" id="conc-adv" style="width:16px;height:16px" onclick="const g=ge('conc-grupo');if(this.checked&&g)g.checked=false">
       <span>&#128228; Enviei o levantamento <b>direto ao advogado</b> (sem aviso no grupo)</span></label>`:""}`:""}
+    ${t._esteiraNovo?`<label style="display:flex;align-items:center;gap:7px;font-size:12px;margin-top:6px;padding:8px 10px;background:var(--green-lt);border:1px solid #A9DFBF;border-radius:8px;cursor:pointer">
+      <input type="checkbox" id="conc-r1" style="width:16px;height:16px">
+      <span>&#128197; <b>Reunião de 1º atendimento AGENDADA</b> com o novo cliente (obrigatório para concluir)</span></label>`:""}
     <div style="font-size:11px;color:var(--gray);margin-top:5px">Sem data: volta pela frequência (diária +1, semanal +7, mensal +30).</div></div>`;
   // no impulso, o Encerrar fica no painel verde lá de cima (fecha o CASO
   // oficial via encerrar_impulso_caso — nunca só o cartinho)
@@ -2008,6 +2012,8 @@ async function concluirTarefa(){
   if(t._impedimento&&!t.queda_impedimento_dt){
     toast("Antes de concluir, informe a data de queda do impedimento (campo no topo do cartão).","erro");
     editarQueda();return;}
+  if(t._esteiraNovo){const r1=ge("conc-r1");
+    if(!(r1&&r1.checked)){toast("Cliente novo: para concluir o parecer, confirme que a reunião de 1º atendimento está AGENDADA (caixinha verde no fim do cartão).","erro");return;}}
   let avisoGrupo=false,avisoAdv=false;
   if(t.id_cliente&&!dispensaGrupo(t)){
     const cb=ge("conc-grupo"),ca=ge("conc-adv");
@@ -2028,6 +2034,8 @@ async function concluirTarefa(){
       texto:"📣 Confirmou envio de mensagem no grupo de atendimento (WhatsApp) ao concluir."});
     else if(avisoAdv)await DB.nota({id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,tipo:"HISTORICO",
       texto:"📤 Levantamento enviado direto ao advogado (sem aviso no grupo) ao concluir."});
+    if(t._esteiraNovo)await DB.nota({id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,tipo:"HISTORICO",
+      texto:"📅 Reunião de 1º atendimento confirmada como AGENDADA ao concluir o parecer de novo cliente."});
     // prazo fatal já vencido + tarefa concluída = provavelmente cumprido: oferece
     // limpar (dias calculados na hora, direto da data — nada pré-calculado)
     const pfDiasAgora=diasAte(t.prazo_fatal_dt);
