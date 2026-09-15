@@ -2959,11 +2959,11 @@ async function telaCentral(){
   setNav("central","Central do Dia"); carregando();
   const eu=E.perfil.nome_sistema;
   const mesISO=hojeISO().slice(0,7)+"-01";
-  let ops,cob,pags,metas,props,tm,lembs;
-  try{[ops,cob,pags,metas,props,tm,lembs]=await Promise.all([
+  let ops,cob,pags,metas,props,tm,lembs,cls;
+  try{[ops,cob,pags,metas,props,tm,lembs,cls]=await Promise.all([
     DB.tarefas(),DB.cobranca(),DB.comercialPagamentos(mesISO),
     DB.metasMes(mesISO),DB.propostas(),DB.historicoTimers(16).catch(()=>[]),
-    DB.lembretes().catch(()=>[])]);}catch(e){return erro(e.message);}
+    DB.lembretes().catch(()=>[]),DB.clientes("").catch(()=>[])]);}catch(e){return erro(e.message);}
   const ts=(ops||[]).map(classificar);E.tarefas=ts;
   E._propMap=E._propMap||{};(props||[]).forEach(x=>{E._propMap[x.id_proposta]=x;});
   // ---- metas × pago (líquido do mês corrente; filtro no navegador por garantia)
@@ -3011,6 +3011,24 @@ async function telaCentral(){
       &&String(x.head||"").trim()===eu)
     .map(x=>({x,d:pBRc(x.data_venc)})).filter(o=>o.d&&o.d>=new Date(hj.getFullYear(),hj.getMonth(),hj.getDate())&&o.d<=lim2)
     .sort((a2,b2)=>a2.d-b2.d);
+  // ---- 🧾 esteira leve (16/09/2026): contrato NOVO pago SEM tarefa ativa →
+  // alerta para a head da carteira (nada é criado sozinho; a head decide)
+  const soDig=x=>String(x||"").replace(/\D/g,"");
+  const cliPorDoc={},cliPorNome={};(cls||[]).forEach(c=>{
+    const d=soDig(c.cnpj_cpf);if(d)cliPorDoc[d]=c;
+    if(c.nome)cliPorNome[String(c.nome).trim().toUpperCase()]=c;});
+  const temTarefaAtiva={};ts.forEach(t=>{if(t.id_cliente)temTarefaAtiva[t.id_cliente]=true;});
+  const vistoNovo={},semTarefa=[];
+  pagosMes.filter(x=>String(x.tipo||"").toUpperCase()==="NOVO").forEach(x=>{
+    const doc=soDig(x.cnpj_cpf);const key=doc||String(x.cliente||"").trim().toUpperCase();
+    if(!key||vistoNovo[key])return;vistoNovo[key]=true;
+    const c=(doc&&cliPorDoc[doc])||cliPorNome[String(x.cliente||"").trim().toUpperCase()];
+    const headDono=(c&&String(c.head||"").trim())||String(x.secao_head||"").trim();
+    if(headDono!==eu)return;                          // quadro pessoal
+    const idc=c&&c.id_cliente;
+    if(idc&&temTarefaAtiva[idc])return;                // já tem tarefa → ok
+    semTarefa.push({cliente:x.cliente,cnpj:x.cnpj_cpf,valor:+x.valor_liquido||0,
+      data:x.data_pgto,idc:idc||null});});
   // ---- minha carteira hoje: por assessor
   const minhasHoje=ts.filter(t=>t.id_tarefa&&String(t.advogada||"").trim()===eu
     &&!t._delegada&&!t._emCorrecao&&!t._concluida&&t._g>=1&&t._g<=3);
@@ -3035,6 +3053,13 @@ async function telaCentral(){
         <div class="linha-item"><span style="font-size:12px"><b>${esc(x.cliente)}</b> · ${esc(x.produto||"")} · venceu ${esc(x.data_venc||"—")}</span>
         <b style="color:var(--red)">${fmtR$(+x.valor_bruto||0)}</b></div>`).join("")
         :'<div class="vazio">Nenhum inadimplente na sua carteira. 🎉</div>'}</div></details></div>
+    ${semTarefa.length?`<div class="painel" style="border-left:4px solid var(--red)">
+      <div class="bloco-t" style="color:var(--red)">&#129534; Clientes NOVOS que pagaram e estão SEM tarefa ativa (${semTarefa.length})</div>
+      <div style="font-size:11px;color:var(--gray);margin-bottom:5px">Contrato novo pago neste mês, mas nenhuma tarefa aberta no cliente — provavelmente falta lançar o parecer/levantamento. O sistema NÃO cria nada sozinho: confira e abra a tarefa se for o caso.</div>
+      ${semTarefa.sort((a2,b2)=>b2.valor-a2.valor).map(o=>`<div class="linha-item">
+        <span style="font-size:12.5px">&#9888; <b>${esc(o.cliente)}</b> · pago ${o.data?brData(String(o.data).slice(0,10)):"—"} · ${fmtR$(o.valor)}
+          ${o.idc?"":'<span class="tag ta">cadastro não encontrado</span>'}</span>
+        <span>${o.idc?`<button class="btn btp btsm" onclick="prepCliente('${esc(o.idc)}');telaClientes()">abrir cliente</button>`:""}</span></div>`).join("")}</div>`:""}
     ${prePag.length?`<div class="painel" style="border-left:4px solid var(--amber)">
       <div class="bloco-t" style="color:var(--amber)">&#128222; Contatos pré-pagamento — MEUS clientes com boleto vencendo em até 2 dias (${prePag.length})</div>
       ${prePag.slice(0,12).map(o=>`<div class="linha-item"><span style="font-size:12.5px">
