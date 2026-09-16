@@ -3386,7 +3386,10 @@ async function telaPrevisao(mesRef){
   const usoDia={},iniMes=new Date(ano,mes,1),fimMes=new Date(ano,mes+1,0);
   // tarefa que cai em sáb/dom conta na SEGUNDA (ninguém trabalha no fim de semana)
   const rola=d=>{const w=d.getDay();if(w===6)d.setDate(d.getDate()+2);else if(w===0)d.setDate(d.getDate()+1);return d;};
-  const poe=(k,t,tipo)=>{(porDia[k]=porDia[k]||[]).push({t,tipo});const a=t.assessor||"?";usoDia[k+a]=(usoDia[k+a]||0)+1;};
+  // uso do dia em MINUTOS (não contagem): agendadas e recorrentes também
+  // ocupam a capacidade — régua igual à do plano real (Bruna, 16/09/2026)
+  const custoPrev=t=>t._meta||tempoPlanoDe(t.assessor||"",t.operacao);
+  const poe=(k,t,tipo)=>{(porDia[k]=porDia[k]||[]).push({t,tipo});const a=t.assessor||"?";usoDia[k+a]=(usoDia[k+a]||0)+custoPrev(t);};
   // repetições previstas pela frequência (a partir de uma data-âncora),
   // pintando só os dias que caem DENTRO do mês visitado
   const repete=(t,dAncora)=>{const f=String(t.check_||"").toUpperCase();
@@ -3403,15 +3406,31 @@ async function telaPrevisao(mesRef){
     else if(dt&&dt>hoje&&dt<iniMes){repete(t,dt);}          // âncora antes do mês → só repetições
     else if(!t._concluida&&(dt===null||dt<=hoje))semData.push(t);});
   // 2) sem data / atrasadas: só faz sentido no MÊS ATUAL (é a fila de agora);
-  //    distribui pelos dias úteis respeitando o teto por assessor
-  const capDiaDe=n=>Math.min(Math.floor(capDe(n)/20),10);
+  //    distribui pelos dias úteis DENTRO DA CAPACIDADE REAL de cada assessor
+  //    (minutos: capacidade − prospecção fixa − follow-up − reuniões do dia −
+  //    já trabalhado hoje) — mesma régua do plano do dia (Bruna, 16/09/2026)
   let foraMes=0;
   if(mesAtual){
+    let propsPrev=[],reunPrev=[],cargaPrev=[];
+    try{propsPrev=await DB.propostas();}catch(e){}
+    try{reunPrev=await DB.reunioes();}catch(e){}
+    try{cargaPrev=await DB.cargaEquipe();}catch(e){}
+    const fuMinPrev={},trabPrev={},reuMinPrev={};
+    OPERACIONAIS.forEach(n=>{fuMinPrev[n]=fuEfetivo(FOLLOWUP[n]||0,minhasNaRua(propsPrev,n).length);});
+    (cargaPrev||[]).forEach(r=>{trabPrev[loginDe(r.nome)]=+r.trab_min||0;});
+    (reunPrev||[]).forEach(r=>{const kR=String(r.data_dt||"").slice(0,10);if(!kR)return;
+      const aR=loginDe(r.assessor||"");reuMinPrev[kR+"|"+aR]=(reuMinPrev[kR+"|"+aR]||0)+(parseInt(r.duracao_min_num||r.duracao_min)||30);});
+    E._prevCapDados={fuMin:fuMinPrev,trab:trabPrev,reuMin:reuMinPrev,hjKey:chave(hoje)};
     const diasUteis=[];const dLoop=new Date(hoje);
     while(dLoop.getMonth()===mes){const w=dLoop.getDay();if(w!==0&&w!==6)diasUteis.push(chave(dLoop));dLoop.setDate(dLoop.getDate()+1);}
-    semData.sort((a,b)=>(a._g-b._g)||((a._dias??9)-(b._dias??9)));
-    semData.forEach(t=>{const a=t.assessor||"?";const teto=capDiaDe(a);
-      for(const k of diasUteis){if((usoDia[k+a]||0)<teto){poe(k,t,"estimado");repete(t,new Date(k+"T00:00:00"));return;}}
+    semData.sort((a,b)=>(a._g-b._g)
+      ||(a._g===1&&b._g===1?lancKey(a).localeCompare(lancKey(b)):0)
+      ||((a._dias??9)-(b._dias??9)));
+    semData.forEach(t=>{const a=t.assessor||"?";const aN=primeiroNome(a);
+      // imediata é do DIA — entra hoje mesmo que estoure (igual ao plano real)
+      if(t._g===1&&diasUteis.length){poe(diasUteis[0],t,"estimado");repete(t,new Date(diasUteis[0]+"T00:00:00"));return;}
+      for(const k of diasUteis){
+        if((usoDia[k+a]||0)+custoPrev(t)<=capPrevDia(aN,k)){poe(k,t,"estimado");repete(t,new Date(k+"T00:00:00"));return;}}
       foraMes++;});
   }
   Object.values(porDia).forEach(l=>l.sort((a,b)=>({agendado:0,estimado:1,recorrente:2}[a.tipo]-{agendado:0,estimado:1,recorrente:2}[b.tipo])));
@@ -3420,6 +3439,14 @@ async function telaPrevisao(mesRef){
   if(!E._prevHead)E._prevHead=escHead()||"todas";
   desenhaPrevisao();
 }
+// capacidade prevista da pessoa no dia k (minutos), mesma régua do plano real
+function capPrevDia(aN,k){const d=E._prevCapDados||{};
+  const cap=capDe(aN)
+    -((PROSPEC_SEMPRE[aN]&&PROSPEC[aN])||0)
+    -((d.fuMin||{})[aN]||0)
+    -((d.reuMin||{})[k+"|"+aN]||0)
+    -(k===d.hjKey?((d.trab||{})[aN]||0):0);
+  return Math.max(60,cap);}
 function filtraPrev(n){E._prevFiltro=n;desenhaPrevisao();}
 function desenhaPrevisao(){
   const {ano,mes,foraMes,mesAtual}=E._prevMeta,porDia=E._prevDias,f=E._prevFiltro;
@@ -3506,7 +3533,7 @@ async function verDia(k){
     h+=`<div style="background:${c.bg};border:1.5px solid ${c.border};border-radius:12px;padding:10px 12px;margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <b style="color:${c.text}">${semDono?"&#9888; Sem assessor definido — abra e redistribua":esc(a)}</b>
-        <span style="font-size:11px;color:${c.text};font-weight:600">${grupo.length} tarefa(s) · &asymp;${fmtMin(min)}</span></div>
+        <span style="font-size:11px;color:${c.text};font-weight:600">${grupo.length} tarefa(s) · &asymp;${fmtMin(min)}${semDono?"":` de ${fmtMin(capPrevDia(a,k))} disponíveis`}</span></div>
       ${grupo.map((x,i)=>{const rot=x.tipo==="agendado"?"data marcada":x.tipo==="estimado"?"estimado":"&#8635; recorrente";
         return `<div class="linha-item" style="cursor:pointer;background:white;border-radius:8px;margin-bottom:4px;padding:6px 10px" onclick="abrirTarefa('${esc(x.t.id_tarefa)}')">
         <span><b style="color:${c.text}">${i+1}.</b> ${esc(String(x.t.cliente||"").slice(0,42))} · ${esc(x.t.operacao||"")}${x.t._g===1?' <span class="tag ti">IMEDIATO</span>'+(dataLanc(x.t)?` <span class="tag ${dataLanc(x.t)===brData(hojeISO())?"tz":"ti"}">lançada ${dataLanc(x.t)}</span>`:""):x.t._g===2?' <span class="tag" style="background:var(--amber);color:white">atrasada</span>':""}</span>
