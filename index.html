@@ -1355,6 +1355,15 @@ function dataLanc(t){
 // real (caso Zona Country, 16/09/2026)
 function lancKey(t){const m=String(dataLanc(t)||"").match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   return m?`${m[3]}-${m[2]}-${m[1]}`:"9999-12-31";}
+// atraso REAL em dias: imediata conta do LANÇAMENTO (a revisão é puxada
+// para hoje pelo robô e zera o atraso aparente); as demais, da revisão
+function atrasoDias(t){
+  if(String(t._chk||t.check_||"").toUpperCase()==="IMEDIATO"||t._urg===1){
+    const k=lancKey(t);
+    if(k!=="9999-12-31"){
+      const d=Math.round((new Date(hojeISO()+"T00:00:00")-new Date(k+"T00:00:00"))/86400000);
+      return Math.max(d,0);}}
+  return (typeof t._dias==="number"&&t._dias<0)?-t._dias:0;}
 // etiqueta "lançada em" das imediatas: imediata é para o DIA do lançamento —
 // azul se lançada hoje, vermelha se está rolando de um dia para o outro
 function tagLanc(t){
@@ -1468,6 +1477,9 @@ function montarPlanoDia(nome,ativas,reun,histHoje,props){
   plano.sort((a,b)=>a._urg-b._urg
     ||(a._urg===1&&b._urg===1?lancKey(a).localeCompare(lancKey(b)):0)
     ||a._dias-b._dias);
+  // fila em ordem de ATRASO REAL (mais antiga primeiro) — vale para a visão
+  // das heads e para o painel "Na fila" do próprio assessor
+  fila.sort((a,b)=>atrasoDias(b)-atrasoDias(a)||((a._dias??9)-(b._dias??9)));
   const planejado=plano.reduce((s,t)=>s+t._tempo,0);
   const filaMin=fila.reduce((s,t)=>s+t._tempo,0);
   return {plano,fila,imed,atr,diar,hoje0,semanal,mensal,meetings,minReu,jaTrab,
@@ -2943,9 +2955,9 @@ async function telaDiario(dia){
       hDia+=`<details class="det"><summary><b style="color:${c.text}">${esc(n)}</b> — hoje: <b>${p.plano.length}</b> (&asymp;${fmtMin(p.planejado)} de ${fmtMin(p.capDisp)})${p.reservaPros?` · &#127919;${fmtMin(p.reservaPros)}`:""}${p.reservaFu?` · &#128222;${fmtMin(p.reservaFu)}`:""} · fila: <b style="color:${p.fila.length?"var(--red)":"var(--green)"}">${p.fila.length}</b>${p.fila.length?` (&asymp;${fmtMin(p.filaMin)})`:""}</summary>
         <div style="padding:6px 10px">
         <div style="font-size:11px;font-weight:700;color:var(--navy);margin-bottom:3px">Cobrado para hoje</div>
-        ${p.plano.map(t=>`<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')"><span style="font-size:12px">${t._urg===1?"&#9889; ":""}${esc(t.cliente)} · ${esc(t.operacao||"")} <span style="color:var(--gray);font-size:10px">&#9201;${t._tempo}min</span></span>${typeof t._dias==="number"&&t._dias<0?`<span class="tdy ov">${-t._dias}d</span>`:""}</div>`).join("")||'<div style="font-size:12px;color:var(--gray);padding:4px 0">nada além dos blocos fixos</div>'}
-        ${p.fila.length?`<div style="font-size:11px;font-weight:700;color:var(--gray);margin:6px 0 3px">Na fila — não coube no dia (${p.fila.length})</div>`+
-          p.fila.map(t=>`<div class="linha-item"><span style="cursor:pointer;font-size:12px" onclick="abrirTarefa('${esc(t.id_tarefa)}')">${esc(t.cliente)} · ${esc(t.operacao||"")}${typeof t._dias==="number"&&t._dias<0?` <span class="tag ti">${-t._dias}d vencida</span>`:""}</span>
+        ${p.plano.map(t=>`<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')"><span style="font-size:12px">${t._urg===1?"&#9889; ":""}${esc(t.cliente)} · ${esc(t.operacao||"")} <span style="color:var(--gray);font-size:10px">&#9201;${t._tempo}min</span></span>${atrasoDias(t)>0?`<span class="tdy ov">${atrasoDias(t)}d atraso</span>`:""}</div>`).join("")||'<div style="font-size:12px;color:var(--gray);padding:4px 0">nada além dos blocos fixos</div>'}
+        ${p.fila.length?`<div style="font-size:11px;font-weight:700;color:var(--gray);margin:6px 0 3px">Na fila — não coube no dia (${p.fila.length}, mais atrasada primeiro)</div>`+
+          p.fila.map(t=>`<div class="linha-item"><span style="cursor:pointer;font-size:12px" onclick="abrirTarefa('${esc(t.id_tarefa)}')">${esc(t.cliente)} · ${esc(t.operacao||"")}${atrasoDias(t)>0?` <span class="tag ti">${atrasoDias(t)}d vencida</span>`:""}</span>
           <button class="btn bts btsm" title="Tornar IMEDIATA: entra no plano de hoje na frente" onclick='furarFila(${JSON.stringify(t.id_tarefa)},${t.linha},${JSON.stringify(t.id_cliente||"")})'>&#9889; p/ hoje</button></div>`).join(""):""}
         </div></details>`;});
     h+=hDia+`</div>`;
