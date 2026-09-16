@@ -883,14 +883,25 @@ const S = {
   async fixaToggle(id,ativo){okS(await supa.from("tarefas_fixas").update({ativo:ativo?"SIM":"NAO"}).eq("id_fixa",id));return{ok:true};},
   async fixaDel(id){const r=await supa.from("tarefas_fixas").delete().eq("id_fixa",id).select();okS(r);
     if(!(r.data||[]).length)throw new Error("Apagar tarefa fixa é ação de head.");return{ok:true};},
-  async reuniaoAdd(d){const reu=await novoIdS("REU");
-    okS(await supa.from("reunioes").insert({id_reuniao:reu,data:brData(d.data||hojeISO()),data_dt:d.data||hojeISO(),
-      assessor:E.perfil.nome_sistema,titulo:d.titulo,cliente:d.cliente||"",id_cliente:d.id_cliente||null,
-      horario:d.horario||"",horario_hr:d.horario||null,duracao_min:String(d.duracao||30),
-      duracao_min_num:d.duracao||30,obs:d.obs||""}));
-    if(d.id_cliente)await histS("",d.id_cliente,"REUNIÃO","Reunião: "+d.titulo+(d.horario?" às "+d.horario:"")+" ("+(d.duracao||30)+"min)");
-    return{ok:true,id:reu};},
-  async reuniaoDel(id){okS(await supa.from("reunioes").delete().eq("id_reuniao",id));return{ok:true};},
+  async reuniaoAdd(d){
+    const tresHeads=d.escopo==="3heads";
+    const gente=tresHeads?["Bruna","Danielly","Eduarda"]:[E.perfil.nome_sistema];
+    const cat=tresHeads?"todas":"manual";
+    const grupo=tresHeads?("g"+Date.now().toString(36)):"";
+    let primeiro=null;
+    for(const nome of gente){const reu=await novoIdS("REU");if(!primeiro)primeiro=reu;
+      okS(await supa.from("reunioes").insert({id_reuniao:reu,data:brData(d.data||hojeISO()),data_dt:d.data||hojeISO(),
+        assessor:nome,titulo:d.titulo,cliente:d.cliente||"",id_cliente:d.id_cliente||null,
+        horario:d.horario||"",horario_hr:d.horario||null,duracao_min:String(d.duracao||30),
+        duracao_min_num:d.duracao||30,obs:(d.obs||"")+(grupo?" ["+grupo+"]":""),categoria:cat,responsavel:""}));}
+    if(d.id_cliente&&!tresHeads)await histS("",d.id_cliente,"REUNIÃO","Reunião: "+d.titulo+(d.horario?" às "+d.horario:"")+" ("+(d.duracao||30)+"min)");
+    return{ok:true,id:primeiro};},
+  async reuniaoDel(id){
+    const r=okS(await supa.from("reunioes").select("obs,categoria").eq("id_reuniao",id));
+    const obs=String((r&&r[0]&&r[0].obs)||"");const mg=obs.match(/\[(g[a-z0-9]+)\]/);
+    if(mg){okS(await supa.from("reunioes").delete().like("obs","%["+mg[1]+"]%"));}
+    else{okS(await supa.from("reunioes").delete().eq("id_reuniao",id));}
+    return{ok:true};},
   // o relógio avulso e o cronômetro dos cartões vivem em "vagas" separadas:
   // abrir um cartão não derruba mais a atividade avulsa (e vice-versa)
   async sessaoIniciar(d){const ehAv=(d.id_tarefa||"")==="AVULSA";
@@ -4879,6 +4890,17 @@ async function apagarFixa(id,tit){
 }
 
 // =================================================== TELA: AGENDA (semana)
+// cor e etiqueta da reunião por categoria (agendas coloridas — 16/09/2026)
+function reuCor(r){const c=(r&&r.categoria)||"manual";
+  return c==="sdr"?"var(--roxo)":c==="sc"?"var(--green)":c==="todas"?"#C79A00":c==="pessoal"?"var(--navy)":"var(--dani)";}
+function reuBadge(r){const c=(r&&r.categoria)||"";
+  if(c==="sdr")return `<span class="tag" style="background:var(--roxo);color:white">&#128100; Nicholas</span>`;
+  if(c==="sc"){const meu=String(r.responsavel||"")===E.perfil.nome_sistema;
+    return meu?`<span class="tag" style="background:#C79A00;color:white">&#11088; SEU DIA</span>`
+      :`<span class="tag tm">dia de ${esc(r.responsavel||"?")}</span>`;}
+  if(c==="todas")return `<span class="tag" style="background:#C79A00;color:white">&#128101; 3 heads</span>`;
+  return "";}
+function reuGoogle(r){return String(r&&r.id_reuniao||"").indexOf("GCAL-")===0;}
 async function telaAgenda(){
   setNav("agenda","Minha Agenda"); carregando();
   let ops,reu;try{[ops,reu]=await Promise.all([DB.tarefas(),DB.reunioes()]);}catch(e){return erro(e.message);}
@@ -4915,9 +4937,8 @@ async function telaAgenda(){
     const k=chave(ref),ehH=k===kHoje;
     const rs=reuDe(k),tr=tarDe(k);
     h+=`<div class="painel"><div class="bloco-t">&#128197; Compromissos${ehH?" de hoje":""} (${rs.length})</div>
-      ${rs.length?rs.map(r=>`<div class="linha-item"><span style="font-size:13px"><b>${esc(r.horario||"—")}</b> · ${esc(r.titulo)}${r.cliente?" — "+esc(r.cliente):""}
-        ${String(r.obs||"").indexOf("plataforma")>=0?'<span class="tag tz">plataforma</span>':""}</span>
-        <span style="font-size:11px;color:var(--gray)">${esc(r.duracao_min||30)}min ${String(r.id_reuniao||"").indexOf("GCAL-")<0?`<button class="btn bts btsm" onclick='removerReuniao(${JSON.stringify(r.id_reuniao)})'>&#10005;</button>`:"&#128197; Google"}</span></div>`).join("")
+      ${rs.length?rs.map(r=>`<div class="linha-item" style="border-left:3px solid ${reuCor(r)};padding-left:8px"><span style="font-size:13px"><b>${esc(r.horario||"—")}</b> · ${esc(r.titulo)}${r.cliente?" — "+esc(r.cliente):""} ${reuBadge(r)}</span>
+        <span style="font-size:11px;color:var(--gray)">${esc(r.duracao_min||30)}min ${reuGoogle(r)?"&#128197; Google":`<button class="btn bts btsm" onclick='removerReuniao(${JSON.stringify(r.id_reuniao)})'>&#10005;</button>`}</span></div>`).join("")
         :'<div class="vazio">Sem compromissos neste dia.</div>'}</div>
     <div class="painel"><div class="bloco-t">&#128203; Tarefas com data neste dia (${tr.length})</div>
       ${tr.length?tr.map(t=>cardTarefa(t,false,true)).join(""):'<div style="font-size:12px;color:var(--gray)">Nenhuma tarefa marcada para este dia.</div>'}</div>`;
@@ -4938,10 +4959,11 @@ async function telaAgenda(){
       grade+=`<div class="cald ${ehH?"hoje":""}" style="cursor:pointer" onclick="E._agModo='dia';E._agRef='${k}';telaAgenda()">
         <div style="font-size:10px;font-weight:700;color:var(--gray)">${nomes[i]}</div>
         <div style="font-weight:700;font-size:13px;color:${ehH?"var(--dani)":"var(--text)"}">${d.getDate()}</div>
-        ${rs.map(r=>`<div class="calpin" style="background:#EFF6FF;border-left-color:var(--dani)">&#128197; ${esc(r.horario||"")} ${esc(String(r.titulo||"").slice(0,16))}</div>`).join("")}
+        ${rs.map(r=>`<div class="calpin" style="background:#F5F7FA;border-left-color:${reuCor(r)}" title="${esc(r.titulo)}${r.categoria==="sc"?" · dia de "+esc(r.responsavel||""):r.categoria==="sdr"?" · Nicholas":""}">&#128197; ${esc(r.horario||"")} ${esc(String(r.titulo||"").slice(0,14))}</div>`).join("")}
         ${pins.slice(0,3).map(({t,est})=>`<div class="calpin" style="${est?"opacity:.65;border-left-style:dashed":""}">&#128203; ${esc(String(t.cliente||"").split(" ")[0])}</div>`).join("")}
         ${pins.length>3?`<div style="color:var(--dani);font-weight:700">+${pins.length-3}</div>`:""}</div>`;});
-    grade+=`</div><div style="font-size:11px;color:var(--gray);margin-top:4px">&#128197; = reunião · &#128203; cheio = data marcada · tracejado = estimado pela capacidade · toque num dia para abrir</div>`;
+    grade+=`</div><div style="font-size:11px;color:var(--gray);margin-top:4px">&#128197; = reunião · &#128203; cheio = data marcada · tracejado = estimado · toque num dia para abrir<br>
+      <span style="color:var(--green)">&#9632;</span> plataforma SC (rodízio) · <span style="color:var(--roxo)">&#9632;</span> SDRs/Nicholas · <span style="color:var(--navy)">&#9632;</span> pessoal · <span style="color:#C79A00">&#9632;</span> as 3 heads</div>`;
     h+=grade;
   }
   else{ // mês
@@ -4954,7 +4976,7 @@ async function telaAgenda(){
       const rs=reuDe(k),ntar=tarDe(k).length;
       grade+=`<div class="cald ${ehH?"hoje":""}" style="cursor:pointer" onclick="E._agModo='dia';E._agRef='${k}';telaAgenda()">
         <div style="font-weight:700;font-size:12px;color:${ehH?"var(--dani)":"var(--text)"}">${dia}</div>
-        ${rs.slice(0,3).map(r=>`<div class="calpin" style="background:#EFF6FF;border-left-color:var(--dani)">&#128197; ${esc(r.horario||"")} ${esc(String(r.titulo||"").slice(0,12))}</div>`).join("")}
+        ${rs.slice(0,3).map(r=>`<div class="calpin" style="background:#F5F7FA;border-left-color:${reuCor(r)}" title="${esc(r.titulo)}">&#128197; ${esc(r.horario||"")} ${esc(String(r.titulo||"").slice(0,10))}</div>`).join("")}
         ${rs.length>3?`<div style="color:var(--dani);font-weight:700;font-size:10px">+${rs.length-3} reunião(ões)</div>`:""}
         ${ntar?`<div style="font-size:9px;color:var(--gray)">&#128203; ${ntar}</div>`:""}</div>`;}
     grade+=`</div><div style="font-size:11px;color:var(--gray);margin-top:4px">&#128197; = reuniões da agenda · &#128203; = nº de tarefas com data · toque num dia para os detalhes</div>`;
@@ -4971,7 +4993,13 @@ function agNavegar(n){
   telaAgenda();
 }
 function abrirReuniao(){
+  const ehHead=E.perfil.head_sim;
   modal2("&#128197; Nova reunião / compromisso","Escolha o dia — dá para lançar compromissos que já aconteceram",`
+    ${ehHead?`<div class="bloco-t">Para quem</div>
+    <select class="fsel" id="re-escopo" style="width:100%">
+      <option value="mim">&#128100; Só para mim (meus clientes / interno)</option>
+      <option value="3heads">&#128101; Para as 3 heads (fecha a agenda das 3 — ex.: setor de laudos)</option></select>`:""}
+    <div class="bloco-t" style="margin-top:8px">Título</div>
     <input class="fi" id="re-tit" placeholder="Título (ex: Reunião com cliente, Ligação...)">
     <div class="linha-acao"><label style="font-size:11px">Dia:</label><input class="fsel" id="re-data" type="date" value="${hojeISO()}">
       <input class="fsel" id="re-hora" type="time">
@@ -4982,11 +5010,12 @@ function abrirReuniao(){
 }
 async function salvarReuniao(){
   const t=(ge("re-tit").value||"").trim();if(!t){toast("Informe o título.","erro");return;}
+  const escopo=ge("re-escopo")?ge("re-escopo").value:"mim";
   try{await DB.reuniaoAdd({titulo:t,data:ge("re-data").value||hojeISO(),
     horario:ge("re-hora").value,duracao:parseInt(ge("re-dur").value)||30,
-    cliente:ge("re-cli").value,obs:ge("re-obs").value});}
+    cliente:ge("re-cli").value,obs:ge("re-obs").value,escopo});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
-  toast("Compromisso salvo!","ok");fecharModal2();recarregar();
+  toast(escopo==="3heads"?"Compromisso lançado para as 3 heads!":"Compromisso salvo!","ok");fecharModal2();recarregar();
 }
 // ============================================== TELA: PRODUTIVIDADE
 async function telaProdutividade(){
