@@ -147,6 +147,18 @@ def main():
                 (hid, id_cli, d.strftime("%d/%m/%y"), d, assessor or "", texto))
         print(f"3. reuniões consolidadas no histórico: {len(reunioes)}")
 
+        # 3z) cartão de fixa CONCLUÍDO vira zumbi: o site grava AGUARDANDO e
+        # o robô só enxerga 'TAREFA FIXA' — o zumbi ficava vencido para sempre,
+        # aparecendo fora da janela (caso da Laura, 16/09/2026: DARFs). Some
+        # com eles todo dia; o cartão oficial nasce/acorda no passo 4.
+        # Impulsos delegados (copiam o título 📌) são preservados.
+        cur.execute("""delete from juridico.operacional
+            where cliente like '📌%%'
+              and status_tarefa <> 'TAREFA FIXA'
+              and coalesce(status_tarefa,'') not like 'DELEGADA%%'
+              and coalesce(supervisao,'') not like '%%IMPULSO de%%'""")
+        print(f"3z. cartões-zumbi de fixa removidos: {cur.rowcount}")
+
         # 4) tarefas fixas do dia
         DIAS_SEMANA = {"SEMANAL_SEG": 0, "SEMANAL_TER": 1, "SEMANAL_QUA": 2,
                        "SEMANAL_QUI": 3, "SEMANAL_SEX": 4}
