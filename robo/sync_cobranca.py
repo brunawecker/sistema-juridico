@@ -33,7 +33,7 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly",
 # ex.: a da plataforma que o comercial usa p/ marcar reunião das 3 heads).
 AGENDAS = {
     "nicodemeneghe@gmail.com": "Nicholas",
-    "brunawecker@gmail.com": "Bruna",                # teste — agenda pessoal
+    "brunaweckeradv@gmail.com": "Bruna",             # agenda de trabalho (BRUNA ADV)
     # agenda da plataforma (comercial marca reuniões das heads) → visível às 3
     "plataformabde@gmail.com": ["Bruna", "Danielly", "Eduarda"],
 }
@@ -355,7 +355,9 @@ def sincronizar_agendas(sess):
     agora = _dt.now(sp)
     t_min = agora.replace(hour=0, minute=0, second=0).isoformat()
     t_max = (agora + _td(days=7)).isoformat()
+    import hashlib as _hl
     for cal, quem in AGENDAS.items():
+        caltag = _hl.md5(cal.encode()).hexdigest()[:6]
         url = (f"https://www.googleapis.com/calendar/v3/calendars/{_up.quote(cal)}/events"
                f"?singleEvents=true&orderBy=startTime&maxResults=100"
                f"&timeMin={_up.quote(t_min)}&timeMax={_up.quote(t_max)}")
@@ -378,10 +380,10 @@ def sincronizar_agendas(sess):
                 mins = max(15, int((d_fim - d_ini).total_seconds() // 60))
                 titulo = (ev.get("summary") or "Reunião (agenda Google)")[:180]
                 for nome in pessoas:
-                    # rid único por pessoa: agenda compartilhada vira 1 reunião
-                    # para cada head, sem colidir
+                    # rid inclui a AGENDA de origem (caltag) e a pessoa — assim
+                    # duas agendas da mesma head não colidem nem se apagam
                     suf = "" if len(pessoas) == 1 else "-" + nome[:8]
-                    rid = "GCAL-" + ev.get("id", "")[:40] + suf
+                    rid = f"GCAL-{caltag}-" + ev.get("id", "")[:34] + suf
                     vivos.append(rid)
                     cur.execute("""insert into juridico.reunioes
                         (id_reuniao, data, data_dt, assessor, titulo, cliente,
@@ -395,12 +397,14 @@ def sincronizar_agendas(sess):
                         (rid, d_ini.strftime("%d/%m/%Y"), d_ini.date(), nome, titulo,
                          d_ini.strftime("%H:%M"), str(mins), mins,
                          "agenda Google" + (" (plataforma)" if len(pessoas) > 1 else "")))
-            # evento desmarcado some da agenda → some do sistema (só futuros)
+            # evento desmarcado some da agenda → some do sistema (só futuros).
+            # ESCOPADO por agenda (caltag): mexe só nas reuniões DESTA agenda,
+            # sem tocar nas que a mesma head tem em outra agenda (plataforma).
             for nome in pessoas:
                 cur.execute("""delete from juridico.reunioes
-                    where assessor=%s and id_reuniao like 'GCAL-%%'
+                    where assessor=%s and id_reuniao like %s
                       and data_dt >= %s and not (id_reuniao = any(%s))""",
-                    (nome, agora.date(), vivos or ["x"]))
+                    (nome, f"GCAL-{caltag}-%", agora.date(), vivos or ["x"]))
             conn.commit()
         print(f"agenda {'/'.join(pessoas)}: {len(vivos)} reunião(ões) espelhada(s)")
 
