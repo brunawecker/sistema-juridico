@@ -2894,8 +2894,12 @@ async function telaDiario(dia){
   const delegAtivas=ehHoje?ts.filter(t=>t._impulso
     &&!t._emCorrecao
     &&!String(t.status_tarefa||"").startsWith("DELEGADA")
-    &&(!t.data_revisao_dt||String(t.data_revisao_dt).slice(0,10)<=hojeISO())):[];
-  const movDia=(hist||[]).filter(r=>/Impulso delegado|Retorno do impulso/.test(r.texto||""));
+    &&(!t.data_revisao_dt||String(t.data_revisao_dt).slice(0,10)<=hojeISO())
+    &&(!E._diarioAdv||String(t.advogada||"").trim()===E._diarioAdv)):[];
+  // o filtro de advogada vale também nas movimentações (via tarefa de origem)
+  const advDe={};ts.forEach(t=>{if(t.id_tarefa)advDe[t.id_tarefa]=String(t.advogada||"").trim();});
+  const movDia=(hist||[]).filter(r=>/Impulso delegado|Retorno do impulso/.test(r.texto||"")
+    &&(!E._diarioAdv||!advDe[r.id_tarefa]||advDe[r.id_tarefa]===E._diarioAdv));
   if(delegAtivas.length||movDia.length){
     h+=`<div class="painel" style="background:#EEF3F9;border-color:#C9D8EA">
       <div class="bloco-t" style="color:#1F4E79">&#129309; Delegações de impulso</div>`;
