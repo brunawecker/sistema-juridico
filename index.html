@@ -1355,15 +1355,10 @@ function dataLanc(t){
 // real (caso Zona Country, 16/09/2026)
 function lancKey(t){const m=String(dataLanc(t)||"").match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   return m?`${m[3]}-${m[2]}-${m[1]}`:"9999-12-31";}
-// atraso REAL em dias: imediata conta do LANÇAMENTO (a revisão é puxada
-// para hoje pelo robô e zera o atraso aparente); as demais, da revisão
-function atrasoDias(t){
-  if(String(t._chk||t.check_||"").toUpperCase()==="IMEDIATO"||t._urg===1){
-    const k=lancKey(t);
-    if(k!=="9999-12-31"){
-      const d=Math.round((new Date(hojeISO()+"T00:00:00")-new Date(k+"T00:00:00"))/86400000);
-      return Math.max(d,0);}}
-  return (typeof t._dias==="number"&&t._dias<0)?-t._dias:0;}
+// atraso em dias pela REVISÃO — regra da Bruna (16/09/2026): o que conta é
+// há quanto tempo a tarefa está NA MESA sem toque. Voltou da correção ontem?
+// É a menos atrasada das imediatas — vai para o fim da fila delas.
+function atrasoDias(t){return (typeof t._dias==="number"&&t._dias<0)?-t._dias:0;}
 // etiqueta "lançada em" das imediatas: imediata é para o DIA do lançamento —
 // azul se lançada hoje, vermelha se está rolando de um dia para o outro
 function tagLanc(t){
@@ -1386,11 +1381,7 @@ function cardTarefa(t,mostrarAssessor,mostrarTempo){
   const fin=t._inad?'<span class="tag ti" title="Cobrança vencida">&#128184;</span>'
     :t._pago?'<span class="tag tek" title="Pagou este mês">&#10003;</span>'
     :t._prov?'<span class="tag" style="background:var(--ice);color:var(--dani)" title="Provisionado no mês">&#128176;</span>':"";
-  // imediata: atraso REAL desde o lançamento (a revisão é puxada pelo robô
-  // e mostrava "7d" numa tarefa de 23 dias — Bruna, 16/09/2026)
-  const atrReal=atrasoDias(t);
-  const dt=(String(t._chk||"").toUpperCase()==="IMEDIATO"&&atrReal>0)?`<span class="tdy ov">${atrReal}d atraso</span>`
-    :t._dias===null?"":t._atrasada?`<span class="tdy ov">${Math.abs(t._dias)}d atraso</span>`:
+  const dt=t._dias===null?"":t._atrasada?`<span class="tdy ov">${Math.abs(t._dias)}d atraso</span>`:
     (t._dias===0&&!t._concluida?`<span class="tdy ov">vence hoje</span>`:`<span class="tdy ok">rev ${brData(t.data_revisao_dt)}</span>`);
   const pf=t._prazoAlerta?`<span class="tag ti">&#9888; ${brData(t.prazo_fatal_dt)}</span>`:"";
   const ass=mostrarAssessor&&t.assessor?`<span class="tco">&#128100; ${esc(t.assessor)}</span>`:"";
@@ -1478,9 +1469,9 @@ function montarPlanoDia(nome,ativas,reun,histHoje,props){
     reservaPros=Math.min(rem,janelaPros);rem-=reservaPros;}
   for(const t of semanal.concat(mensal)){if(jaAdd[t.id_tarefa])continue;
     if(rem<=0){fila.push(t);continue;}if(push1(t,4))rem-=t._tempo;}
-  plano.sort((a,b)=>a._urg-b._urg
-    ||(a._urg===1&&b._urg===1?lancKey(a).localeCompare(lancKey(b)):0)
-    ||a._dias-b._dias);
+  // pela REVISÃO: quem está há mais tempo na mesa abre a fila; quem voltou
+  // ontem (correção/impulso) vai para o fim das imediatas (Bruna, 16/09)
+  plano.sort((a,b)=>a._urg-b._urg||a._dias-b._dias);
   // fila em ordem de ATRASO REAL (mais antiga primeiro) — vale para a visão
   // das heads e para o painel "Na fila" do próprio assessor
   fila.sort((a,b)=>atrasoDias(b)-atrasoDias(a)||((a._dias??9)-(b._dias??9)));
@@ -2020,7 +2011,36 @@ async function salvarNota(tipo){
       t.prazo_fatal_dt=null;t.prazo_fatal=null;t._prazoAlerta=false;t._pfDias=null;}}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   rascunhoLimpa("and:"+t.id_tarefa);
+  // regra da Bruna (16/09/2026): IMEDIATO é só o exigido para o DIA — deu
+  // andamento (execução, não supervisão), o cartão sai de imediato e a
+  // pessoa escolhe a próxima frequência na hora
+  if(tipo==="ASSESSOR"&&String(t.check_||"").toUpperCase()==="IMEDIATO"&&ehMeuNome(t.assessor)){
+    toast("Salvo!","ok");abrirProxFreq();return;}
   toast("Salvo!","ok");abrirTarefa(t.id_tarefa);}
+// andamento em imediata → reprogramar o cartão (obrigatório)
+function abrirProxFreq(){
+  const t=E.atual;
+  modal2("&#9203; Andamento registrado — e agora?",esc(t.cliente)+" — imediata é só o que foi exigido para o dia",`
+    <div style="font-size:12.5px;margin-bottom:8px">Você deu andamento nesta <b>imediata</b>. Pela regra da banca, ela sai do imediato agora — escolha quando o cartão volta:</div>
+    <select class="fsel" id="pf-freq" style="width:100%" onchange="ge('pf-data-w').style.display=this.value==='AGUARDANDO'?'block':'none'">
+      <option value="DIÁRIO">&#128337; DIÁRIO — volta amanhã</option>
+      <option value="SEMANAL">&#128197; SEMANAL — volta em 7 dias</option>
+      <option value="MENSAL">&#128198; MENSAL — volta em 30 dias</option>
+      <option value="AGUARDANDO">&#9203; AGUARDANDO — escolher a data de retorno</option>
+      <option value="IMEDIATO">&#9889; ainda falta algo HOJE — continua imediata</option></select>
+    <div id="pf-data-w" style="display:none;margin-top:6px"><input type="date" class="fsel" id="pf-data" min="${hojeISO()}" style="width:100%"></div>
+    <button class="btn btp btw" style="margin-top:8px" onclick="salvarProxFreq()">&#10003; Confirmar</button>`);
+}
+async function salvarProxFreq(){
+  const t=E.atual,f=ge("pf-freq").value;
+  if(f==="IMEDIATO"){fecharModal2();toast("Segue imediata para hoje.","ok");abrirTarefa(t.id_tarefa);return;}
+  let prox;
+  if(f==="AGUARDANDO"){prox=ge("pf-data").value;if(!prox){toast("Escolha a data de retorno.","erro");return;}}
+  else{const d=new Date();d.setDate(d.getDate()+(f==="SEMANAL"?7:f==="MENSAL"?30:1));prox=d.toISOString().slice(0,10);}
+  try{await DB.tarefaUpdate(t,{campos:{check_:f},data_revisao:prox,
+    hist_texto:`⏳ Saiu de IMEDIATO após andamento — nova frequência ${f}, retorno ${brData(prox)}.`,hist_tipo:"HISTORICO"});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Cartão reprogramado: "+f+" · volta "+brData(prox),"ok");fecharModal2();fecharModal();recarregar();}
 async function salvarTempo(){
   const min=Math.round((Date.now()-E.timerIni)/60000);
   if(min<1){toast("Menos de 1 minuto — nada a salvar.");return;}
@@ -3469,9 +3489,7 @@ async function telaPrevisao(mesRef){
     E._prevCapDados={fuMin:fuMinPrev,trab:trabPrev,reuMin:reuMinPrev,hjKey:chave(hoje)};
     const diasUteis=[];const dLoop=new Date(hoje);
     while(dLoop.getMonth()===mes){const w=dLoop.getDay();if(w!==0&&w!==6)diasUteis.push(chave(dLoop));dLoop.setDate(dLoop.getDate()+1);}
-    semData.sort((a,b)=>(a._g-b._g)
-      ||(a._g===1&&b._g===1?lancKey(a).localeCompare(lancKey(b)):0)
-      ||((a._dias??9)-(b._dias??9)));
+    semData.sort((a,b)=>(a._g-b._g)||((a._dias??9)-(b._dias??9)));
     semData.forEach(t=>{const a=t.assessor||"?";const aN=primeiroNome(a);
       // imediata é do DIA — entra hoje mesmo que estoure (igual ao plano real)
       if(t._g===1&&diasUteis.length){poe(diasUteis[0],t,"estimado");repete(t,new Date(diasUteis[0]+"T00:00:00"));return;}
@@ -3578,7 +3596,6 @@ async function verDia(k){
   let h="";
   nomesDia.forEach(a=>{const grupo=porAss[a];
     grupo.sort((x,y)=>((x.t._g??4)-(y.t._g??4))
-      ||(x.t._g===1&&y.t._g===1?lancKey(x.t).localeCompare(lancKey(y.t)):0)
       ||((x.t._dias??9)-(y.t._dias??9))||(tipoPeso[x.tipo]-tipoPeso[y.tipo]));
     const semDono=(a==="?");
     const c=semDono?{bg:"var(--red-lt)",border:"var(--red)",text:"var(--red)"}:corDe(a);
