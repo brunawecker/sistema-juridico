@@ -3364,7 +3364,9 @@ async function telaAgora(){
 async function telaPrevisao(mesRef){
   setNav("prev","Previsão Mensal"); carregando();
   let ops;try{ops=await DB.tarefas();}catch(e){return erro(e.message);}
-  const ts=(ops||[]).map(classificar).filter(t=>t.id_tarefa&&!t._delegada);E.tarefas=ts;
+  // fora da previsão: delegadas E em correção — quem está com a head
+  // corrigindo não é trabalho previsto do assessor (caso Zona Country, 16/09)
+  const ts=(ops||[]).map(classificar).filter(t=>t.id_tarefa&&!t._delegada&&!t._emCorrecao);E.tarefas=ts;
   await carregarTemposReais(ts);  // tempos reais para o resumo por assessor no detalhe do dia
   const hoje=new Date();hoje.setHours(0,0,0,0);
   // mês visitado: "AAAA-MM" (navegação) ou o mês atual
