@@ -2909,14 +2909,24 @@ async function telaDiario(dia){
   const movDia=(hist||[]).filter(r=>/Impulso delegado|Retorno do impulso/.test(r.texto||"")
     &&(!E._diarioAdv||!advDe[r.id_tarefa]||advDe[r.id_tarefa]===E._diarioAdv));
   if(delegAtivas.length||movDia.length){
+    // carga real de cada receptor: para avisar quando o dia está lotado e o
+    // impulso vencido foi para a FILA do plano (caso UNITRONIC/Laura, 16/09)
+    let cargaDeleg={};
+    if(delegAtivas.length){try{(await DB.cargaEquipe()).forEach(r=>{cargaDeleg[loginDe(r.nome)]=r;});}catch(e){}}
     h+=`<div class="painel" style="background:#EEF3F9;border-color:#C9D8EA">
       <div class="bloco-t" style="color:#1F4E79">&#129309; Delegações de impulso</div>`;
     if(delegAtivas.length){h+=`<div style="font-size:12px;font-weight:700;margin-bottom:4px">Previstas para hoje (${delegAtivas.length}) <span style="font-weight:400;color:var(--gray);font-size:10px">— em correção, re-delegadas e agendadas para o futuro ficam de fora</span></div>`;
       delegAtivas.forEach(a=>{const de=(String(a.supervisao||"").match(/IMPULSO de\s*([^|]+)\|/)||[])[1]||"?";
         const ped=(String(a.supervisao||"").match(/Pedido:\s*([\s\S]+)$/)||[])[1]||"";
+        const atrTag=a._dias===null?"":a._dias<0?` <span class="tag ti">vencida há ${-a._dias}d</span>`:a._dias===0?' <span class="tag tz">para hoje</span>':"";
         h+=`<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(a.id_tarefa)}')">
-          <span><b>${esc(de.trim())}</b> → <b>${esc(a.assessor)}</b> · ${esc(a.cliente)} · ${esc(a.check_||"")}<br>
-          <span style="color:var(--gray);font-size:11px">${esc(ped.slice(0,110))}</span></span></div>`;});}
+          <span><b>${esc(de.trim())}</b> → <b>${esc(a.assessor)}</b> · ${esc(a.cliente)} · ${esc(a.check_||"")}${atrTag}<br>
+          <span style="color:var(--gray);font-size:11px">${esc(ped.slice(0,110))}</span></span></div>`;});
+      const sobrecD=[...new Set(delegAtivas.map(a=>loginDe(a.assessor||"")))].map(n=>{
+        const cg=cargaDeleg[n];if(!cg)return null;
+        const disp=Math.max(0,capDe(n)-(cg.pros_min||0)-(cg.fu_min||0)-(cg.trab_min||0));
+        return (cg.minutos||0)>disp?{n,dev:cg.minutos||0,disp}:null;}).filter(Boolean);
+      if(sobrecD.length)h+=`<div style="font-size:11px;color:var(--gray);margin-top:6px">&#9888; <b>Dia lotado:</b> ${sobrecD.map(o=>`<b>${esc(o.n)}</b> (${fmtMin(o.dev)} devidos para ${fmtMin(o.disp)} livres)`).join(" · ")} — o plano do dia corta pelo excesso, então impulso vencido pode estar na <b>fila</b> da pessoa, não nas tarefas de hoje dela.</div>`;}
     if(movDia.length){h+=`<div style="font-size:12px;font-weight:700;margin:8px 0 4px">Movimentações ${ehHoje?"de hoje":"de "+brData(d)} (${movDia.length})</div>`;
       movDia.forEach(m=>{h+=`<div style="font-size:12px;padding:2px 0">${esc(m.autor)}: ${esc(String(m.texto||"").slice(0,130))}</div>`;});}
     h+=`</div>`;}
