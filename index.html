@@ -4884,54 +4884,91 @@ async function telaAgenda(){
   let ops,reu;try{[ops,reu]=await Promise.all([DB.tarefas(),DB.reunioes()]);}catch(e){return erro(e.message);}
   const ts=(ops||[]).map(classificar).filter(t=>ehMeuNome(t.assessor));E.tarefas=(ops||[]).map(classificar);
   const minhasReu=(reu||[]).filter(r=>r.assessor===E.perfil.nome_sistema);
-  // semana atual (seg-dom)
-  const hoje=new Date();hoje.setHours(0,0,0,0);
-  const seg=new Date(hoje);seg.setDate(hoje.getDate()-((hoje.getDay()+6)%7));
-  const dias=[];for(let i=0;i<7;i++){const d=new Date(seg);d.setDate(seg.getDate()+i);dias.push(d);}
   const chave=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-  const nomes=["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"];
-  let grade=`<div class="calgrid" style="grid-template-columns:repeat(7,1fr)">`;
-  // projeção da semana: além das tarefas com data marcada, distribui as
-  // atrasadas/sem data pelos dias úteis respeitando o teto diário (igual à Previsão)
-  const kHoje=chave(hoje);
+  const hoje=new Date();hoje.setHours(0,0,0,0);const kHoje=chave(hoje);
+  if(!E._agModo)E._agModo="semana";
+  if(!E._agRef)E._agRef=kHoje;
+  const ref=new Date(E._agRef+"T00:00:00");
   const teto=Math.min(Math.floor(capDe(E.perfil.nome_sistema)/20),10);
-  const fixasDia={},usoDia={};
-  dias.forEach(d=>{const k=chave(d);
-    fixasDia[k]=ts.filter(t=>String(t.data_revisao_dt||"").slice(0,10)===k&&!t._concluida);
-    usoDia[k]=fixasDia[k].length;});
-  const estimDia={};dias.forEach(d=>estimDia[chave(d)]=[]);
-  const pend=ts.filter(t=>{if(t._concluida||t._delegada||t._emCorrecao)return false;
-    const dr=String(t.data_revisao_dt||"").slice(0,10);return !dr||dr<kHoje;})
-    .sort((a,b)=>(a._g-b._g)||((a._dias??9)-(b._dias??9)));
-  pend.forEach(t=>{for(const d of dias){const k=chave(d);
-    if(k<kHoje||d.getDay()===0||d.getDay()===6)continue;
-    if(usoDia[k]<teto){estimDia[k].push(t);usoDia[k]++;return;}}});
-  dias.forEach((d,i)=>{const k=chave(d),ehHoje=d.getTime()===hoje.getTime();
-    const reuDia=minhasReu.filter(r=>String(r.data_dt||"").slice(0,10)===k);
-    const tarDia=fixasDia[k],estDia=estimDia[k]||[];
-    const pins=tarDia.map(t=>({t,est:false})).concat(estDia.map(t=>({t,est:true})));
-    grade+=`<div class="cald ${ehHoje?"hoje":""}">
-      <div style="font-size:10px;font-weight:700;color:var(--gray)">${nomes[i]}</div>
-      <div style="font-weight:700;font-size:13px;color:${ehHoje?"var(--dani)":"var(--text)"}">${d.getDate()}</div>
-      ${reuDia.map(r=>`<div class="calpin" style="background:#EFF6FF;border-left-color:var(--dani)">&#128197; ${esc(r.titulo)}</div>`).join("")}
-      ${pins.slice(0,3).map(({t,est})=>`<div class="calpin" style="${est?"opacity:.65;border-left-style:dashed":""}">&#128203; ${esc(String(t.cliente||"").split(" ")[0])}</div>`).join("")}
-      ${pins.length>3?`<div style="color:var(--dani);font-weight:700">+${pins.length-3}</div>`:""}</div>`;});
-  grade+=`</div>
-  <div style="font-size:11px;color:var(--gray);margin-top:4px">Cheio = data marcada · tracejado = estimado pela sua capacidade (até ${teto}/dia)</div>`;
-  const hojeK=chave(hoje);
-  const reuHoje=minhasReu.filter(r=>String(r.data_dt||"").slice(0,10)===hojeK)
+  const reuDe=k=>minhasReu.filter(r=>String(r.data_dt||"").slice(0,10)===k)
     .sort((a,b)=>String(a.horario||"").localeCompare(String(b.horario||"")));
-  const tarHoje=ts.filter(t=>t._g>=1&&t._g<=3&&!t._emCorrecao&&!t._delegada);
-  let h=`<div class="linha-acao" style="margin-bottom:10px"><button class="btn btp btsm" onclick="abrirReuniao()">+ Reunião / compromisso</button></div>`;
-  h+=grade;
-  h+=`<div style="display:grid;grid-template-columns:280px 1fr;gap:12px;margin-top:14px" class="ag-cols">
-    <div><div class="bloco-t">&#128197; Compromissos hoje</div>
-    ${reuHoje.length?reuHoje.map(r=>`<div class="linha-item"><span><b>${esc(r.horario||"—")}</b> ${esc(r.titulo)}${r.cliente?"<br><span style='font-size:11px;color:var(--gray)'>"+esc(r.cliente)+"</span>":""}</span>
-      <span>${esc(r.duracao_min||30)}min <button class="btn bts btsm" onclick='removerReuniao(${JSON.stringify(r.id_reuniao)})'>&#10005;</button></span></div>`).join("")
-      :`<div style="font-size:12px;color:var(--gray)">Sem compromissos hoje.</div>`}</div>
-    <div><div class="bloco-t">&#128203; Tarefas de hoje (${tarHoje.length})</div>
-    ${tarHoje.length?tarHoje.map(t=>cardTarefa(t,false,true)).join(""):`<div style="font-size:12px;color:var(--gray)">Nada urgente hoje.</div>`}</div></div>`;
+  const tarDe=k=>ts.filter(t=>String(t.data_revisao_dt||"").slice(0,10)===k&&!t._concluida&&!t._delegada&&!t._emCorrecao);
+  const nomes=["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"];
+  const mesNome=d=>d.toLocaleDateString("pt-BR",{month:"long",year:"numeric"});
+  const pill=(m,rot)=>`<button class="btn ${E._agModo===m?"btp":"bts"} btsm" style="border-radius:20px" onclick="E._agModo='${m}';telaAgenda()">${rot}</button>`;
+  // rótulo do período atual conforme o modo
+  let titulo="";
+  if(E._agModo==="dia")titulo=ref.toLocaleDateString("pt-BR",{weekday:"long",day:"2-digit",month:"long"});
+  else if(E._agModo==="mes")titulo=mesNome(ref);
+  else{const seg=new Date(ref);seg.setDate(ref.getDate()-((ref.getDay()+6)%7));const dom=new Date(seg);dom.setDate(seg.getDate()+6);
+    titulo=`${seg.getDate()}/${seg.getMonth()+1} a ${dom.getDate()}/${dom.getMonth()+1}`;}
+  let h=`<div class="painel" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <div style="display:flex;gap:4px">${pill("dia","Dia")}${pill("semana","Semana")}${pill("mes","Mês")}</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
+        <button class="btn bts btsm" onclick="agNavegar(-1)">&#9664;</button>
+        <b style="color:var(--navy);text-transform:capitalize;min-width:150px;text-align:center">${titulo}</b>
+        <button class="btn bts btsm" onclick="agNavegar(1)">&#9654;</button>
+        <button class="btn btp btsm" onclick="E._agRef='${kHoje}';telaAgenda()">Hoje</button></div>
+      <button class="btn btg btsm" onclick="abrirReuniao()">+ Reunião</button></div>`;
+
+  if(E._agModo==="dia"){
+    const k=chave(ref),ehH=k===kHoje;
+    const rs=reuDe(k),tr=tarDe(k);
+    h+=`<div class="painel"><div class="bloco-t">&#128197; Compromissos${ehH?" de hoje":""} (${rs.length})</div>
+      ${rs.length?rs.map(r=>`<div class="linha-item"><span style="font-size:13px"><b>${esc(r.horario||"—")}</b> · ${esc(r.titulo)}${r.cliente?" — "+esc(r.cliente):""}
+        ${String(r.obs||"").indexOf("plataforma")>=0?'<span class="tag tz">plataforma</span>':""}</span>
+        <span style="font-size:11px;color:var(--gray)">${esc(r.duracao_min||30)}min ${String(r.id_reuniao||"").indexOf("GCAL-")<0?`<button class="btn bts btsm" onclick='removerReuniao(${JSON.stringify(r.id_reuniao)})'>&#10005;</button>`:"&#128197; Google"}</span></div>`).join("")
+        :'<div class="vazio">Sem compromissos neste dia.</div>'}</div>
+    <div class="painel"><div class="bloco-t">&#128203; Tarefas com data neste dia (${tr.length})</div>
+      ${tr.length?tr.map(t=>cardTarefa(t,false,true)).join(""):'<div style="font-size:12px;color:var(--gray)">Nenhuma tarefa marcada para este dia.</div>'}</div>`;
+  }
+  else if(E._agModo==="semana"){
+    const seg=new Date(ref);seg.setDate(ref.getDate()-((ref.getDay()+6)%7));
+    const dias=[];for(let i=0;i<7;i++){const d=new Date(seg);d.setDate(seg.getDate()+i);dias.push(d);}
+    // distribui atrasadas/sem data pelos dias úteis (igual à Previsão)
+    const usoDia={};dias.forEach(d=>usoDia[chave(d)]=tarDe(chave(d)).length);
+    const estimDia={};dias.forEach(d=>estimDia[chave(d)]=[]);
+    ts.filter(t=>{if(t._concluida||t._delegada||t._emCorrecao)return false;const dr=String(t.data_revisao_dt||"").slice(0,10);return !dr||dr<kHoje;})
+      .sort((a,b)=>(a._g-b._g)||((a._dias??9)-(b._dias??9)))
+      .forEach(t=>{for(const d of dias){const k=chave(d);if(k<kHoje||d.getDay()===0||d.getDay()===6)continue;if(usoDia[k]<teto){estimDia[k].push(t);usoDia[k]++;return;}}});
+    let grade=`<div class="calgrid" style="grid-template-columns:repeat(7,1fr)">`;
+    dias.forEach((d,i)=>{const k=chave(d),ehH=k===kHoje;
+      const rs=reuDe(k),tarDia=tarDe(k),estDia=estimDia[k]||[];
+      const pins=tarDia.map(t=>({t,est:false})).concat(estDia.map(t=>({t,est:true})));
+      grade+=`<div class="cald ${ehH?"hoje":""}" style="cursor:pointer" onclick="E._agModo='dia';E._agRef='${k}';telaAgenda()">
+        <div style="font-size:10px;font-weight:700;color:var(--gray)">${nomes[i]}</div>
+        <div style="font-weight:700;font-size:13px;color:${ehH?"var(--dani)":"var(--text)"}">${d.getDate()}</div>
+        ${rs.map(r=>`<div class="calpin" style="background:#EFF6FF;border-left-color:var(--dani)">&#128197; ${esc(r.horario||"")} ${esc(String(r.titulo||"").slice(0,16))}</div>`).join("")}
+        ${pins.slice(0,3).map(({t,est})=>`<div class="calpin" style="${est?"opacity:.65;border-left-style:dashed":""}">&#128203; ${esc(String(t.cliente||"").split(" ")[0])}</div>`).join("")}
+        ${pins.length>3?`<div style="color:var(--dani);font-weight:700">+${pins.length-3}</div>`:""}</div>`;});
+    grade+=`</div><div style="font-size:11px;color:var(--gray);margin-top:4px">&#128197; = reunião · &#128203; cheio = data marcada · tracejado = estimado pela capacidade · toque num dia para abrir</div>`;
+    h+=grade;
+  }
+  else{ // mês
+    const prim=new Date(ref.getFullYear(),ref.getMonth(),1);
+    const ini=(prim.getDay()+6)%7,nd=new Date(ref.getFullYear(),ref.getMonth()+1,0).getDate();
+    let grade=`<div class="calgrid" style="grid-template-columns:repeat(7,1fr)">`;
+    grade+=nomes.map(n=>`<div style="text-align:center;font-size:10px;font-weight:700;color:var(--gray);padding:4px">${n}</div>`).join("");
+    for(let b=0;b<ini;b++)grade+=`<div class="cald" style="background:transparent;border:none"></div>`;
+    for(let dia=1;dia<=nd;dia++){const d=new Date(ref.getFullYear(),ref.getMonth(),dia);const k=chave(d),ehH=k===kHoje;
+      const rs=reuDe(k),ntar=tarDe(k).length;
+      grade+=`<div class="cald ${ehH?"hoje":""}" style="cursor:pointer" onclick="E._agModo='dia';E._agRef='${k}';telaAgenda()">
+        <div style="font-weight:700;font-size:12px;color:${ehH?"var(--dani)":"var(--text)"}">${dia}</div>
+        ${rs.slice(0,3).map(r=>`<div class="calpin" style="background:#EFF6FF;border-left-color:var(--dani)">&#128197; ${esc(r.horario||"")} ${esc(String(r.titulo||"").slice(0,12))}</div>`).join("")}
+        ${rs.length>3?`<div style="color:var(--dani);font-weight:700;font-size:10px">+${rs.length-3} reunião(ões)</div>`:""}
+        ${ntar?`<div style="font-size:9px;color:var(--gray)">&#128203; ${ntar}</div>`:""}</div>`;}
+    grade+=`</div><div style="font-size:11px;color:var(--gray);margin-top:4px">&#128197; = reuniões da agenda · &#128203; = nº de tarefas com data · toque num dia para os detalhes</div>`;
+    h+=grade;
+  }
   ge("conteudo").innerHTML=h;
+}
+function agNavegar(n){
+  const d=new Date((E._agRef||hojeISO())+"T00:00:00");
+  if(E._agModo==="dia")d.setDate(d.getDate()+n);
+  else if(E._agModo==="mes")d.setMonth(d.getMonth()+n);
+  else d.setDate(d.getDate()+n*7);
+  E._agRef=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  telaAgenda();
 }
 function abrirReuniao(){
   modal2("&#128197; Nova reunião / compromisso","Escolha o dia — dá para lançar compromissos que já aconteceram",`
