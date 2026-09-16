@@ -1927,6 +1927,9 @@ async function carregarCliExtra(t){
     E._cliCard=c;
     box.innerHTML=`<span class="tag" style="background:#E3F2FD;color:#1565C0;cursor:pointer" onclick="editarRegimeCard()">&#127963; Regime: ${esc(c.regime||"—")} &#9998;</span>
       <span class="tag" style="background:var(--amber-lt);color:#7F6000;cursor:pointer" onclick="editarEcacCard()">&#128273; e-CAC: ${esc(c.e_cac||"—")} &#9998;</span>
+      <span class="tag" style="background:#E8EAF6;color:#3949AB">&#128193; ${c.pasta_sharepoint
+        ?`<a href="${esc(c.pasta_sharepoint)}" target="_blank" style="color:#3949AB;text-decoration:underline">Pasta do cliente</a>`
+        :"Pasta: —"} <span style="cursor:pointer" onclick="editarPastaCard()">&#9998;</span></span>
       <span id="bil-card"></span>`;
     // status de cobrança do cliente no card
     await carregarFinanceiro();
@@ -1951,6 +1954,17 @@ function editarEcacCard(){const c=E._cliCard;if(!c)return;
 async function salvarEcacCard(){const c=E._cliCard;
   try{await DB.clienteUpdate(c.id_cliente,{e_cac:ge("m2-ecac").value});}catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("e-CAC atualizado!","ok");fecharModal2();carregarCliExtra(E.atual);}
+// pasta do SharePoint do cliente — sugestão da Danielly, 14/09/2026
+function editarPastaCard(){const c=E._cliCard;if(!c)return;
+  modal2("&#128193; Pasta do cliente (SharePoint)",esc(c.nome),`
+    <input class="fi" id="m2-pasta" placeholder="https://...sharepoint.com/..." value="${esc(c.pasta_sharepoint||"")}">
+    <div style="font-size:11px;color:var(--gray);margin-bottom:6px">Fica na ficha do cliente e aparece em todos os cards dele. Deixe vazio para remover.</div>
+    <button class="btn btp btw" onclick="salvarPastaCard()">&#128190; Salvar no cadastro</button>`);}
+async function salvarPastaCard(){const c=E._cliCard;
+  const v=(ge("m2-pasta").value||"").trim();
+  if(v&&!/^https?:\/\//i.test(v)){toast("Cole o link completo (começa com https://).","erro");return;}
+  try{await DB.clienteUpdate(c.id_cliente,{pasta_sharepoint:v});}catch(e){toast("Erro: "+e.message,"erro");return;}
+  c.pasta_sharepoint=v;toast("Pasta atualizada!","ok");fecharModal2();carregarCliExtra(E.atual);}
 function editarOperacao(){const t=E.atual;if(!t)return;
   modal2("Corrigir tipo de operação",esc(t.cliente),`
     <select class="fsel" id="m2-op" style="width:100%">${OPERACOES.map(o=>`<option ${t.operacao===o?"selected":""}>${o}</option>`).join("")}</select>
@@ -3881,7 +3895,8 @@ function prepCliente(id){
       <button class="btn bts btsm" onclick="verTarefasCliente('${esc(id)}')">&#128203; Ver tarefas</button>
       <button class="btn bts btsm" onclick="verDocsCliente('${esc(id)}')">&#128206; Documentos</button>
       <button class="btn bts btsm" onclick="toggleEd('${esc(id)}')">&#9998; Editar cadastro</button>
-      ${podeConverter?`<button class="btn btp btsm" onclick="converterCli('${esc(id)}')">&#10003; Converter em cliente oficial</button>`:""}</div>
+      ${podeConverter?`<button class="btn btp btsm" onclick="converterCli('${esc(id)}')">&#10003; Converter em cliente oficial</button>`:""}
+      ${E.perfil.head_sim&&c.situacao==="OFICIAL"?`<button class="btn bts btsm" style="color:var(--roxo);border-color:var(--roxo)" onclick="reverterCli('${esc(id)}')">&#8617; Voltar para prospecção</button>`:""}</div>
     <div id="ct-${esc(id)}" style="margin-top:8px"></div>
     <div id="cdoc-${esc(id)}" style="margin-top:8px"></div>
     <div id="ce-${esc(id)}" style="display:none;margin-top:8px"></div>`;
@@ -3973,6 +3988,7 @@ function toggleEd(id){
     <div><label style="font-size:11px">e-CAC</label>${inp("e_cac",c.e_cac)}</div>
     <div><label style="font-size:11px">Franqueado</label>${inp("franqueado",c.franqueado)}</div>
     <div><label style="font-size:11px">Contrato</label>${inp("contrato",c.contrato)}</div>
+    <div style="grid-column:1/-1"><label style="font-size:11px">&#128193; Pasta do cliente (SharePoint)</label>${inp("pasta_sharepoint",c.pasta_sharepoint,"https://...sharepoint.com/...")}</div>
     <div><label style="font-size:11px">UF</label>${selUF(`ed-uf-${id}`,c.uf,`ed-municipio-${id}`,"width:100%;margin-bottom:6px")}</div>
     <div><label style="font-size:11px">Município</label><select class="fsel" id="ed-municipio-${id}" disabled style="width:100%;margin-bottom:6px"><option>${esc(c.municipio||"")}</option></select></div></div>
     <label style="font-size:11px">Resumo da situação</label>
@@ -4016,7 +4032,7 @@ async function mesclarCliente(fica,some){
   toast("Cadastros mesclados — registrado no histórico do cliente.","ok");telaClientes();}
 async function salvarCliente(id){
   const g=k=>{const el=ge(`ed-${k}-${id}`);return el?el.value:undefined;};
-  const campos={};["vertical","regime","capag","e_cac","franqueado","contrato","municipio","uf","resumo_da_venda"].forEach(k=>{const v=g(k);if(v!==undefined)campos[k]=v;});
+  const campos={};["vertical","regime","capag","e_cac","franqueado","contrato","municipio","uf","resumo_da_venda","pasta_sharepoint"].forEach(k=>{const v=g(k);if(v!==undefined)campos[k]=v;});
   try{await DB.clienteUpdate(id,campos);}catch(e){toast("Erro: "+e.message,"erro");return;}
   Object.assign(E._cli[id],campos);toast("Cadastro atualizado!","ok");
 }
@@ -4034,6 +4050,16 @@ async function converterCli(id){
   if(!confirm(`Converter "${c.nome}" em CLIENTE OFICIAL?\n\nUse quando o contrato for fechado.`))return;
   try{await DB.converterCliente(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
   c.situacao="OFICIAL";toast("✓ "+c.nome+" agora é cliente oficial!","ok");desenhaClientes();
+}
+// caminho de VOLTA (só head) — sugestão da Danielly, 15/09/2026
+async function reverterCli(id){
+  const c=E._cli[id];
+  if(!confirm(`Voltar "${c.nome}" para PROSPECÇÃO?\n\nUse quando o cadastro entrou como cliente por engano ou o contrato não se concretizou. Fica registrado no histórico.`))return;
+  try{await DB.clienteUpdate(id,{situacao:"PROSPECCAO"});
+    await DB.nota({id_tarefa:"",id_cliente:id,tipo:"HISTORICO",
+      texto:"↩ Cliente revertido de OFICIAL para PROSPECÇÃO por "+E.perfil.nome_sistema+" (ação de head)."});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  c.situacao="PROSPECCAO";toast("↩ "+c.nome+" voltou para prospecção.","ok");desenhaClientes();
 }
 // =================================================== TELA: COBRANÇA (head)
 async function telaCobranca(){
