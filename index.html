@@ -1418,6 +1418,61 @@ async function carregarFinanceiro(){
 }
 
 // ======================================================= TELA: MINHAS
+// ================= MOTOR DO PLANO DO DIA — régua ÚNICA =================
+// Calcula o dia de QUALQUER assessor exatamente como a tela da pessoa
+// calcula. Usado por Minhas Tarefas E pela visão das heads no Diário
+// (pedido da Bruna, 16/09/2026: "o que o sistema cobra hoje × fila").
+// Entradas já carregadas: ativas (classificadas, sem delegada/correção),
+// reuniões, histórico de HOJE e propostas. carregarTemposReais antes.
+function montarPlanoDia(nome,ativas,reun,histHoje,props){
+  const hjBR2=brHoje(), hjISO2=hojeISO();
+  const meetings=(reun||[]).filter(r=>r.assessor===nome&&(r.data===hjBR2||String(r.data_dt||"").slice(0,10)===hjISO2));
+  const minReu=meetings.reduce((s,m)=>s+(parseInt(m.duracao_min_num||m.duracao_min)||30),0);
+  ativas.forEach(t=>{t._tempo=t._meta||tempoPlanoDe(nome,t.operacao);});
+  const jaTrab=(histHoje||[]).filter(r=>r.tipo==="TIMER"&&loginDe(r.autor)===nome)
+    .reduce((s,r)=>s+(parseInt((String(r.texto||"").match(/(\d+)\s*min/)||[])[1])||0),0);
+  const cap=capDe(nome), capDia=Math.max(60,cap-minReu), capDisp=Math.max(0,capDia-jaTrab);
+  const imed=ativas.filter(t=>t._g===1), atr=ativas.filter(t=>t._g===2).sort((a,b)=>a._dias-b._dias),
+        diar=ativas.filter(t=>t._g===3&&/DI[ÁA]RIO/.test(t._chk)),
+        hoje0=ativas.filter(t=>t._g===3&&!/DI[ÁA]RIO/.test(t._chk));
+  const dow=new Date().getDay();
+  const semanal=ativas.filter(t=>t._chk==="SEMANAL"&&t._dias>0&&t._dias<=6&&(dow===1||dow===2));
+  const mensal=ativas.filter(t=>t._chk==="MENSAL"&&t._dias>0&&t._dias<=7);
+  const pesoF=t=>t._pago?0:(t._prov?1:2);
+  semanal.sort((a,b)=>pesoF(a)-pesoF(b)||b._dias-a._dias);
+  mensal.sort((a,b)=>pesoF(a)-pesoF(b)||b._dias-a._dias);
+  const plano=[],fila=[],jaAdd={};
+  const push1=(t,urg)=>{const k=t.id_tarefa;if(k&&jaAdd[k])return false;if(k)jaAdd[k]=true;t._urg=urg;plano.push(t);return true;};
+  imed.forEach(t=>push1(t,1));
+  let rem=Math.max(0,capDisp-imed.reduce((s,t)=>s+t._tempo,0));
+  const janelaPros=PROSPEC[nome]||0;
+  let reservaPros=0;
+  if(janelaPros>0&&PROSPEC_SEMPRE[nome]){reservaPros=Math.min(rem,janelaPros);rem-=reservaPros;}
+  const propsFu=minhasNaRua(props||[],nome);
+  const fuJanela=fuEfetivo(FOLLOWUP[nome]||0,propsFu.length);
+  let reservaFu=0;
+  if(fuJanela>0){reservaFu=fuJanela;rem=Math.max(0,rem-reservaFu);}
+  for(const t of diar){if(jaAdd[t.id_tarefa])continue;
+    if(rem-t._tempo<0){fila.push(t);continue;}if(push1(t,t._dias<0?2:3))rem-=t._tempo;}
+  let nAtr=0;
+  for(const t of atr){if(jaAdd[t.id_tarefa])continue;
+    if(rem<=0&&nAtr>=3){fila.push(t);continue;}if(push1(t,2)){rem-=t._tempo;nAtr++;}}
+  rem=Math.max(0,rem);
+  for(const t of hoje0){if(jaAdd[t.id_tarefa])continue;
+    if(rem<=0){fila.push(t);continue;}if(push1(t,3))rem-=t._tempo;}
+  const imedVencidas=imed.filter(t=>typeof t._dias==="number"&&t._dias<0);
+  if(janelaPros>0&&!reservaPros&&imedVencidas.length===0&&atr.length===0){
+    reservaPros=Math.min(rem,janelaPros);rem-=reservaPros;}
+  for(const t of semanal.concat(mensal)){if(jaAdd[t.id_tarefa])continue;
+    if(rem<=0){fila.push(t);continue;}if(push1(t,4))rem-=t._tempo;}
+  plano.sort((a,b)=>a._urg-b._urg
+    ||(a._urg===1&&b._urg===1?lancKey(a).localeCompare(lancKey(b)):0)
+    ||a._dias-b._dias);
+  const planejado=plano.reduce((s,t)=>s+t._tempo,0);
+  const filaMin=fila.reduce((s,t)=>s+t._tempo,0);
+  return {plano,fila,imed,atr,diar,hoje0,semanal,mensal,meetings,minReu,jaTrab,
+          cap,capDia,capDisp,reservaPros,reservaFu,planejado,filaMin,propsFu};
+}
 async function telaMinhas(){
   setNav("minhas","Minhas Tarefas"); carregando();
   let dados,reun;try{[dados,reun]=await Promise.all([DB.tarefas(),DB.reunioes()]);await carregarFinanceiro();}
@@ -1430,76 +1485,15 @@ async function telaMinhas(){
   const emCorr=minhas.filter(t=>t._emCorrecao&&!t._delegada);
   const deleg=minhas.filter(t=>t._delegada);
   const ativas=minhas.filter(t=>!t._emCorrecao&&!t._delegada&&t.id_tarefa);
-  // reuniões de hoje
-  const hjBR=brHoje(), hjISO=hojeISO();
-  const meetings=(reun||[]).filter(r=>r.assessor===nome&&(r.data===hjBR||String(r.data_dt||"").slice(0,10)===hjISO));
-  const minReu=meetings.reduce((s,m)=>s+(parseInt(m.duracao_min_num||m.duracao_min)||30),0);
-  // capacidade (algoritmo do Code.gs + tempos reais do robô de produtividade)
+  // ===== plano do dia: MOTOR ÚNICO (montarPlanoDia) — a mesma régua que
+  // as heads veem no Diário; qualquer mudança de regra vale para os dois
   await carregarTemposReais(ts);
-  ativas.forEach(t=>{t._tempo=t._meta||tempoPlanoDe(nome,t.operacao);});
-  // ✅ desconta o que a pessoa JÁ trabalhou hoje (TIMERs de hoje): concluir
-  // tarefa não "devolve" os minutos ao dia — sem isso a fila repunha tarefa
-  // nova infinitamente conforme as atrasadas eram concluídas.
-  let jaTrab=0;
-  try{const hh=await DB.historicoHoje();
-    jaTrab=(hh||[]).filter(r=>r.tipo==="TIMER"&&ehMeuNome(r.autor))
-      .reduce((s,r)=>s+(parseInt((String(r.texto||"").match(/(\d+)\s*min/)||[])[1])||0),0);
-  }catch(e){}
-  const cap=capDe(nome), capDia=Math.max(60,cap-minReu), capDisp=Math.max(0,capDia-jaTrab);
-  const imed=ativas.filter(t=>t._g===1), atr=ativas.filter(t=>t._g===2).sort((a,b)=>a._dias-b._dias),
-        diar=ativas.filter(t=>t._g===3&&/DI[ÁA]RIO/.test(t._chk)),
-        hoje0=ativas.filter(t=>t._g===3&&!/DI[ÁA]RIO/.test(t._chk));
-  const dow=new Date().getDay();
-  const semanal=ativas.filter(t=>t._chk==="SEMANAL"&&t._dias>0&&t._dias<=6&&(dow===1||dow===2));
-  const mensal=ativas.filter(t=>t._chk==="MENSAL"&&t._dias>0&&t._dias<=7);
-  // peso financeiro nas semanais/mensais: quem pagou vem primeiro
-  const pesoF=t=>t._pago?0:(t._prov?1:2);
-  semanal.sort((a,b)=>pesoF(a)-pesoF(b)||b._dias-a._dias);
-  mensal.sort((a,b)=>pesoF(a)-pesoF(b)||b._dias-a._dias);
-  const plano=[],fila=[],jaAdd={};
-  const push1=(t,urg)=>{const k=t.id_tarefa;if(k&&jaAdd[k])return false;if(k)jaAdd[k]=true;t._urg=urg;plano.push(t);return true;};
-  // IMEDIATO entra sempre; o resto só até a capacidade — excedente vai à fila
-  imed.forEach(t=>push1(t,1));
-  let rem=Math.max(0,capDisp-imed.reduce((s,t)=>s+t._tempo,0));
-  // 🎯 bloco FIXO de prospecção (ex.: Madu 4h): reservado TODOS os dias,
-  // antes das demais tarefas — só as imediatas passam na frente. O que não
-  // couber no restante do dia vai para a fila normalmente.
-  const janelaPros=PROSPEC[nome]||0;
-  let reservaPros=0;
-  if(janelaPros>0&&PROSPEC_SEMPRE[nome]){reservaPros=Math.min(rem,janelaPros);rem-=reservaPros;}
-  // 📞 Follow-up de propostas: bloco DIÁRIO fixo para retomar as propostas na
-  // rua sob responsabilidade da pessoa (pedido da Bruna, 18/08/2026). O tempo
-  // cresce sozinho com a carteira (+3 min por proposta acima de 10, teto 90).
-  let propsFu=[];
-  try{propsFu=minhasNaRua(await DB.propostas(),nome);}catch(e){}
-  const fuJanela=fuEfetivo(FOLLOWUP[nome]||0,propsFu.length);
-  let reservaFu=0;
-  // obrigatório TODOS os dias: reserva integral mesmo com o dia lotado
-  // (antes, dia cheio engolia o bloco e o cartão sumia — pedido da Bruna 19/08)
-  if(fuJanela>0){reservaFu=fuJanela;rem=Math.max(0,rem-reservaFu);}
-  for(const t of diar){if(jaAdd[t.id_tarefa])continue;
-    if(rem-t._tempo<0){fila.push(t);continue;}if(push1(t,t._dias<0?2:3))rem-=t._tempo;}
-  let nAtr=0;
-  for(const t of atr){if(jaAdd[t.id_tarefa])continue;
-    if(rem<=0&&nAtr>=3){fila.push(t);continue;}if(push1(t,2)){rem-=t._tempo;nAtr++;}}
-  rem=Math.max(0,rem);
-  for(const t of hoje0){if(jaAdd[t.id_tarefa])continue;
-    if(rem<=0){fila.push(t);continue;}if(push1(t,3))rem-=t._tempo;}
-  // 🎯 Janela de Prospecção por mérito: sem nada VENCIDO (atrasadas ou
-  // imediatas de dias anteriores) o bloco fica programado no dia — imediatas
-  // DO PRÓPRIO DIA convivem com a janela (pedido da Bruna, 12/08/2026). As
-  // ANTECIPAÇÕES (semanais/mensais futuras) só entram no que sobrar.
-  const imedVencidas=imed.filter(t=>typeof t._dias==="number"&&t._dias<0);
-  if(janelaPros>0&&!reservaPros&&imedVencidas.length===0&&atr.length===0){
-    reservaPros=Math.min(rem,janelaPros);rem-=reservaPros;}
-  for(const t of semanal.concat(mensal)){if(jaAdd[t.id_tarefa])continue;
-    if(rem<=0){fila.push(t);continue;}if(push1(t,4))rem-=t._tempo;}
-  // imediatas: a mais ANTIGA pelo lançamento abre a fila (pedido da Bruna, 16/09)
-  plano.sort((a,b)=>a._urg-b._urg
-    ||(a._urg===1&&b._urg===1?lancKey(a).localeCompare(lancKey(b)):0)
-    ||a._dias-b._dias);
-  const planejado=plano.reduce((s,t)=>s+t._tempo,0);
-  const filaMin=fila.reduce((s,t)=>s+t._tempo,0);
+  let histHojeM=[],propsAllM=[];
+  try{histHojeM=await DB.historicoHoje();}catch(e){}
+  try{propsAllM=await DB.propostas();}catch(e){}
+  const P=montarPlanoDia(nome,ativas,reun,histHojeM,propsAllM);
+  const {plano,fila,imed,atr,meetings,minReu,jaTrab,capDia,capDisp,
+         reservaPros,reservaFu,planejado,filaMin,propsFu}=P;
   // prospecção e follow-up OCUPAM a barra do dia (quem delega vê o mesmo)
   const pct=Math.min(100,Math.round((planejado+reservaPros+reservaFu)/Math.max(1,capDisp)*100));
   E._plano=plano;E._minhasTodas=minhas;
@@ -2930,6 +2924,32 @@ async function telaDiario(dia){
     if(movDia.length){h+=`<div style="font-size:12px;font-weight:700;margin:8px 0 4px">Movimentações ${ehHoje?"de hoje":"de "+brData(d)} (${movDia.length})</div>`;
       movDia.forEach(m=>{h+=`<div style="font-size:12px;padding:2px 0">${esc(m.autor)}: ${esc(String(m.texto||"").slice(0,130))}</div>`;});}
     h+=`</div>`;}
+  // 🧭 O DIA DE CADA UM: plano real × fila, pela MESMA régua da tela da
+  // pessoa (montarPlanoDia) — heads entendem o que o sistema cobra hoje e
+  // podem furar a fila (pedido da Bruna, 16/09/2026)
+  if(ehHoje&&E.perfil.head_sim){
+    let reunD=[],propsD=[];
+    try{reunD=await DB.reunioes();}catch(e){}
+    try{propsD=await DB.propostas();}catch(e){}
+    await carregarTemposReais(ts);
+    let hDia=`<div class="painel"><div class="bloco-t">&#129517; O dia de cada assessor — o que o sistema cobra HOJE × fila de espera</div>
+      <div style="font-size:11px;color:var(--gray);margin-bottom:6px">Mesma régua da tela de cada um (capacidade − reuniões − trabalhado − prospecção − follow-up; imediata fura sempre). Na fila, ⚡ torna a tarefa imediata de hoje.</div>`;
+    OPERACIONAIS.forEach(n=>{
+      const atv=ts.filter(t=>loginDe(t.assessor||"")===n&&t.id_tarefa&&!t._emCorrecao&&!t._delegada
+        &&(!E._diarioAdv||String(t.advogada||"").trim()===E._diarioAdv));
+      if(!atv.length)return;
+      const p=montarPlanoDia(n,atv,reunD,hist,propsD);
+      const c=corDe(n);
+      hDia+=`<details class="det"><summary><b style="color:${c.text}">${esc(n)}</b> — hoje: <b>${p.plano.length}</b> (&asymp;${fmtMin(p.planejado)} de ${fmtMin(p.capDisp)})${p.reservaPros?` · &#127919;${fmtMin(p.reservaPros)}`:""}${p.reservaFu?` · &#128222;${fmtMin(p.reservaFu)}`:""} · fila: <b style="color:${p.fila.length?"var(--red)":"var(--green)"}">${p.fila.length}</b>${p.fila.length?` (&asymp;${fmtMin(p.filaMin)})`:""}</summary>
+        <div style="padding:6px 10px">
+        <div style="font-size:11px;font-weight:700;color:var(--navy);margin-bottom:3px">Cobrado para hoje</div>
+        ${p.plano.map(t=>`<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')"><span style="font-size:12px">${t._urg===1?"&#9889; ":""}${esc(t.cliente)} · ${esc(t.operacao||"")} <span style="color:var(--gray);font-size:10px">&#9201;${t._tempo}min</span></span>${typeof t._dias==="number"&&t._dias<0?`<span class="tdy ov">${-t._dias}d</span>`:""}</div>`).join("")||'<div style="font-size:12px;color:var(--gray);padding:4px 0">nada além dos blocos fixos</div>'}
+        ${p.fila.length?`<div style="font-size:11px;font-weight:700;color:var(--gray);margin:6px 0 3px">Na fila — não coube no dia (${p.fila.length})</div>`+
+          p.fila.map(t=>`<div class="linha-item"><span style="cursor:pointer;font-size:12px" onclick="abrirTarefa('${esc(t.id_tarefa)}')">${esc(t.cliente)} · ${esc(t.operacao||"")}${typeof t._dias==="number"&&t._dias<0?` <span class="tag ti">${-t._dias}d vencida</span>`:""}</span>
+          <button class="btn bts btsm" title="Tornar IMEDIATA: entra no plano de hoje na frente" onclick='furarFila(${JSON.stringify(t.id_tarefa)},${t.linha},${JSON.stringify(t.id_cliente||"")})'>&#9889; p/ hoje</button></div>`).join(""):""}
+        </div></details>`;});
+    h+=hDia+`</div>`;
+  }
   const por={};
   (hist||[]).forEach(r=>{const a=loginDe(r.autor);if(!a||a==="Sistema"||a==="Migração")return;
     const o=por[a]=por[a]||{upd:0,min:0,tarefas:{}};
@@ -3457,6 +3477,13 @@ function capPrevDia(aN,k){const d=E._prevCapDados||{};
     -((d.reuMin||{})[k+"|"+aN]||0)
     -(k===d.hjKey?((d.trab||{})[aN]||0):0);
   return Math.max(60,cap);}
+// head fura a fila: tarefa vira IMEDIATA de hoje e entra na frente do plano
+async function furarFila(id,linha,idCli){
+  if(!confirm("Tornar esta tarefa IMEDIATA para hoje?\n\nEla entra na frente do plano do assessor (imediata fura a fila sempre)."))return;
+  try{await DB.tarefaUpdate({id_tarefa:id,linha:linha,id_cliente:idCli||""},{campos:{check_:"IMEDIATO"},data_revisao:hojeISO(),
+    hist_texto:"⚡ Priorizada pela head "+E.perfil.nome_sistema+": tornada IMEDIATA para hoje (fura a fila do plano).",hist_tipo:"SUPERVISÃO"});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("⚡ Agora é imediata de hoje.","ok");recarregar();}
 function filtraPrev(n){E._prevFiltro=n;desenhaPrevisao();}
 function desenhaPrevisao(){
   const {ano,mes,foraMes,mesAtual}=E._prevMeta,porDia=E._prevDias,f=E._prevFiltro;
