@@ -29,14 +29,38 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly",
 # agendas do Google sincronizadas como reuniões do sistema (pedido da Bruna,
 # 20/08/2026) — requer: Calendar API ligada no projeto e a agenda compartilhada
 # com a conta-robô (leitor-planilha@migracao-juridico.iam.gserviceaccount.com)
-# valor = 1 nome (agenda pessoal) OU lista de nomes (agenda compartilhada,
-# ex.: a da plataforma que o comercial usa p/ marcar reunião das 3 heads).
-AGENDAS = {
-    "nicodemeneghe@gmail.com": "Nicholas",
-    "brunaweckeradv@gmail.com": "Bruna",             # agenda de trabalho (BRUNA ADV)
-    # agenda da plataforma (comercial marca reuniões das heads) → visível às 3
-    "plataformabde@gmail.com": ["Bruna", "Danielly", "Eduarda"],
-}
+# Cada agenda: cal, quem VÊ (ver), categoria/cor, se é rodízio (rot).
+# categoria: pessoal(azul) · sc(plataforma SC, rodízio) · sdr(Nicholas) · manual
+HEADS_ROT = ["Bruna", "Danielly", "Eduarda"]
+ROT_ANCORA = date(2026, 9, 14)  # segunda-feira base: índice 0 = Bruna
+AGENDAS = [
+    # SDRs → reuniões do Nicholas, visíveis às heads (contar quantas ele tem)
+    {"cal": "nicodemeneghe@gmail.com", "ver": ["Nicholas"], "cat": "sdr"},
+    {"cal": "plataformabd.38@gmail.com",
+     "ver": ["Nicholas", "Bruna", "Danielly", "Eduarda"], "cat": "sdr", "dono": "Nicholas"},
+    {"cal": "souzademarqueseduarda@gmail.com",
+     "ver": ["Nicholas", "Bruna", "Danielly", "Eduarda"], "cat": "sdr", "dono": "Nicholas"},
+    # plataforma SC → reuniões das 3 heads, com RODÍZIO diário de responsável
+    {"cal": "plataformabde@gmail.com",
+     "ver": ["Bruna", "Danielly", "Eduarda"], "cat": "sc", "rot": True},
+    # agendas pessoais RESTRITAS (clientes da casa / setores internos)
+    {"cal": "brunaweckeradv@gmail.com", "ver": ["Bruna"], "cat": "pessoal"},
+    {"cal": "eduardaadv3.8@gmail.com", "ver": ["Eduarda"], "cat": "pessoal"},
+    {"cal": "advdanielly.vbb@gmail.com", "ver": ["Danielly"], "cat": "pessoal"},
+]
+
+
+from datetime import timedelta as _td
+
+
+def _rot_responsavel(d):
+    """Rodízio das heads por dia útil (seg-sex), ciclando HEADS_ROT."""
+    n, cur = 0, ROT_ANCORA
+    while cur < d:
+        cur += _td(days=1)
+        if cur.weekday() < 5:
+            n += 1
+    return HEADS_ROT[n % len(HEADS_ROT)]
 MESES = ["JANEIRO", "FEVEREIRO", "MARÇO", "ABRIL", "MAIO", "JUNHO",
          "JULHO", "AGOSTO", "SETEMBRO", "OUTUBRO", "NOVEMBRO", "DEZEMBRO"]
 ABREV = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN",
@@ -346,67 +370,66 @@ def sincronizar_metas(sess):
 
 
 def sincronizar_agendas(sess):
-    """Lê as agendas do Google configuradas e espelha os eventos (hoje → +7d)
-    na tabela juridico.reunioes (id GCAL-...). Some evento, some a reunião."""
+    """Espelha os eventos das agendas Google (hoje → +7d) em juridico.reunioes,
+    com categoria (cor) e, no rodízio SC, o responsável do dia."""
     import urllib.parse as _up
-    from datetime import datetime as _dt, timedelta as _td
+    import hashlib as _hl
+    from datetime import datetime as _dt
     from zoneinfo import ZoneInfo as _tz
     sp = _tz("America/Sao_Paulo")
     agora = _dt.now(sp)
     t_min = agora.replace(hour=0, minute=0, second=0).isoformat()
     t_max = (agora + _td(days=7)).isoformat()
-    import hashlib as _hl
-    for cal, quem in AGENDAS.items():
+    for ag in AGENDAS:
+        cal = ag["cal"]
+        pessoas = ag.get("ver", [])
+        cat = ag.get("cat", "manual")
         caltag = _hl.md5(cal.encode()).hexdigest()[:6]
         url = (f"https://www.googleapis.com/calendar/v3/calendars/{_up.quote(cal)}/events"
                f"?singleEvents=true&orderBy=startTime&maxResults=100"
                f"&timeMin={_up.quote(t_min)}&timeMax={_up.quote(t_max)}")
         r = sess.get(url, timeout=60)
         if r.status_code != 200:
-            print(f"agenda {quem}: sem acesso ainda (HTTP {r.status_code}) — "
-                  "ligar a Calendar API e compartilhar a agenda com a conta-robô")
+            print(f"agenda {cal}: sem acesso ainda (HTTP {r.status_code}) — "
+                  "compartilhar com a conta-robô")
             continue
         eventos = r.json().get("items", [])
-        pessoas = quem if isinstance(quem, (list, tuple)) else [quem]
         vivos = []
         with psycopg.connect() as conn, conn.cursor() as cur:
             for ev in eventos:
                 ini = (ev.get("start") or {}).get("dateTime")
                 fim = (ev.get("end") or {}).get("dateTime")
                 if not ini or not fim:
-                    continue   # eventos de dia inteiro ficam de fora
+                    continue
                 d_ini = _dt.fromisoformat(ini).astimezone(sp)
                 d_fim = _dt.fromisoformat(fim).astimezone(sp)
                 mins = max(15, int((d_fim - d_ini).total_seconds() // 60))
                 titulo = (ev.get("summary") or "Reunião (agenda Google)")[:180]
+                resp = _rot_responsavel(d_ini.date()) if ag.get("rot") else (ag.get("dono") or "")
                 for nome in pessoas:
-                    # rid inclui a AGENDA de origem (caltag) e a pessoa — assim
-                    # duas agendas da mesma head não colidem nem se apagam
                     suf = "" if len(pessoas) == 1 else "-" + nome[:8]
                     rid = f"GCAL-{caltag}-" + ev.get("id", "")[:34] + suf
                     vivos.append(rid)
                     cur.execute("""insert into juridico.reunioes
                         (id_reuniao, data, data_dt, assessor, titulo, cliente,
-                         horario, duracao_min, duracao_min_num, obs)
-                        values (%s,%s,%s,%s,%s,'',%s,%s,%s,%s)
+                         horario, duracao_min, duracao_min_num, obs, categoria, responsavel)
+                        values (%s,%s,%s,%s,%s,'',%s,%s,%s,%s,%s,%s)
                         on conflict (id_reuniao) do update set
                           data=excluded.data, data_dt=excluded.data_dt,
                           titulo=excluded.titulo, horario=excluded.horario,
                           duracao_min=excluded.duracao_min,
-                          duracao_min_num=excluded.duracao_min_num""",
+                          duracao_min_num=excluded.duracao_min_num,
+                          categoria=excluded.categoria, responsavel=excluded.responsavel""",
                         (rid, d_ini.strftime("%d/%m/%Y"), d_ini.date(), nome, titulo,
-                         d_ini.strftime("%H:%M"), str(mins), mins,
-                         "agenda Google" + (" (plataforma)" if len(pessoas) > 1 else "")))
-            # evento desmarcado some da agenda → some do sistema (só futuros).
-            # ESCOPADO por agenda (caltag): mexe só nas reuniões DESTA agenda,
-            # sem tocar nas que a mesma head tem em outra agenda (plataforma).
+                         d_ini.strftime("%H:%M"), str(mins), mins, "agenda Google",
+                         cat, resp))
             for nome in pessoas:
                 cur.execute("""delete from juridico.reunioes
                     where assessor=%s and id_reuniao like %s
                       and data_dt >= %s and not (id_reuniao = any(%s))""",
                     (nome, f"GCAL-{caltag}-%", agora.date(), vivos or ["x"]))
             conn.commit()
-        print(f"agenda {'/'.join(pessoas)}: {len(vivos)} reunião(ões) espelhada(s)")
+        print(f"agenda {cat} ({cal}): {len(vivos)} espelho(s)")
 
 
 def main():
