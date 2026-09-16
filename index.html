@@ -4713,7 +4713,8 @@ async function telaFixas(){
         ${["SEG","TER","QUA","QUI","SEX"].map((d,i)=>`<option value="SEMANAL_${d}">Toda ${["segunda","terça","quarta","quinta","sexta"][i]}</option>`).join("")}
         <option value="MENSAL_1DIA_UTIL">1º dia útil do mês</option>
         <option value="JANELA_FIM_MES">Janela fim de mês (dia ~18 a 27, um por dia)</option></select>
-      ${podeTodas?`<select class="fsel" id="fx-ass">${OPERACIONAIS.map(a=>`<option>${a}</option>`).join("")}</select>
+      ${podeTodas?`<select class="fsel" id="fx-ass">${OPERACIONAIS.map(a=>`<option>${a}</option>`).join("")}
+          <option value="__TODOS__">&#128101; Todos (uma para cada)</option></select>
         <select class="fsel" id="fx-head"><option value="">— head —</option><option>Danielly</option><option>Bruna</option><option>Eduarda</option></select>`
         :`<input class="fsel" id="fx-ass" value="${esc(E.perfil.nome_sistema)}" disabled>`}
       <input class="fsel" id="fx-tempo" type="number" value="20" min="5" max="480" style="width:76px"> min
@@ -4732,8 +4733,19 @@ async function telaFixas(){
 async function criarFixa(){
   const tit=(ge("fx-tit").value||"").trim();if(!tit){toast("Descreva a tarefa.","erro");return;}
   const ass=ge("fx-ass").value||E.perfil.nome_sistema;
-  try{await DB.fixaAdd({titulo:tit,freq:ge("fx-freq").value,assessor:ass,
-    head:ge("fx-head")?ge("fx-head").value:"",tempo:parseInt(ge("fx-tempo").value)||20});}
+  const base={titulo:tit,freq:ge("fx-freq").value,
+    head:ge("fx-head")?ge("fx-head").value:"",tempo:parseInt(ge("fx-tempo").value)||20};
+  // 👥 Todos: cria uma fixa igual para cada operacional (pedido das heads, 16/09/2026)
+  if(ass==="__TODOS__"){
+    if(!confirm(`Criar esta fixa para TODOS (${OPERACIONAIS.join(", ")}) — uma para cada?`))return;
+    let ok=0;const falhas=[];
+    for(const a of OPERACIONAIS){
+      try{await DB.fixaAdd({...base,assessor:a});ok++;}
+      catch(e){falhas.push(a+" ("+e.message+")");}}
+    toast(ok+" fixa(s) criada(s), uma por assessor."+(falhas.length?" Falhou: "+falhas.join("; "):""),falhas.length?"erro":"ok");
+    telaFixas();return;
+  }
+  try{await DB.fixaAdd({...base,assessor:ass});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Tarefa fixa criada!","ok");telaFixas();
 }
