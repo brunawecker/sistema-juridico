@@ -29,7 +29,14 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly",
 # agendas do Google sincronizadas como reuniões do sistema (pedido da Bruna,
 # 20/08/2026) — requer: Calendar API ligada no projeto e a agenda compartilhada
 # com a conta-robô (leitor-planilha@migracao-juridico.iam.gserviceaccount.com)
-AGENDAS = {"nicodemeneghe@gmail.com": "Nicholas"}
+# valor = 1 nome (agenda pessoal) OU lista de nomes (agenda compartilhada,
+# ex.: a da plataforma que o comercial usa p/ marcar reunião das 3 heads).
+AGENDAS = {
+    "nicodemeneghe@gmail.com": "Nicholas",
+    "brunawecker@gmail.com": "Bruna",                # teste — agenda pessoal
+    # agenda da plataforma (comercial marca reuniões das heads) → visível às 3
+    "plataformabde@gmail.com": ["Bruna", "Danielly", "Eduarda"],
+}
 MESES = ["JANEIRO", "FEVEREIRO", "MARÇO", "ABRIL", "MAIO", "JUNHO",
          "JULHO", "AGOSTO", "SETEMBRO", "OUTUBRO", "NOVEMBRO", "DEZEMBRO"]
 ABREV = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN",
@@ -358,6 +365,7 @@ def sincronizar_agendas(sess):
                   "ligar a Calendar API e compartilhar a agenda com a conta-robô")
             continue
         eventos = r.json().get("items", [])
+        pessoas = quem if isinstance(quem, (list, tuple)) else [quem]
         vivos = []
         with psycopg.connect() as conn, conn.cursor() as cur:
             for ev in eventos:
@@ -368,27 +376,33 @@ def sincronizar_agendas(sess):
                 d_ini = _dt.fromisoformat(ini).astimezone(sp)
                 d_fim = _dt.fromisoformat(fim).astimezone(sp)
                 mins = max(15, int((d_fim - d_ini).total_seconds() // 60))
-                rid = "GCAL-" + ev.get("id", "")[:40]
-                vivos.append(rid)
                 titulo = (ev.get("summary") or "Reunião (agenda Google)")[:180]
-                cur.execute("""insert into juridico.reunioes
-                    (id_reuniao, data, data_dt, assessor, titulo, cliente,
-                     horario, duracao_min, duracao_min_num, obs)
-                    values (%s,%s,%s,%s,%s,'',%s,%s,%s,'agenda Google')
-                    on conflict (id_reuniao) do update set
-                      data=excluded.data, data_dt=excluded.data_dt,
-                      titulo=excluded.titulo, horario=excluded.horario,
-                      duracao_min=excluded.duracao_min,
-                      duracao_min_num=excluded.duracao_min_num""",
-                    (rid, d_ini.strftime("%d/%m/%Y"), d_ini.date(), quem, titulo,
-                     d_ini.strftime("%H:%M"), str(mins), mins))
+                for nome in pessoas:
+                    # rid único por pessoa: agenda compartilhada vira 1 reunião
+                    # para cada head, sem colidir
+                    suf = "" if len(pessoas) == 1 else "-" + nome[:8]
+                    rid = "GCAL-" + ev.get("id", "")[:40] + suf
+                    vivos.append(rid)
+                    cur.execute("""insert into juridico.reunioes
+                        (id_reuniao, data, data_dt, assessor, titulo, cliente,
+                         horario, duracao_min, duracao_min_num, obs)
+                        values (%s,%s,%s,%s,%s,'',%s,%s,%s,%s)
+                        on conflict (id_reuniao) do update set
+                          data=excluded.data, data_dt=excluded.data_dt,
+                          titulo=excluded.titulo, horario=excluded.horario,
+                          duracao_min=excluded.duracao_min,
+                          duracao_min_num=excluded.duracao_min_num""",
+                        (rid, d_ini.strftime("%d/%m/%Y"), d_ini.date(), nome, titulo,
+                         d_ini.strftime("%H:%M"), str(mins), mins,
+                         "agenda Google" + (" (plataforma)" if len(pessoas) > 1 else "")))
             # evento desmarcado some da agenda → some do sistema (só futuros)
-            cur.execute("""delete from juridico.reunioes
-                where assessor=%s and id_reuniao like 'GCAL-%%'
-                  and data_dt >= %s and not (id_reuniao = any(%s))""",
-                (quem, agora.date(), vivos or ["x"]))
+            for nome in pessoas:
+                cur.execute("""delete from juridico.reunioes
+                    where assessor=%s and id_reuniao like 'GCAL-%%'
+                      and data_dt >= %s and not (id_reuniao = any(%s))""",
+                    (nome, agora.date(), vivos or ["x"]))
             conn.commit()
-        print(f"agenda {quem}: {len(vivos)} reunião(ões) espelhada(s)")
+        print(f"agenda {'/'.join(pessoas)}: {len(vivos)} reunião(ões) espelhada(s)")
 
 
 def main():
