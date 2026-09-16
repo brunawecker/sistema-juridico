@@ -1386,7 +1386,11 @@ function cardTarefa(t,mostrarAssessor,mostrarTempo){
   const fin=t._inad?'<span class="tag ti" title="Cobrança vencida">&#128184;</span>'
     :t._pago?'<span class="tag tek" title="Pagou este mês">&#10003;</span>'
     :t._prov?'<span class="tag" style="background:var(--ice);color:var(--dani)" title="Provisionado no mês">&#128176;</span>':"";
-  const dt=t._dias===null?"":t._atrasada?`<span class="tdy ov">${Math.abs(t._dias)}d atraso</span>`:
+  // imediata: atraso REAL desde o lançamento (a revisão é puxada pelo robô
+  // e mostrava "7d" numa tarefa de 23 dias — Bruna, 16/09/2026)
+  const atrReal=atrasoDias(t);
+  const dt=(String(t._chk||"").toUpperCase()==="IMEDIATO"&&atrReal>0)?`<span class="tdy ov">${atrReal}d atraso</span>`
+    :t._dias===null?"":t._atrasada?`<span class="tdy ov">${Math.abs(t._dias)}d atraso</span>`:
     (t._dias===0&&!t._concluida?`<span class="tdy ov">vence hoje</span>`:`<span class="tdy ok">rev ${brData(t.data_revisao_dt)}</span>`);
   const pf=t._prazoAlerta?`<span class="tag ti">&#9888; ${brData(t.prazo_fatal_dt)}</span>`:"";
   const ass=mostrarAssessor&&t.assessor?`<span class="tco">&#128100; ${esc(t.assessor)}</span>`:"";
