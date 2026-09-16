@@ -2888,12 +2888,18 @@ async function telaDiario(dia){
     if(nomesE.length)h+=`<div style="font-size:12px;margin-top:4px">&#128451; Casos encerrados no dia (${encV.size}): ${nomesE.map(([n,q])=>`<b>${esc(n)}</b> ${q}`).join(" · ")}</div>`;
     h+=`</div>`;}
   // painel de delegações ativas (só no hoje — é uma foto do presente) + movimentações do dia
-  const delegAtivas=ehHoje?ts.filter(t=>t._impulso):[];
+  // Só o que está PREVISTO PARA HOJE (pedido da Bruna, 16/09/2026): impulso
+  // em correção ou re-delegado não é tarefa ativa de ninguém, e impulso
+  // agendado para o futuro não é assunto do dia.
+  const delegAtivas=ehHoje?ts.filter(t=>t._impulso
+    &&!t._emCorrecao
+    &&!String(t.status_tarefa||"").startsWith("DELEGADA")
+    &&(!t.data_revisao_dt||String(t.data_revisao_dt).slice(0,10)<=hojeISO())):[];
   const movDia=(hist||[]).filter(r=>/Impulso delegado|Retorno do impulso/.test(r.texto||""));
   if(delegAtivas.length||movDia.length){
     h+=`<div class="painel" style="background:#EEF3F9;border-color:#C9D8EA">
       <div class="bloco-t" style="color:#1F4E79">&#129309; Delegações de impulso</div>`;
-    if(delegAtivas.length){h+=`<div style="font-size:12px;font-weight:700;margin-bottom:4px">Ativas agora (${delegAtivas.length})</div>`;
+    if(delegAtivas.length){h+=`<div style="font-size:12px;font-weight:700;margin-bottom:4px">Previstas para hoje (${delegAtivas.length}) <span style="font-weight:400;color:var(--gray);font-size:10px">— em correção, re-delegadas e agendadas para o futuro ficam de fora</span></div>`;
       delegAtivas.forEach(a=>{const de=(String(a.supervisao||"").match(/IMPULSO de\s*([^|]+)\|/)||[])[1]||"?";
         const ped=(String(a.supervisao||"").match(/Pedido:\s*([\s\S]+)$/)||[])[1]||"";
         h+=`<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(a.id_tarefa)}')">
