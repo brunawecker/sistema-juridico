@@ -709,6 +709,10 @@ const S = {
   async lembretes(){return okS(await supa.rpc("lembretes_listar"))||[];},
   async lembreteAdd(cli,txt,dt,alvo,idCli){return rpcS("lembrete_add",{p_cliente:cli,p_texto:txt,p_data:dt,p_alvo:alvo||"para mim",p_id_cliente:idCli||null});},
   async lembretesCli(id){return okS(await supa.rpc("lembretes_do_cliente",{p_id:id}))||[];},
+  async headGastos(){return okS(await supa.rpc("head_gastos_listar"))||[];},
+  async headGastoAdd(d){return rpcS("head_gasto_add",{p_desc:d.desc,p_valor:d.valor,p_pago_por:d.pago,p_participantes:d.parts,p_categoria:d.cat||"Geral",p_data:null});},
+  async headGastoApagar(id){return rpcS("head_gasto_apagar",{p_id:id});},
+  async headGastosAcertar(){return rpcS("head_gastos_acertar",{});},
   async lembreteFeito(id){return rpcS("lembrete_feito",{p_id:id});},
   async lembreteApagar(id){return rpcS("lembrete_apagar",{p_id:id});},
   async franqueados(){return okS(await supa.from("franqueados").select("*").order("franqueado"))||[];},
@@ -3334,8 +3338,74 @@ async function telaCentral(){
         <span><b>${esc(p2.cliente)}</b> · R$ ${esc(p2.valor||"0")} · ${esc(p2.status||"")}</span>
         <span style="font-size:11px;color:${dp>=7?"var(--red)":"var(--gray)"}">${dp!==null?dp+"d sem movimento":""}</span></div>`;}).join("")
         :'<div class="vazio">Nenhuma proposta sua na rua.</div>'}</div>
-    ${quadroLembretes(lembs||[])}`;
+    ${quadroLembretes(lembs||[])}
+    <div id="tric-box"></div>`;
+  carregarTricount();
 }
+// ===== 💸 Divisão de gastos das heads — "tricount" (Bruna, 17/09/2026) ====
+// Só heads: o banco devolve vazio/erro para qualquer outra pessoa.
+function headsAtivas(){const hs=(E.equipe||[]).filter(m=>/^head/i.test(m.cargo||"")&&String(m.status||"").toUpperCase()==="ATIVO").map(m=>m.nome_sistema);
+  return hs.length?hs:["Danielly","Bruna","Eduarda"];}
+async function carregarTricount(){
+  const box=ge("tric-box");if(!box)return;
+  let gs=[];try{gs=await DB.headGastos();}catch(e){box.innerHTML="";return;}
+  const heads=headsAtivas(),eu=E.perfil.nome_sistema;
+  const abertos=gs.filter(g=>!g.liquidado),acertados=gs.filter(g=>g.liquidado);
+  // saldo de cada uma: o que pagou credita; a cota de cada gasto debita
+  const saldo={};heads.forEach(h=>saldo[h]=0);
+  abertos.forEach(g=>{const parts=String(g.participantes||"").split(",").map(s=>s.trim()).filter(Boolean);
+    if(!parts.length)return;const cota=(+g.valor||0)/parts.length;
+    saldo[g.pago_por]=(saldo[g.pago_por]||0)+(+g.valor||0);
+    parts.forEach(p=>{saldo[p]=(saldo[p]||0)-cota;});});
+  const dev=Object.entries(saldo).filter(([,v])=>v<-0.005).map(([n,v])=>({n,v:-v})).sort((a,b)=>b.v-a.v);
+  const cre=Object.entries(saldo).filter(([,v])=>v>0.005).map(([n,v])=>({n,v})).sort((a,b)=>b.v-a.v);
+  const transf=[];let di=0,cj=0;
+  while(di<dev.length&&cj<cre.length){const x=Math.min(dev[di].v,cre[cj].v);
+    transf.push(`<b>${esc(dev[di].n)}</b> paga <b>${fmtR$(x)}</b> para <b>${esc(cre[cj].n)}</b>`);
+    dev[di].v-=x;cre[cj].v-=x;if(dev[di].v<0.005)di++;if(cre[cj].v<0.005)cj++;}
+  const totJogos=abertos.filter(g=>/jogo/i.test(g.categoria)).reduce((s,g)=>s+(+g.valor||0),0);
+  const totAb=abertos.reduce((s,g)=>s+(+g.valor||0),0);
+  box.innerHTML=`<div class="painel" style="background:#F4FAF4;border-color:#BFE3C6">
+    <div class="bloco-t" style="color:#1E8449">&#128184; Divisão de gastos das heads — só vocês veem</div>
+    <div class="linha-acao" style="margin-bottom:6px">
+      <input class="fi" id="tg-desc" placeholder="O que foi? Ex: pizza da reunião, prêmio do paintball..." style="flex:2;margin:0">
+      <input class="fsel" id="tg-valor" type="number" min="0.01" step="0.01" placeholder="R$" style="width:90px">
+      <select class="fsel" id="tg-pago" title="quem pagou">${heads.map(h=>`<option${h===eu?" selected":""}>${esc(h)}</option>`).join("")}</select>
+      <select class="fsel" id="tg-cat"><option>Geral</option><option>&#127918; Jogos</option></select></div>
+    <div class="linha-acao" style="margin-bottom:6px"><span style="font-size:11px;color:var(--gray)">Dividir entre:</span>
+      ${heads.map(h=>`<label style="font-size:12px"><input type="checkbox" class="tg-part" value="${esc(h)}" checked> ${esc(h)}</label>`).join("")}
+      <button class="btn btp btsm" onclick="tricAdd()">+ Lançar</button></div>
+    ${abertos.length?`
+    <div style="font-size:11px;font-weight:700;color:var(--gray);margin-bottom:3px">Em aberto (${abertos.length} · ${fmtR$(totAb)}${totJogos?` · &#127918; jogos: ${fmtR$(totJogos)}`:""})</div>
+    ${abertos.map(g=>`<div class="linha-item"><span style="font-size:12px">${/jogo/i.test(g.categoria)?"&#127918; ":""}<b>${brData(g.data_gasto)}</b> · ${esc(g.descricao)} · <b>${fmtR$(+g.valor)}</b> — pagou <b>${esc(g.pago_por)}</b>, divide: ${esc(g.participantes)}</span>
+      ${g.criado_por===eu?`<button class="btn bts btsm" title="apagar (só quem lançou)" onclick="tricApagar(${g.id})">&#10005;</button>`:""}</div>`).join("")}
+    <div style="background:#E9F7EF;border-radius:9px;padding:7px 11px;margin-top:6px;font-size:12.5px">
+      <b style="color:#1E8449">Acerto sugerido:</b> ${transf.length?transf.join(" &nbsp;·&nbsp; "):"tudo equilibrado &#127881;"}
+      ${transf.length?`<button class="btn btg btsm" style="margin-left:8px" onclick="tricAcertar()">&#10003; Acertamos — zerar</button>`:""}</div>`
+    :'<div style="font-size:12px;color:var(--gray)">Nenhum gasto em aberto. Lance o primeiro acima.</div>'}
+    ${acertados.length?`<details style="margin-top:6px"><summary style="font-size:11px;color:var(--gray);cursor:pointer">Acertados recentes (${acertados.length})</summary>
+      ${acertados.map(g=>`<div style="font-size:11px;color:var(--gray);padding:1px 0">&#10003; ${brData(g.data_gasto)} · ${esc(g.descricao)} · ${fmtR$(+g.valor)} (${esc(g.pago_por)})</div>`).join("")}</details>`:""}
+  </div>`;
+}
+async function tricAdd(){
+  const desc=(ge("tg-desc").value||"").trim(),val=parseFloat(ge("tg-valor").value);
+  const parts=[...document.querySelectorAll(".tg-part:checked")].map(x=>x.value);
+  if(!desc){toast("Descreva o gasto.","erro");return;}
+  if(!val||val<=0){toast("Informe o valor.","erro");return;}
+  if(!parts.length){toast("Escolha entre quem dividir.","erro");return;}
+  const cat=/jogo/i.test(ge("tg-cat").value)?"Jogos":"Geral";
+  try{await DB.headGastoAdd({desc,valor:val,pago:ge("tg-pago").value,parts:parts.join(", "),cat});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Gasto lançado!","ok");carregarTricount();}
+async function tricApagar(id){
+  if(!confirm("Apagar este gasto?"))return;
+  try{await DB.headGastoApagar(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Apagado.","ok");carregarTricount();}
+async function tricAcertar(){
+  if(!confirm("Registrar o ACERTO?\n\nMarca todos os gastos em aberto como acertados e zera os saldos. Use depois que as transferências forem feitas."))return;
+  try{const n=await DB.headGastosAcertar();toast("✓ Acerto registrado ("+n+" gasto(s)).","ok");}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  carregarTricount();}
 // =================================================== TELA: CAPACIDADE (head)
 async function telaCapacidade(){
   setNav("cap","Capacidade da Equipe"); carregando();
