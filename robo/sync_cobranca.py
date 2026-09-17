@@ -25,7 +25,8 @@ from google.auth.transport.requests import AuthorizedSession
 
 SHEET_ID = os.environ["SHEET_ID"]
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly",
-          "https://www.googleapis.com/auth/calendar.readonly"]
+          "https://www.googleapis.com/auth/calendar",
+          "https://www.googleapis.com/auth/calendar.events"]
 # agendas do Google sincronizadas como reuniões do sistema (pedido da Bruna,
 # 20/08/2026) — requer: Calendar API ligada no projeto e a agenda compartilhada
 # com a conta-robô (leitor-planilha@migracao-juridico.iam.gserviceaccount.com)
@@ -377,6 +378,48 @@ def sincronizar_metas(sess):
           f"(EQUIPE={dict(metas).get('EQUIPE', 0):.2f})")
 
 
+CAL_3HEADS = "plataformabde@gmail.com"
+
+
+def empurrar_para_google(sess):
+    """Compromissos 'todas' criados no sistema (a_empurrar=true) viram eventos
+    na agenda Google do plataformabde — aparecem para quem usa o Google direto.
+    Marca origem=sistema (p/ a leitura recolorir como 'todas' dourado) e apaga
+    as cópias locais (o import as traz de volta como GCAL, sem duplicar)."""
+    from datetime import datetime as _dt
+    with psycopg.connect() as conn, conn.cursor() as cur:
+        cur.execute("""select obs, min(titulo), min(data_dt::text), min(horario),
+               min(duracao_min_num)
+            from juridico.reunioes
+            where categoria='todas' and a_empurrar=true and coalesce(gcal_id,'')=''
+              and obs ~ '\[g[a-z0-9]+\]'
+            group by obs""")
+        grupos = cur.fetchall()
+    for obs, titulo, data_dt, horario, dur in grupos:
+        try:
+            hh, mm = (horario or "09:00").split(":")[0:2]
+            ini = f"{data_dt}T{int(hh):02d}:{int(mm):02d}:00-03:00"
+            fim_dt = _dt.fromisoformat(ini) + _td(minutes=int(dur or 30))
+            ev = {"summary": titulo,
+                  "start": {"dateTime": ini, "timeZone": "America/Sao_Paulo"},
+                  "end": {"dateTime": fim_dt.isoformat(), "timeZone": "America/Sao_Paulo"},
+                  "extendedProperties": {"private": {"origem": "sistema-3heads"}}}
+            r = sess.post(
+                f"https://www.googleapis.com/calendar/v3/calendars/{CAL_3HEADS}/events",
+                json=ev, timeout=30)
+            if r.status_code >= 300:
+                print(f"empurrar: falhou ({r.status_code}) p/ '{titulo}'")
+                continue
+            gid = r.json().get("id", "")
+            with psycopg.connect() as conn, conn.cursor() as cur:
+                # apaga as cópias locais — o import as recria a partir do Google
+                cur.execute("delete from juridico.reunioes where obs=%s", (obs,))
+                conn.commit()
+            print(f"empurrar: '{titulo}' criado no Google ({gid}) e cópias locais removidas")
+        except Exception as e:
+            print(f"empurrar: erro tolerado em '{titulo}': {e}")
+
+
 def sincronizar_agendas(sess):
     """Espelha os eventos das agendas Google (hoje → +7d) em juridico.reunioes,
     com categoria (cor) e, no rodízio SC, o responsável do dia."""
@@ -414,7 +457,8 @@ def sincronizar_agendas(sess):
                 mins = max(15, int((d_fim - d_ini).total_seconds() // 60))
                 titulo = (ev.get("summary") or "Reunião (agenda Google)")[:180]
                 cr_email = str((ev.get("creator") or {}).get("email", "")).lower()
-                if ag.get("rot") and cr_email in HEADS_EMAILS:
+                origem = ((ev.get("extendedProperties") or {}).get("private") or {}).get("origem", "")
+                if ag.get("rot") and (cr_email in HEADS_EMAILS or origem == "sistema-3heads"):
                     cat_ev, resp = "todas", ""      # as 3 heads (dourado)
                 elif ag.get("rot"):
                     cat_ev, resp = "sc", _rot_responsavel(d_ini.date())
@@ -563,6 +607,10 @@ def main():
     except Exception as e:
         print(f"metas: falhou sem afetar o resto — {e}")
     # agenda do Google → reuniões do sistema (métrica do dia do Nicholas)
+    try:
+        empurrar_para_google(sess)
+    except Exception as e:
+        print(f"empurrar agenda: falhou sem afetar o resto — {e}")
     try:
         sincronizar_agendas(sess)
     except Exception as e:
