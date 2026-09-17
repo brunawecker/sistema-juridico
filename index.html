@@ -3110,10 +3110,11 @@ function abrirLembrete(){
   const nomes=[...new Set((E.equipe||[]).filter(m=>String(m.status||"").toUpperCase()==="ATIVO").map(m=>m.nome_sistema))].filter(n=>n!==E.perfil.nome_sistema).sort();
   const amanha=(()=>{const d=new Date();d.setDate(d.getDate()+1);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");})();
   modal2("&#128278; Retomar depois / lembrete","Aparece na SUA agenda no dia marcado — só você vê (não conta horas)",`
-    <div class="bloco-t">Cliente / assunto *</div>
-    <input class="fi" id="lb-cli" placeholder="Ex: LAVOGA ALIMENTOS · reunião de alinhamento..." oninput="buscaLembCli()">
+    <div class="bloco-t">Cliente ou assunto *</div>
+    <input class="fi" id="lb-cli" placeholder="Ex: LAVOGA ALIMENTOS · organizar e-mails · ligar para a contabilidade..." oninput="buscaLembCli()">
+    <div style="font-size:10.5px;color:var(--gray);margin:2px 0">Digite o nome para <b>vincular a um cliente</b> do sistema (opcional) — ou escreva um assunto livre, sem vínculo.</div>
     <div id="lb-cli-res"></div>
-    <div id="lb-cli-ok" style="display:none;font-size:11px;color:var(--green);margin:-4px 0 4px">&#128279; Vinculado ao cadastro — o lembrete aparece na ficha do cliente (só para heads)</div>
+    <div id="lb-cli-ok" style="display:none;font-size:11px;color:var(--green);margin:-2px 0 4px"></div>
     <div class="bloco-t" style="margin-top:8px">O que foi combinado / o que cobrar *</div>
     <textarea class="fta" id="lb-txt" placeholder="Ex: retomar a análise da CAPAG amanhã; cliente pediu retorno depois do dia 20; ligar de novo..."></textarea>
     <div class="linha-acao" style="margin-top:8px">
@@ -3133,7 +3134,10 @@ async function buscaLembCli(){
   const cs=(E._clsTodos||[]).filter(c=>String(c.nome||"").toLowerCase().includes(q)).slice(0,6);
   box.innerHTML=cs.map(c=>`<div class="linha-item" style="cursor:pointer;font-size:12px" onclick='vincLembCli(${JSON.stringify(c.id_cliente)},${JSON.stringify(c.nome)})'>&#128279; ${esc(c.nome)} <span style="color:var(--gray);font-size:10px">${esc(c.cnpj_cpf||"")}</span></div>`).join("");}
 function vincLembCli(id,nome){E._lbCli={id,nome};ge("lb-cli").value=nome;
-  ge("lb-cli-res").innerHTML="";const ok=ge("lb-cli-ok");if(ok)ok.style.display="block";}
+  ge("lb-cli-res").innerHTML="";const ok=ge("lb-cli-ok");
+  if(ok){ok.style.display="block";ok.innerHTML=`&#128279; Vinculado a <b>${esc(nome)}</b> <a style="cursor:pointer;color:var(--dani);text-decoration:underline" onclick="desvincLembCli()">desvincular</a>`;}}
+function desvincLembCli(){E._lbCli=null;const ok=ge("lb-cli-ok");if(ok){ok.style.display="none";ok.innerHTML="";}
+  toast("Sem vínculo — vai ficar como assunto livre.","ok");}
 async function salvarLembrete(){
   const cli=(ge("lb-cli").value||"").trim(),txt=(ge("lb-txt").value||"").trim(),dt=ge("lb-data").value,alvo=ge("lb-alvo").value;
   if(!cli){toast("Informe o cliente ou assunto.","erro");return;}
