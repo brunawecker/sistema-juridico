@@ -713,6 +713,13 @@ const S = {
   async tricHist(){return okS(await supa.rpc("tric_listar",{p_tudo:true}))||[];},
   async headGastoAdd(d){return rpcS("head_gasto_add",{p_desc:d.desc,p_valor:d.valor,p_pago_por:d.pago,p_participantes:d.parts,p_categoria:d.cat||"Geral",p_data:null});},
   async headGastoApagar(id){return rpcS("head_gasto_apagar",{p_id:id});},
+  async headGastoEditar(d){return rpcS("head_gasto_editar",{p_id:d.id,p_desc:d.desc,p_valor:d.valor,p_pago_por:d.pago,p_participantes:d.parts,p_categoria:d.cat});},
+  async premiosMeus(){return okS(await supa.rpc("premios_meus"))||[];},
+  async premioPedidoAdd(id,dt,obs){return rpcS("premio_pedido_add",{p_premio_id:id,p_data:dt,p_obs:obs||""});},
+  async premioPedidosMeus(){return okS(await supa.rpc("premio_pedidos_meus"))||[];},
+  async premioPedidosAbertos(){return okS(await supa.rpc("premio_pedidos_abertos"))||[];},
+  async premioPedidoDecidir(id,ok,motivo){return rpcS("premio_pedido_decidir",{p_id:id,p_aprovar:ok,p_motivo:motivo||null});},
+  async premioPedidoCancelar(id){return rpcS("premio_pedido_cancelar",{p_id:id});},
   async headGastosAcertar(){return rpcS("head_gastos_acertar",{});},
   async lembreteFeito(id){return rpcS("lembrete_feito",{p_id:id});},
   async lembreteApagar(id){return rpcS("lembrete_apagar",{p_id:id});},
@@ -1127,6 +1134,7 @@ function montarMenu(){
     ["agenda","&#128197;","Minha Agenda",telaAgenda],
     ["com","&#128188;","Meu Comercial",telaComercial],
     ["prod","&#128200;","Minha Produtividade",telaProdutividade],
+    ["prem","&#127873;","Meus Prêmios",telaMeusPremios],
     ["cli","&#127970;","Buscar Clientes",telaClientes],
     ["prop","&#128203;","Minhas Propostas",telaPropostas],
     ["fix","&#128260;","Tarefas Fixas",telaFixas],
@@ -3041,6 +3049,15 @@ async function telaDiario(dia){
           <button class="btn bts btsm" title="Tornar IMEDIATA: entra no plano de hoje na frente" onclick='furarFila(${JSON.stringify(t.id_tarefa)},${t.linha},${JSON.stringify(t.id_cliente||"")})'>&#9889; p/ hoje</button></div>`).join(""):""}
         </div></details>`;});
     h+=hDia+`</div>`;
+    // 🎁 pedidos de prêmio em aberto (requerimento dos assessores)
+    let pedsP=[];try{pedsP=await DB.premioPedidosAbertos();}catch(e){}
+    if(pedsP.length){
+      h+=`<div class="painel" style="background:#FEF9E7;border-color:#F5E3B3">
+        <div class="bloco-t" style="color:#7F6000">&#127873; Pedidos de prêmio em aberto (${pedsP.length})</div>`+
+        pedsP.map(p=>`<div class="linha-item"><span style="font-size:12.5px"><b>${esc(p.pessoa)}</b> quer usar <b>${esc(p.premio)}</b> em <b>${brData(p.data_desejada)}</b>${p.obs?` · <span style="color:var(--gray)">${esc(p.obs)}</span>`:""}</span>
+          <span><button class="btn btg btsm" onclick="decidirPedidoPremio(${p.id},true)">&#10003; aprovar</button>
+          <button class="btn bts btsm" style="color:var(--red);border-color:var(--red)" onclick="decidirPedidoPremio(${p.id},false)">negar</button></span></div>`).join("")+
+        `<div style="font-size:10px;color:var(--gray);margin-top:4px">Regra: pedido com 15 dias de antecedência (o sistema já trava no formulário do assessor). Aprovar grava a data na roleta — agenda de folgas.</div></div>`;}
   }
   const por={};
   (hist||[]).forEach(r=>{const a=loginDe(r.autor);if(!a||a==="Sistema"||a==="Migração")return;
@@ -3358,6 +3375,7 @@ async function carregarTricount(){
   let gs=[];try{gs=await DB.headGastos();}catch(e){box.innerHTML="";return;}
   const heads=headsAtivas(),eu=E.perfil.nome_sistema;
   const abertos=gs.filter(g=>!g.liquidado);
+  E._tricMap={};abertos.forEach(g=>{if(g.fonte==="gasto")E._tricMap[g.id]=g;});
   // saldo de cada uma: o que pagou credita; a cota de cada gasto debita.
   // "Rateado entre as heads" = cada uma pagou a própria parte: não gera dívida
   const saldo={};heads.forEach(h=>saldo[h]=0);
@@ -3388,7 +3406,8 @@ async function carregarTricount(){
     <div style="font-size:11px;font-weight:700;color:var(--gray);margin-bottom:3px">Em aberto (${abertos.length} · ${fmtR$(totAb)}${totJogos?` · &#127918; jogos: ${fmtR$(totJogos)}`:""})</div>
     ${abertos.map(g=>`<div class="linha-item"><span style="font-size:12px">${/jogo/i.test(g.categoria)?"&#127918; ":""}<b>${brData(g.data_gasto)}</b> · ${esc(g.descricao)} · <b>${fmtR$(+g.valor)}</b> — ${/ratead/i.test(g.pago_por||"")?"<b>rateado</b> entre as heads":`pagou <b>${esc(g.pago_por)}</b>, divide: ${esc(g.participantes)}`}</span>
       ${g.fonte==="premio"?'<span class="tag ts" title="veio do controle de prêmios — edite lá">&#127873; prêmio</span>'
-        :g.criado_por===eu?`<button class="btn bts btsm" title="apagar (só quem lançou)" onclick="tricApagar(${g.id})">&#10005;</button>`:""}</div>`).join("")}
+        :g.criado_por===eu?`<span><button class="btn bts btsm" title="editar" onclick="tricEditar(${g.id})">&#9998;</button>
+        <button class="btn bts btsm" title="apagar (só quem lançou)" onclick="tricApagar(${g.id})">&#10005;</button></span>`:""}</div>`).join("")}
     <div style="background:#E9F7EF;border-radius:9px;padding:7px 11px;margin-top:6px;font-size:12.5px">
       <b style="color:#1E8449">Acerto sugerido:</b> ${transf.length?transf.join(" &nbsp;·&nbsp; "):"tudo equilibrado &#127881;"}
       ${transf.length?`<button class="btn btg btsm" style="margin-left:8px" onclick="tricAcertar()">&#10003; Acertamos — zerar</button>`:""}</div>`
@@ -3406,10 +3425,85 @@ async function tricAdd(){
   try{await DB.headGastoAdd({desc,valor:val,pago:ge("tg-pago").value,parts:parts.join(", "),cat});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Gasto lançado!","ok");carregarTricount();}
+// editar lançamento errado (tipo, valor, quem pagou...) — só quem lançou
+function tricEditar(id){
+  const g=(E._tricMap||{})[id];if(!g)return;
+  const heads=headsAtivas();
+  const parts=String(g.participantes||"").split(",").map(s=>s.trim());
+  modal2("&#9998; Editar gasto",esc(g.descricao),`
+    <input class="fi" id="te-desc" value="${esc(g.descricao)}">
+    <div class="linha-acao">
+      <input class="fsel" id="te-valor" inputmode="numeric" style="width:120px"
+        value="${(+g.valor).toLocaleString("pt-BR",{style:"currency",currency:"BRL"})}" oninput="mascaraReal(this)">
+      <select class="fsel" id="te-pago">${heads.map(h=>`<option${h===g.pago_por?" selected":""}>${esc(h)}</option>`).join("")}</select>
+      <select class="fsel" id="te-cat"><option${!/jogo/i.test(g.categoria)?" selected":""}>Geral</option><option${/jogo/i.test(g.categoria)?" selected":""}>&#127918; Jogos</option></select></div>
+    <div class="linha-acao" style="margin-top:6px"><span style="font-size:11px;color:var(--gray)">Dividir entre:</span>
+      ${heads.map(h=>`<label style="font-size:12px"><input type="checkbox" class="te-part" value="${esc(h)}"${parts.includes(h)?" checked":""}> ${esc(h)}</label>`).join("")}</div>
+    <button class="btn btp btw" style="margin-top:10px" onclick="tricSalvarEdicao(${id})">&#128190; Salvar</button>`);}
+async function tricSalvarEdicao(id){
+  const desc=(ge("te-desc").value||"").trim(),val=valorReal(ge("te-valor"));
+  const parts=[...document.querySelectorAll(".te-part:checked")].map(x=>x.value);
+  if(!desc){toast("Descreva o gasto.","erro");return;}
+  if(!val||val<=0){toast("Informe o valor.","erro");return;}
+  if(!parts.length){toast("Escolha entre quem dividir.","erro");return;}
+  const cat=/jogo/i.test(ge("te-cat").value)?"Jogos":"Geral";
+  try{await DB.headGastoEditar({id,desc,valor:val,pago:ge("te-pago").value,parts:parts.join(", "),cat});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Gasto atualizado!","ok");fecharModal2();carregarTricount();}
 async function tricApagar(id){
   if(!confirm("Apagar este gasto?"))return;
   try{await DB.headGastoApagar(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Apagado.","ok");carregarTricount();}
+// ===== 🎁 MEUS PRÊMIOS — requerimento de uso (Bruna, 17/09/2026) =====
+async function telaMeusPremios(){
+  setNav("prem","Meus Prêmios"); carregando();
+  let ps=[],peds=[];
+  try{ps=await DB.premiosMeus();}catch(e){return erro(e.message);}
+  try{peds=await DB.premioPedidosMeus();}catch(e){}
+  const stTag={PENDENTE:'<span class="tag td2">aguardando as heads</span>',
+    APROVADO:'<span class="tag tek">&#10003; aprovado</span>',
+    NEGADO:'<span class="tag ti">negado</span>',CANCELADO:'<span class="tag tm">cancelado</span>'};
+  ge("conteudo").innerHTML=`
+    <div class="aviso info" style="margin-bottom:12px">&#128220; <b>Regras do requerimento:</b>
+      peça com <b>15 dias de antecedência</b> (o sistema trava datas mais próximas) ·
+      a data só vale depois do <b>OK das heads</b> (elas veem seu pedido no Diário) ·
+      aprovado, entra na agenda de folgas delas automaticamente.</div>
+    <div class="painel"><div class="bloco-t">&#127873; Meus prêmios da roleta (${ps.length})</div>
+    ${ps.length?ps.map(p=>`<div class="linha-item"><span style="font-size:12.5px"><b>${esc(p.premio)}</b>
+        <span style="color:var(--gray);font-size:11px">· roleta de ${brData(p.semana)}</span>
+        ${p.data_uso?` <span class="tag tek">&#128197; combinado: ${brData(p.data_uso)}</span>`
+          :p.entregue?' <span class="tag tm">entregue/em aberto</span>':' <span class="tag td2">a combinar</span>'}</span>
+      ${!p.data_uso?`<button class="btn btp btsm" onclick='abrirPedidoPremio(${p.id},${JSON.stringify(p.premio)})'>&#128203; requerer uso</button>`:""}</div>`).join("")
+      :'<div class="vazio">Você ainda não tem prêmios da roleta registrados.</div>'}</div>
+    ${peds.length?`<div class="painel"><div class="bloco-t">&#128228; Meus pedidos</div>
+    ${peds.map(p=>`<div class="linha-item"><span style="font-size:12.5px"><b>${esc(p.premio)}</b> para <b>${brData(p.data_desejada)}</b>${p.obs?` · <span style="color:var(--gray)">${esc(p.obs)}</span>`:""}${p.status==="NEGADO"&&p.motivo?`<br><span style="font-size:11px;color:var(--red)">motivo: ${esc(p.motivo)}</span>`:""}</span>
+      <span>${stTag[p.status]||esc(p.status)}
+      ${p.status==="PENDENTE"?` <button class="btn bts btsm" onclick="cancelarPedidoPremio(${p.id})">&#10005;</button>`:""}</span></div>`).join("")}</div>`:""}`;
+}
+function abrirPedidoPremio(id,nome){
+  const d=new Date();d.setDate(d.getDate()+15);const min=d.toISOString().slice(0,10);
+  modal2("&#128203; Requerer uso: "+esc(nome),"As heads recebem o pedido no Diário delas",`
+    <div class="bloco-t">Data desejada * <span style="font-weight:400;color:var(--gray)">(mínimo 15 dias: a partir de ${brData(min)})</span></div>
+    <input type="date" class="fsel" id="pp-data" min="${min}" value="${min}" style="width:100%">
+    <div class="bloco-t" style="margin-top:8px">Observação (opcional)</div>
+    <input class="fi" id="pp-obs" placeholder="Ex: consulta médica marcada, viagem em família...">
+    <button class="btn btp btw" style="margin-top:10px" onclick="salvarPedidoPremio(${id})">&#128228; Enviar pedido</button>`);}
+async function salvarPedidoPremio(id){
+  const dt=ge("pp-data").value;if(!dt){toast("Escolha a data.","erro");return;}
+  try{await DB.premioPedidoAdd(id,dt,(ge("pp-obs").value||"").trim());}
+  catch(e){toast(e.message,"erro");return;}
+  toast("Pedido enviado — as heads veem no Diário e você acompanha aqui.","ok");
+  fecharModal2();telaMeusPremios();}
+async function cancelarPedidoPremio(id){
+  if(!confirm("Cancelar este pedido?"))return;
+  try{await DB.premioPedidoCancelar(id);}catch(e){toast(e.message,"erro");return;}
+  toast("Cancelado.","ok");telaMeusPremios();}
+async function decidirPedidoPremio(id,ok){
+  let motivo=null;
+  if(!ok){motivo=prompt("Motivo da negativa (o assessor vai ver):");if(motivo===null)return;}
+  else if(!confirm("Aprovar? A data entra no controle da roleta (agenda de folgas)."))return;
+  try{await DB.premioPedidoDecidir(id,ok,motivo);}catch(e){toast(e.message,"erro");return;}
+  toast(ok?"✓ Aprovado — data gravada na roleta.":"Negado — o assessor será informado na tela dele.","ok");recarregar();}
 // histórico COMPLETO de gastos (Configurações — não polui a Central)
 async function carregarTricHist(){
   const box=ge("cfg-tric");if(!box)return;
