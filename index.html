@@ -900,7 +900,8 @@ const S = {
       okS(await supa.from("reunioes").insert({id_reuniao:reu,data:brData(d.data||hojeISO()),data_dt:d.data||hojeISO(),
         assessor:nome,titulo:d.titulo,cliente:d.cliente||"",id_cliente:d.id_cliente||null,
         horario:d.horario||"",horario_hr:d.horario||null,duracao_min:String(d.duracao||30),
-        duracao_min_num:d.duracao||30,obs:(d.obs||"")+(grupo?" ["+grupo+"]":""),categoria:cat,responsavel:""}));}
+        duracao_min_num:d.duracao||30,obs:(d.obs||"")+(grupo?" ["+grupo+"]":""),categoria:cat,responsavel:"",
+        a_empurrar:tresHeads}));}
     if(d.id_cliente&&!tresHeads)await histS("",d.id_cliente,"REUNIÃO","Reunião: "+d.titulo+(d.horario?" às "+d.horario:"")+" ("+(d.duracao||30)+"min)");
     return{ok:true,id:primeiro};},
   async reuniaoDel(id){
