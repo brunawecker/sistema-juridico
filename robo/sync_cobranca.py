@@ -40,6 +40,12 @@ HEADS_EMAILS = {
     "advdanielly.vbb@gmail.com", "brunaweckeradv@gmail.com",
     "brunawecker@gmail.com", "eduardaadv3.8@gmail.com",
 }
+# agendadores do SC → evento verde (rodízio). Qualquer criador que NÃO seja
+# head também cai em verde por padrão; esta lista é o núcleo conhecido do SC.
+SC_EMAILS = {
+    "dflain@gmail.com", "gusalum21@gmail.com",
+    "ianmedeiros1012@gmail.com", "vitor10salum@gmail.com",
+}
 HEADS_ROT = ["Eduarda", "Bruna", "Danielly"]
 ROT_ANCORA = date(2026, 9, 17)  # índice 0 = Eduarda (a partir de hoje)
 AGENDAS = [
