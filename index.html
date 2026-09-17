@@ -1451,7 +1451,7 @@ async function carregarFinanceiro(){
 function montarPlanoDia(nome,ativas,reun,histHoje,props){
   const hjBR2=brHoje(), hjISO2=hojeISO();
   const meetings=(reun||[]).filter(r=>r.assessor===nome&&(r.data===hjBR2||String(r.data_dt||"").slice(0,10)===hjISO2));
-  const minReu=meetings.reduce((s,m)=>s+(parseInt(m.duracao_min_num||m.duracao_min)||30),0);
+  const minReu=meetings.reduce((s,m)=>s+reuMinCap(m),0);
   ativas.forEach(t=>{t._tempo=t._meta||tempoPlanoDe(nome,t.operacao);});
   const jaTrab=(histHoje||[]).filter(r=>r.tipo==="TIMER"&&loginDe(r.autor)===nome)
     .reduce((s,r)=>s+(parseInt((String(r.texto||"").match(/(\d+)\s*min/)||[])[1])||0),0);
@@ -3380,7 +3380,7 @@ async function telaCapacidade(){
       .reduce((s,r)=>s+parseInt((String(r.texto||"").match(/(\d+)\s*min/)||[0,0])[1]),0);
     const upd=(hist||[]).filter(r=>r.tipo!=="TIMER"&&loginDe(r.autor)===nome).length;
     const reunioes=(reu||[]).filter(r=>r.assessor===nome&&(r.data===hjBR||String(r.data_dt||"").slice(0,10)===hjISO));
-    const minReu=reunioes.reduce((s,r)=>s+(parseInt(r.duracao_min_num||r.duracao_min)||30),0);
+    const minReu=reunioes.reduce((s,r)=>s+reuMinCap(r),0);
     const cap=capDe(nome),pct=Math.min(100,Math.round((min+minReu)/cap*100));
     const mediaTarefa=20, capDia=Math.min(Math.floor((cap-minReu)/mediaTarefa),10);
     return{nome,portfolio:minhas.length,imed,min,upd,minReu,cap,pct,capDia,reunioes};
@@ -3394,7 +3394,7 @@ async function telaCapacidade(){
         <span>&#128203; ${p.portfolio} portfólio</span><span style="color:var(--red)">&#128308; ${p.imed} imediatas</span>
         <span style="color:var(--green)">&#9201; ${fmtMin(p.min)} trabalhado</span><span>&#128221; ${p.upd} atualizações</span>
         <span>cap/dia ~${p.capDia} tarefas</span>${p.minReu?`<span>&#128197; ${fmtMin(p.minReu)} reuniões</span>`:""}</div>
-      ${p.reunioes.length?p.reunioes.map(r=>`<div class="linha-item"><span>&#128197; ${esc(r.horario||"?")} ${esc(r.titulo)}</span><span>${esc(r.duracao_min||30)}min</span></div>`).join(""):""}</div>`;}).join("");
+      ${p.reunioes.length?p.reunioes.map(r=>`<div class="linha-item"><span>&#128197; ${esc(r.horario||"?")} ${esc(r.titulo)}</span><span>${esc(r.duracao_min||r.duracao_min_num||30)}min</span></div>`).join(""):""}</div>`;}).join("");
   // ===== robô de produtividade: tempo real por tipo de tarefa × assessor =====
   await carregarTemposReais((ops||[]).map(classificar));
   const opsComDados=Object.keys(E._tRealOpN||{}).filter(op=>(E._tRealOpN[op]||0)>=3)
@@ -3520,7 +3520,7 @@ async function telaPrevisao(mesRef){
     OPERACIONAIS.forEach(n=>{fuMinPrev[n]=fuEfetivo(FOLLOWUP[n]||0,minhasNaRua(propsPrev,n).length);});
     (cargaPrev||[]).forEach(r=>{trabPrev[loginDe(r.nome)]=+r.trab_min||0;});
     (reunPrev||[]).forEach(r=>{const kR=String(r.data_dt||"").slice(0,10);if(!kR)return;
-      const aR=loginDe(r.assessor||"");reuMinPrev[kR+"|"+aR]=(reuMinPrev[kR+"|"+aR]||0)+(parseInt(r.duracao_min_num||r.duracao_min)||30);});
+      const aR=loginDe(r.assessor||"");reuMinPrev[kR+"|"+aR]=(reuMinPrev[kR+"|"+aR]||0)+reuMinCap(r);});
     E._prevCapDados={fuMin:fuMinPrev,trab:trabPrev,reuMin:reuMinPrev,hjKey:chave(hoje)};
     const diasUteis=[];const dLoop=new Date(hoje);
     while(dLoop.getMonth()===mes){const w=dLoop.getDay();if(w!==0&&w!==6)diasUteis.push(chave(dLoop));dLoop.setDate(dLoop.getDate()+1);}
@@ -4940,6 +4940,9 @@ function reuBadge(r){const c=(r&&r.categoria)||"";
 function reuBg(r){const c=(r&&r.categoria)||"manual";
   return c==="sdr"?"rgba(123,45,139,.14)":c==="sc"?"rgba(30,132,73,.15)":c==="todas"?"rgba(199,154,0,.18)":c==="pessoal"?"rgba(44,110,138,.14)":"rgba(96,125,139,.12)";}
 function reuGoogle(r){return String(r&&r.id_reuniao||"").indexOf("GCAL-")===0;}
+// teto de 30 min por reunião no tempo RESERVADO/contado (capacidade e horas) —
+// pedido da Bruna, 17/09/2026. A duração real continua na exibição.
+function reuMinCap(m){return Math.min(30,parseInt((m&&(m.duracao_min_num||m.duracao_min))||30)||30);}
 // legenda fixa das cores (aparece em dia/semana/mês)
 function legendaAgenda(){
   const item=(cor,bg,rot)=>`<span style="display:inline-flex;align-items:center;gap:4px;margin-right:10px">
@@ -5004,7 +5007,7 @@ async function telaAgenda(){
     const rs=reuDe(k),tr=tarDe(k);
     h+=`<div class="painel"><div class="bloco-t">&#128197; Compromissos${ehH?" de hoje":""} (${rs.length})</div>
       ${rs.length?rs.map(r=>`<div class="linha-item" style="border-left:5px solid ${reuCor(r)};background:${reuBg(r)};border-radius:8px;padding:6px 10px;margin-bottom:3px"><span style="font-size:13px"><b>${esc(r.horario||"—")}</b> · ${esc(r.titulo)}${r.cliente?" — "+esc(r.cliente):""} ${reuBadge(r)}${todosAg?` <span class="tag tda">${esc(r.assessor)}</span>`:""}</span>
-        <span style="font-size:11px;color:var(--gray)">${esc(r.duracao_min||30)}min ${reuGoogle(r)?"&#128197; Google":`<button class="btn bts btsm" onclick='removerReuniao(${JSON.stringify(r.id_reuniao)})'>&#10005;</button>`}</span></div>`).join("")
+        <span style="font-size:11px;color:var(--gray)">${esc(r.duracao_min||r.duracao_min_num||30)}min ${reuGoogle(r)?"&#128197; Google":`<button class="btn bts btsm" onclick='removerReuniao(${JSON.stringify(r.id_reuniao)})'>&#10005;</button>`}</span></div>`).join("")
         :'<div class="vazio">Sem compromissos neste dia.</div>'}</div>
     <div class="painel"><div class="bloco-t">&#128203; Tarefas com data neste dia (${tr.length})</div>
       ${tr.length?tr.map(t=>cardTarefa(t,false,true)).join(""):'<div style="font-size:12px;color:var(--gray)">Nenhuma tarefa marcada para este dia.</div>'}</div>`;
@@ -5103,7 +5106,7 @@ async function telaProdutividade(){
   setNav("prod","Minha Produtividade"); carregando();
   let hist,ops,casos,reu;try{[hist,ops,casos,reu]=await Promise.all([DB.historicoHoje(),DB.tarefas(),DB.casos().catch(()=>[]),DB.reunioes().catch(()=>[])]);}catch(e){return erro(e.message);}
   const minReuHoje=(reu||[]).filter(r=>r.assessor===E.perfil.nome_sistema&&String(r.data_dt||"").slice(0,10)===hojeISO())
-    .reduce((s,m)=>s+(parseInt(m.duracao_min_num||m.duracao_min)||0),0);
+    .reduce((s,m)=>s+reuMinCap(m),0);
   const meu=(hist||[]).filter(r=>ehMeuNome(r.autor));
   const mapa={};(ops||[]).forEach(t=>{if(t.id_tarefa)mapa[t.id_tarefa]=t;});
   // tarefa encerrada hoje já saiu do quadro ativo — o nome do cliente vem
