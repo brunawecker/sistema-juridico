@@ -707,7 +707,8 @@ const S = {
   async premioApagar(id){return rpcS("premio_apagar",{p_id:id});},
   async premioEditar(id,v,quem,dt){return rpcS("premio_editar",{p_id:id,p_valor:v,p_pago_por:quem||"",p_data_uso:dt||null});},
   async lembretes(){return okS(await supa.rpc("lembretes_listar"))||[];},
-  async lembreteAdd(cli,txt,dt,alvo){return rpcS("lembrete_add",{p_cliente:cli,p_texto:txt,p_data:dt,p_alvo:alvo||"para mim"});},
+  async lembreteAdd(cli,txt,dt,alvo,idCli){return rpcS("lembrete_add",{p_cliente:cli,p_texto:txt,p_data:dt,p_alvo:alvo||"para mim",p_id_cliente:idCli||null});},
+  async lembretesCli(id){return okS(await supa.rpc("lembretes_do_cliente",{p_id:id}))||[];},
   async lembreteFeito(id){return rpcS("lembrete_feito",{p_id:id});},
   async lembreteApagar(id){return rpcS("lembrete_apagar",{p_id:id});},
   async franqueados(){return okS(await supa.from("franqueados").select("*").order("franqueado"))||[];},
@@ -3108,7 +3109,9 @@ function abrirLembrete(){
   const amanha=(()=>{const d=new Date();d.setDate(d.getDate()+1);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");})();
   modal2("&#128276; Novo lembrete de combinado","Aparece na SUA Central no dia marcado — só você vê",`
     <div class="bloco-t">Cliente / assunto *</div>
-    <input class="fi" id="lb-cli" placeholder="Ex: LAVOGA ALIMENTOS · reunião de alinhamento...">
+    <input class="fi" id="lb-cli" placeholder="Ex: LAVOGA ALIMENTOS · reunião de alinhamento..." oninput="buscaLembCli()">
+    <div id="lb-cli-res"></div>
+    <div id="lb-cli-ok" style="display:none;font-size:11px;color:var(--green);margin:-4px 0 4px">&#128279; Vinculado ao cadastro — o lembrete aparece na ficha do cliente (só para heads)</div>
     <div class="bloco-t" style="margin-top:8px">O que foi combinado / o que cobrar *</div>
     <textarea class="fta" id="lb-txt" placeholder="Ex: cliente pediu retorno sobre a proposta depois do dia 20; cobrar levantamento do assessor..."></textarea>
     <div class="linha-acao" style="margin-top:8px">
@@ -3117,13 +3120,25 @@ function abrirLembrete(){
         <option value="para mim">recontatar cliente (eu mesma)</option>
         ${nomes.map(n=>`<option value="${esc(n)}">cobrar ${esc(n)}</option>`).join("")}</select></div>
     <button class="btn btp btw" style="margin-top:10px" onclick="salvarLembrete()">&#128276; Guardar lembrete</button>`);
-  rascunhoLiga("lb-txt","lb:novo");}
+  E._lbCli=null;rascunhoLiga("lb-txt","lb:novo");}
+// digitou 3+ letras: oferece vincular a um cliente EXISTENTE (opcional) —
+// pedido da Bruna, 17/09/2026; o vínculo faz o lembrete aparecer na ficha
+async function buscaLembCli(){
+  E._lbCli=null;const ok=ge("lb-cli-ok");if(ok)ok.style.display="none";
+  const q=(ge("lb-cli").value||"").trim().toLowerCase();const box=ge("lb-cli-res");if(!box)return;
+  if(q.length<3){box.innerHTML="";return;}
+  if(!E._clsTodos||!E._clsTodos.length){try{E._clsTodos=await DB.clientes("");}catch(e){E._clsTodos=[];}}
+  const cs=(E._clsTodos||[]).filter(c=>String(c.nome||"").toLowerCase().includes(q)).slice(0,6);
+  box.innerHTML=cs.map(c=>`<div class="linha-item" style="cursor:pointer;font-size:12px" onclick='vincLembCli(${JSON.stringify(c.id_cliente)},${JSON.stringify(c.nome)})'>&#128279; ${esc(c.nome)} <span style="color:var(--gray);font-size:10px">${esc(c.cnpj_cpf||"")}</span></div>`).join("");}
+function vincLembCli(id,nome){E._lbCli={id,nome};ge("lb-cli").value=nome;
+  ge("lb-cli-res").innerHTML="";const ok=ge("lb-cli-ok");if(ok)ok.style.display="block";}
 async function salvarLembrete(){
   const cli=(ge("lb-cli").value||"").trim(),txt=(ge("lb-txt").value||"").trim(),dt=ge("lb-data").value,alvo=ge("lb-alvo").value;
   if(!cli){toast("Informe o cliente ou assunto.","erro");return;}
   if(!txt){toast("Escreva o combinado.","erro");return;}
   if(!dt){toast("Escolha a data.","erro");return;}
-  try{await DB.lembreteAdd(cli,txt,dt,alvo);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  const idCli=(E._lbCli&&E._lbCli.nome===cli)?E._lbCli.id:null;
+  try{await DB.lembreteAdd(cli,txt,dt,alvo,idCli);}catch(e){toast("Erro: "+e.message,"erro");return;}
   rascunhoLimpa("lb:novo");
   toast("Lembrete guardado — aparece na sua Central em "+brData(dt)+".","ok");fecharModal2();telaCentral();}
 async function lembreteFeito(id){
@@ -4034,9 +4049,22 @@ function prepCliente(id){
       <button class="btn bts btsm" onclick="toggleEd('${esc(id)}')">&#9998; Editar cadastro</button>
       ${podeConverter?`<button class="btn btp btsm" onclick="converterCli('${esc(id)}')">&#10003; Converter em cliente oficial</button>`:""}
       ${E.perfil.head_sim&&c.situacao==="OFICIAL"?`<button class="btn bts btsm" style="color:var(--roxo);border-color:var(--roxo)" onclick="reverterCli('${esc(id)}')">&#8617; Voltar para prospecção</button>`:""}</div>
+    ${E.perfil.head_sim?`<div id="lbc-${esc(id)}"></div>`:""}
     <div id="ct-${esc(id)}" style="margin-top:8px"></div>
     <div id="cdoc-${esc(id)}" style="margin-top:8px"></div>
     <div id="ce-${esc(id)}" style="display:none;margin-top:8px"></div>`;
+  if(E.perfil.head_sim)carregarLembretesCli(id);
+}
+// lembretes das heads na ficha do cliente — SÓ heads veem (a função do
+// banco devolve vazio para os demais); mostra os de TODAS as heads
+async function carregarLembretesCli(id){
+  const box=ge("lbc-"+id);if(!box)return;
+  let ls=[];try{ls=await DB.lembretesCli(id);}catch(e){return;}
+  if(!ls.length){box.innerHTML="";return;}
+  box.innerHTML=`<div style="background:#FEF9E7;border:1px solid #F5E3B3;border-radius:10px;padding:8px 12px;margin-top:8px">
+    <div class="bloco-t" style="color:#7F6000">&#128204; Lembretes das heads — só vocês veem (${ls.length})</div>`+
+    ls.map(l=>`<div style="font-size:12px;padding:2px 0;${l.feito?"opacity:.55":""}">${l.feito?"&#10003; ":"&#128276; "}<b>${brData(l.data_lembrete)}</b> — ${esc(l.texto)}
+      <span style="color:var(--gray);font-size:10px">(${esc(l.criado_por)}${l.alvo&&l.alvo!=="para mim"?" · cobrar "+esc(l.alvo):""})</span></div>`).join("")+`</div>`;
 }
 async function verDocsCliente(id){
   const box=ge("cdoc-"+id);box.innerHTML=`<div class="carregando"><div class="spin"></div></div>`;
