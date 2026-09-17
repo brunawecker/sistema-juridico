@@ -385,6 +385,19 @@ def sincronizar_metas(sess):
 
 
 CAL_3HEADS = "plataformabde@gmail.com"
+# pessoa → agenda Google onde o robô CRIA as reuniões que ela lançou no sistema.
+# Requer compartilhamento com permissão "Fazer alterações nos eventos" (escrita).
+# O e-mail aqui TAMBÉM precisa estar em AGENDAS (leitura), senão a reunião some.
+AGENDA_ESCRITA = {
+    # "João": "joao.trabalho@gmail.com",
+    # "Laura": "laura.trabalho@gmail.com",
+    # "Bruna": "brunaweckeradv@gmail.com",   # ligar quando tiver ESCRITA
+}
+
+
+def _up_q(x):
+    import urllib.parse as _u
+    return _u.quote(x)
 
 
 def empurrar_para_google(sess):
@@ -424,6 +437,44 @@ def empurrar_para_google(sess):
             print(f"empurrar: '{titulo}' criado no Google ({gid}) e cópias locais removidas")
         except Exception as e:
             print(f"empurrar: erro tolerado em '{titulo}': {e}")
+
+    # 2) reuniões PESSOAIS/manuais lançadas no sistema → agenda Google do dono
+    from datetime import datetime as _dt2
+    with psycopg.connect() as conn, conn.cursor() as cur:
+        cur.execute("""select id_reuniao, assessor, titulo, data_dt::text, horario,
+               coalesce(duracao_min_num,30)
+            from juridico.reunioes
+            where a_empurrar=true and coalesce(categoria,'') in ('manual','pessoal')
+              and coalesce(gcal_id,'')='' """)
+        pend = cur.fetchall()
+    for rid, quem, titulo, data_dt, horario, dur in pend:
+        cal = AGENDA_ESCRITA.get(quem)
+        if not cal:
+            # dono sem agenda de escrita: fica só no sistema, não repete a tentativa
+            with psycopg.connect() as conn, conn.cursor() as cur:
+                cur.execute("update juridico.reunioes set a_empurrar=false where id_reuniao=%s", (rid,))
+                conn.commit()
+            continue
+        try:
+            hh, mm = (horario or "09:00").split(":")[0:2]
+            ini = f"{data_dt}T{int(hh):02d}:{int(mm):02d}:00-03:00"
+            fim_dt = _dt2.fromisoformat(ini) + _td(minutes=int(dur or 30))
+            ev = {"summary": titulo,
+                  "start": {"dateTime": ini, "timeZone": "America/Sao_Paulo"},
+                  "end": {"dateTime": fim_dt.isoformat(), "timeZone": "America/Sao_Paulo"},
+                  "extendedProperties": {"private": {"origem": "sistema"}}}
+            r = sess.post(
+                f"https://www.googleapis.com/calendar/v3/calendars/{_up_q(cal)}/events",
+                json=ev, timeout=30)
+            if r.status_code >= 300:
+                print(f"empurrar pessoal: falhou ({r.status_code}) '{titulo}' de {quem}")
+                continue
+            with psycopg.connect() as conn, conn.cursor() as cur:
+                cur.execute("delete from juridico.reunioes where id_reuniao=%s", (rid,))
+                conn.commit()
+            print(f"empurrar pessoal: '{titulo}' → agenda de {quem} ({cal})")
+        except Exception as e:
+            print(f"empurrar pessoal: erro tolerado '{titulo}': {e}")
 
 
 def sincronizar_agendas(sess):
