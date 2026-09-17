@@ -62,6 +62,12 @@ AGENDAS = [
     {"cal": "brunaweckeradv@gmail.com", "ver": ["Bruna"], "cat": "pessoal"},
     {"cal": "eduardaadv3.8@gmail.com", "ver": ["Eduarda"], "cat": "pessoal"},
     {"cal": "advdanielly.vbb@gmail.com", "ver": ["Danielly"], "cat": "pessoal"},
+    # agendas dos assessores (leitura; heads veem pelo seletor "Agenda de")
+    {"cal": "ygorberny.villela@gmail.com", "ver": ["Ygor"], "cat": "pessoal"},
+    {"cal": "maria.martinsvillela@gmail.com", "ver": ["Malu"], "cat": "pessoal"},
+    {"cal": "joaozinho250204@gmail.com", "ver": ["João"], "cat": "pessoal"},
+    {"cal": "dudona.meb@gmail.com", "ver": ["Madu"], "cat": "pessoal"},
+    {"cal": "laurabueno.grupovillela@gmail.com", "ver": ["Laura"], "cat": "pessoal"},
 ]
 
 
@@ -389,9 +395,11 @@ CAL_3HEADS = "plataformabde@gmail.com"
 # Requer compartilhamento com permissão "Fazer alterações nos eventos" (escrita).
 # O e-mail aqui TAMBÉM precisa estar em AGENDAS (leitura), senão a reunião some.
 AGENDA_ESCRITA = {
-    # "João": "joao.trabalho@gmail.com",
-    # "Laura": "laura.trabalho@gmail.com",
-    # "Bruna": "brunaweckeradv@gmail.com",   # ligar quando tiver ESCRITA
+    "Ygor": "ygorberny.villela@gmail.com",
+    "Malu": "maria.martinsvillela@gmail.com",
+    "João": "joaozinho250204@gmail.com",
+    "Madu": "dudona.meb@gmail.com",
+    "Laura": "laurabueno.grupovillela@gmail.com",
 }
 
 
