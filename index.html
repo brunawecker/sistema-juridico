@@ -4906,7 +4906,19 @@ function reuBadge(r){const c=(r&&r.categoria)||"";
       :`<span class="tag tm">dia de ${esc(r.responsavel||"?")}</span>`;}
   if(c==="todas")return `<span class="tag" style="background:#C79A00;color:white">&#128101; 3 heads</span>`;
   return "";}
+function reuBg(r){const c=(r&&r.categoria)||"manual";
+  return c==="sdr"?"rgba(123,45,139,.14)":c==="sc"?"rgba(30,132,73,.15)":c==="todas"?"rgba(199,154,0,.18)":c==="pessoal"?"rgba(44,110,138,.14)":"rgba(96,125,139,.12)";}
 function reuGoogle(r){return String(r&&r.id_reuniao||"").indexOf("GCAL-")===0;}
+// legenda fixa das cores (aparece em dia/semana/mês)
+function legendaAgenda(){
+  const item=(cor,bg,rot)=>`<span style="display:inline-flex;align-items:center;gap:4px;margin-right:10px">
+    <span style="width:12px;height:12px;border-radius:3px;background:${bg};border-left:4px solid ${cor}"></span>${rot}</span>`;
+  return `<div style="font-size:11px;color:var(--gray);margin:8px 2px 0;display:flex;flex-wrap:wrap">
+    ${item("var(--green)","rgba(30,132,73,.15)","plataforma SC (rodízio)")}
+    ${item("var(--roxo)","rgba(123,45,139,.14)","SDRs / Nicholas")}
+    ${item("var(--navy)","rgba(44,110,138,.14)","pessoal")}
+    ${item("#C79A00","rgba(199,154,0,.18)","as 3 heads")}
+  </div>`;}
 async function telaAgenda(){
   setNav("agenda","Minha Agenda"); carregando();
   let ops,reu;try{[ops,reu]=await Promise.all([DB.tarefas(),DB.reunioes()]);}catch(e){return erro(e.message);}
@@ -4937,13 +4949,13 @@ async function telaAgenda(){
         <b style="color:var(--navy);text-transform:capitalize;min-width:150px;text-align:center">${titulo}</b>
         <button class="btn bts btsm" onclick="agNavegar(1)">&#9654;</button>
         <button class="btn btp btsm" onclick="E._agRef='${kHoje}';telaAgenda()">Hoje</button></div>
-      <button class="btn btg btsm" onclick="abrirReuniao()">+ Reunião</button></div>`;
+      <button class="btn btg btsm" onclick="abrirReuniao()">+ Reunião</button></div>`+legendaAgenda();
 
   if(E._agModo==="dia"){
     const k=chave(ref),ehH=k===kHoje;
     const rs=reuDe(k),tr=tarDe(k);
     h+=`<div class="painel"><div class="bloco-t">&#128197; Compromissos${ehH?" de hoje":""} (${rs.length})</div>
-      ${rs.length?rs.map(r=>`<div class="linha-item" style="border-left:3px solid ${reuCor(r)};padding-left:8px"><span style="font-size:13px"><b>${esc(r.horario||"—")}</b> · ${esc(r.titulo)}${r.cliente?" — "+esc(r.cliente):""} ${reuBadge(r)}</span>
+      ${rs.length?rs.map(r=>`<div class="linha-item" style="border-left:5px solid ${reuCor(r)};background:${reuBg(r)};border-radius:8px;padding:6px 10px;margin-bottom:3px"><span style="font-size:13px"><b>${esc(r.horario||"—")}</b> · ${esc(r.titulo)}${r.cliente?" — "+esc(r.cliente):""} ${reuBadge(r)}</span>
         <span style="font-size:11px;color:var(--gray)">${esc(r.duracao_min||30)}min ${reuGoogle(r)?"&#128197; Google":`<button class="btn bts btsm" onclick='removerReuniao(${JSON.stringify(r.id_reuniao)})'>&#10005;</button>`}</span></div>`).join("")
         :'<div class="vazio">Sem compromissos neste dia.</div>'}</div>
     <div class="painel"><div class="bloco-t">&#128203; Tarefas com data neste dia (${tr.length})</div>
@@ -4965,11 +4977,10 @@ async function telaAgenda(){
       grade+=`<div class="cald ${ehH?"hoje":""}" style="cursor:pointer" onclick="E._agModo='dia';E._agRef='${k}';telaAgenda()">
         <div style="font-size:11px;font-weight:700;color:var(--gray)">${nomes[i]}${rs.length?` · <span style="color:var(--dani)">${rs.length} reun.</span>`:""}</div>
         <div style="font-weight:700;color:${ehH?"var(--dani)":"var(--text)"}">${d.getDate()}</div>
-        ${rs.map(r=>`<div class="calpin" style="background:#F5F7FA;border-left-color:${reuCor(r)}" title="${esc(r.titulo)}"><b>${esc(r.horario||"")}</b> ${esc(r.titulo||"")}${r.categoria==="sc"?`<br><span style="font-size:9.5px;color:${String(r.responsavel||"")===E.perfil.nome_sistema?"#C79A00":"var(--gray)"}">${String(r.responsavel||"")===E.perfil.nome_sistema?"⭐ seu dia":"dia de "+esc(r.responsavel||"")}</span>`:r.categoria==="sdr"?`<br><span style="font-size:9.5px;color:var(--roxo)">👤 Nicholas</span>`:""}</div>`).join("")}
+        ${rs.map(r=>`<div class="calpin" style="background:${reuBg(r)};border-left-color:${reuCor(r)}" title="${esc(r.titulo)}"><b>${esc(r.horario||"")}</b> ${esc(r.titulo||"")}${r.categoria==="sc"?`<br><span style="font-size:9.5px;color:${String(r.responsavel||"")===E.perfil.nome_sistema?"#C79A00":"var(--gray)"}">${String(r.responsavel||"")===E.perfil.nome_sistema?"⭐ seu dia":"dia de "+esc(r.responsavel||"")}</span>`:r.categoria==="sdr"?`<br><span style="font-size:9.5px;color:var(--roxo)">👤 Nicholas</span>`:""}</div>`).join("")}
         ${pins.slice(0,4).map(({t,est})=>`<div class="calpin" style="background:var(--gray-lt);border-left-color:var(--gray);${est?"opacity:.6;border-left-style:dashed":""}">&#128203; ${esc(String(t.cliente||"").split(" ")[0])}</div>`).join("")}
         ${pins.length>4?`<div style="color:var(--dani);font-weight:700;font-size:10px;margin-top:2px">+${pins.length-4} tarefa(s)</div>`:""}</div>`;});
-    grade+=`</div><div style="font-size:11px;color:var(--gray);margin-top:4px">&#128197; = reunião · &#128203; cheio = data marcada · tracejado = estimado · toque num dia para abrir<br>
-      <span style="color:var(--green)">&#9632;</span> plataforma SC (rodízio) · <span style="color:var(--roxo)">&#9632;</span> SDRs/Nicholas · <span style="color:var(--navy)">&#9632;</span> pessoal · <span style="color:#C79A00">&#9632;</span> as 3 heads</div>`;
+    grade+=`</div><div style="font-size:11px;color:var(--gray);margin-top:4px">&#128197; = reunião · &#128203; cheio = data marcada · tracejado = estimado · toque num dia para abrir</div>`;
     h+=grade;
   }
   else{ // mês
@@ -4982,7 +4993,7 @@ async function telaAgenda(){
       const rs=reuDe(k),ntar=tarDe(k).length;
       grade+=`<div class="cald ${ehH?"hoje":""}" style="cursor:pointer" onclick="E._agModo='dia';E._agRef='${k}';telaAgenda()">
         <div style="font-weight:700;color:${ehH?"var(--dani)":"var(--text)"}">${dia}${rs.length?` <span style="font-size:10px;color:var(--dani)">(${rs.length})</span>`:""}</div>
-        ${rs.slice(0,4).map(r=>`<div class="calpin" style="background:#F5F7FA;border-left-color:${reuCor(r)}" title="${esc(r.titulo)}"><b>${esc(r.horario||"")}</b> ${esc(String(r.titulo||"").slice(0,18))}</div>`).join("")}
+        ${rs.slice(0,4).map(r=>`<div class="calpin" style="background:${reuBg(r)};border-left-color:${reuCor(r)}" title="${esc(r.titulo)}"><b>${esc(r.horario||"")}</b> ${esc(String(r.titulo||"").slice(0,18))}</div>`).join("")}
         ${rs.length>4?`<div style="color:var(--dani);font-weight:700;font-size:10px">+${rs.length-4} reunião(ões)</div>`:""}
         ${ntar?`<div style="font-size:10px;color:var(--gray);margin-top:2px">&#128203; ${ntar} tarefa(s)</div>`:""}</div>`;}
     grade+=`</div><div style="font-size:11px;color:var(--gray);margin-top:4px">&#128197; = reuniões da agenda · &#128203; = nº de tarefas com data · toque num dia para os detalhes</div>`;
