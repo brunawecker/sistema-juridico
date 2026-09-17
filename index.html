@@ -720,6 +720,7 @@ const S = {
   async premioPedidosAbertos(){return okS(await supa.rpc("premio_pedidos_abertos"))||[];},
   async premioPedidoDecidir(id,ok,motivo){return rpcS("premio_pedido_decidir",{p_id:id,p_aprovar:ok,p_motivo:motivo||null});},
   async premioPedidoCancelar(id){return rpcS("premio_pedido_cancelar",{p_id:id});},
+  async premioRecebi(id){return rpcS("premio_confirmar_recebido",{p_id:id});},
   async headGastosAcertar(){return rpcS("head_gastos_acertar",{});},
   async lembreteFeito(id){return rpcS("lembrete_feito",{p_id:id});},
   async lembreteApagar(id){return rpcS("lembrete_apagar",{p_id:id});},
@@ -3464,16 +3465,22 @@ async function telaMeusPremios(){
     APROVADO:'<span class="tag tek">&#10003; aprovado</span>',
     NEGADO:'<span class="tag ti">negado</span>',CANCELADO:'<span class="tag tm">cancelado</span>'};
   ge("conteudo").innerHTML=`
-    <div class="aviso info" style="margin-bottom:12px">&#128220; <b>Regras do requerimento:</b>
-      peça com <b>15 dias de antecedência</b> (o sistema trava datas mais próximas) ·
-      a data só vale depois do <b>OK das heads</b> (elas veem seu pedido no Diário) ·
-      aprovado, entra na agenda de folgas delas automaticamente.</div>
+    <div class="aviso info" style="margin-bottom:12px">&#128220; <b>Como funciona:</b>
+      &#127958;&#65039; <b>folga / home office / horário</b>: faça o requerimento com <b>15 dias de antecedência</b> —
+      a data só vale depois do OK das heads (elas veem o pedido no Diário) ·
+      &#127873; <b>vales, pix e mimos</b>: sem pedido — quando a head entregar, clique <b>&#10003; recebi</b>.</div>
     <div class="painel"><div class="bloco-t">&#127873; Meus prêmios da roleta (${ps.length})</div>
-    ${ps.length?ps.map(p=>`<div class="linha-item"><span style="font-size:12.5px"><b>${esc(p.premio)}</b>
-        <span style="color:var(--gray);font-size:11px">· roleta de ${brData(p.semana)}</span>
-        ${p.data_uso?` <span class="tag tek">&#128197; combinado: ${brData(p.data_uso)}</span>`
-          :p.entregue?' <span class="tag tm">entregue/em aberto</span>':' <span class="tag td2">a combinar</span>'}</span>
-      ${!p.data_uso?`<button class="btn btp btsm" onclick='abrirPedidoPremio(${p.id},${JSON.stringify(p.premio)})'>&#128203; requerer uso</button>`:""}</div>`).join("")
+    ${ps.length?ps.map(p=>{const folga=EH_FOLGA.test(p.premio);
+      const st=folga
+        ?(p.data_uso?` <span class="tag tek">&#128197; combinado: ${brData(p.data_uso)}</span>`
+                    :' <span class="tag td2">a agendar — faça o requerimento</span>')
+        :(p.entregue?` <span class="tag tek">&#10003; recebido${p.entregue_em?" em "+brData(p.entregue_em):""}</span>`
+                    :' <span class="tag td2">aguardando entrega pelas heads</span>');
+      const acao=folga
+        ?(!p.data_uso?`<button class="btn btp btsm" onclick='abrirPedidoPremio(${p.id},${JSON.stringify(p.premio)})'>&#128203; requerer uso</button>`:"")
+        :(!p.entregue?`<button class="btn btg btsm" onclick="confirmarRecebido(${p.id})">&#10003; recebi</button>`:"");
+      return `<div class="linha-item"><span style="font-size:12.5px">${folga?"&#127958;&#65039; ":"&#127873; "}<b>${esc(p.premio)}</b>
+        <span style="color:var(--gray);font-size:11px">· roleta de ${brData(p.semana)}</span>${st}</span>${acao}</div>`;}).join("")
       :'<div class="vazio">Você ainda não tem prêmios da roleta registrados.</div>'}</div>
     ${peds.length?`<div class="painel"><div class="bloco-t">&#128228; Meus pedidos</div>
     ${peds.map(p=>`<div class="linha-item"><span style="font-size:12.5px"><b>${esc(p.premio)}</b> para <b>${brData(p.data_desejada)}</b>${p.obs?` · <span style="color:var(--gray)">${esc(p.obs)}</span>`:""}${p.status==="NEGADO"&&p.motivo?`<br><span style="font-size:11px;color:var(--red)">motivo: ${esc(p.motivo)}</span>`:""}</span>
@@ -3498,6 +3505,10 @@ async function cancelarPedidoPremio(id){
   if(!confirm("Cancelar este pedido?"))return;
   try{await DB.premioPedidoCancelar(id);}catch(e){toast(e.message,"erro");return;}
   toast("Cancelado.","ok");telaMeusPremios();}
+async function confirmarRecebido(id){
+  if(!confirm("Confirmar que você RECEBEU este prêmio das heads?"))return;
+  try{await DB.premioRecebi(id);}catch(e){toast(e.message,"erro");return;}
+  toast("🎁 Registrado — aproveite!","ok");telaMeusPremios();}
 async function decidirPedidoPremio(id,ok){
   let motivo=null;
   if(!ok){motivo=prompt("Motivo da negativa (o assessor vai ver):");if(motivo===null)return;}
