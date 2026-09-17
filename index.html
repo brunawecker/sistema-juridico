@@ -3483,18 +3483,18 @@ async function telaCapacidade(){
       const rkSem=rk.filter(x=>x.n!=="Madu"),madu=rk.find(x=>x.n==="Madu");
       termometro+=`<div class="painel"><div class="bloco-t">&#128203; Ranking de recebimento — quem está mais leve AGORA</div>
         <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
-        <tr style="color:var(--gray);text-align:right"><th style="text-align:left">#</th><th style="text-align:left">Pessoa</th><th>Ativas</th><th>Diárias</th><th>Semanais</th><th>Do dia</th><th>Peso total</th></tr>`+
+        <tr style="color:var(--gray);text-align:right"><th style="text-align:left">#</th><th style="text-align:left">Pessoa</th><th>Ativas</th><th>&#9889; Imediatas</th><th>Diárias</th><th>Semanais</th><th>Do dia</th><th>Peso total</th></tr>`+
         rkSem.map((x,i)=>`<tr style="border-top:1px solid var(--gray-lt);text-align:right${i===0?";background:var(--green-lt)":""}">
           <td style="text-align:left;padding:4px 0">${i+1}º${i===0?" &#11088;":""}</td>
           <td style="text-align:left"><b>${esc(x.n)}</b>${ausenteAte(x.n)?` <span class="tag ta">&#127958;&#65039; até ${brData(ausenteAte(x.n))}</span>`:""}</td>
-          <td>${x.r.total_ativas}</td><td>${x.r.n_diarias}</td><td>${x.r.n_semanais}</td>
+          <td>${x.r.total_ativas}</td><td${(+x.r.n_imediatas||0)?' style="color:var(--red);font-weight:700"':""}>${+x.r.n_imediatas||0}</td><td>${x.r.n_diarias}</td><td>${x.r.n_semanais}</td>
           <td>${x.r.pendentes}</td><td><b>${x.sc}</b></td></tr>`).join("")+
         (madu?`<tr style="border-top:2px solid var(--border);text-align:right;color:var(--gray)">
           <td style="text-align:left;padding:4px 0">—</td><td style="text-align:left">Madu <span style="font-size:10px">(advogada — só tarefas diretas das heads)</span></td>
-          <td>${madu.r.total_ativas}</td><td>${madu.r.n_diarias}</td><td>${madu.r.n_semanais}</td>
+          <td>${madu.r.total_ativas}</td><td>${+madu.r.n_imediatas||0}</td><td>${madu.r.n_diarias}</td><td>${madu.r.n_semanais}</td>
           <td>${madu.r.pendentes}</td><td>${madu.sc}</td></tr>`:"")+
         `</table></div>
-        <div style="font-size:11px;color:var(--gray);margin-top:4px">Peso = 5×diárias + 2×semanais + ativas (frequência alta pesa mais). É a mesma régua que ordena os formulários de nova tarefa — atualizada a cada abertura desta tela. "Do dia" = vencidas + de hoje.</div></div>`;
+        <div style="font-size:11px;color:var(--gray);margin-top:4px">Peso = 5×diárias + 2×semanais + ativas (frequência alta pesa mais). É a mesma régua que ordena os formulários de nova tarefa — atualizada a cada abertura desta tela. "Do dia" = vencidas + de hoje · &#9889; Imediatas = check IMEDIATO ainda pendente (não entra no peso; sinal de dia apertado).</div></div>`;
     }
   }
   const hjBR=brHoje(),hjISO=hojeISO();
@@ -5340,7 +5340,7 @@ async function ordenarReceptores(selId){
   if(maduFora)ord.push("Madu");
   const atual=sel.value;
   sel.innerHTML=ord.map((n,i)=>{const c=info(n);
-    const det=c?` — ${c.total_ativas} ativas · ${c.n_diarias} diárias · ${c.n_semanais} semanais`:"";
+    const det=c?` — ${c.total_ativas} ativas · &#9889;${+c.n_imediatas||0} imediatas · ${c.n_diarias} diárias · ${c.n_semanais} semanais`:"";
     const aus=ausenteAte(n);
     const rot=(n==="Madu"&&maduFora)?`${n} (advogada — só tarefas diretas das heads)`
       :aus?`${n} 🏖 AUSENTE até ${brData(aus)} — evite delegar`
