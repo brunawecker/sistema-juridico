@@ -33,6 +33,12 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly",
 # categoria: pessoal(azul) · sc(plataforma SC, rodízio) · sdr(Nicholas) · manual
 # rodízio reancorado em 17/09/2026 (pedido da Bruna): qui 17 = Eduarda,
 # sex 18 = Bruna, seg 21 = Danielly, e cicla nos dias úteis a partir daí.
+# e-mails que identificam evento criado PELAS HEADS na plataformabde
+# (→ dourado "3 heads"); qualquer outro criador = SC rodízio (verde).
+HEADS_EMAILS = {
+    "advdanielly.vbb@gmail.com", "brunaweckeradv@gmail.com",
+    "brunawecker@gmail.com", "eduardaadv3.8@gmail.com",
+}
 HEADS_ROT = ["Eduarda", "Bruna", "Danielly"]
 ROT_ANCORA = date(2026, 9, 17)  # índice 0 = Eduarda (a partir de hoje)
 AGENDAS = [
@@ -407,7 +413,13 @@ def sincronizar_agendas(sess):
                 d_fim = _dt.fromisoformat(fim).astimezone(sp)
                 mins = max(15, int((d_fim - d_ini).total_seconds() // 60))
                 titulo = (ev.get("summary") or "Reunião (agenda Google)")[:180]
-                resp = _rot_responsavel(d_ini.date()) if ag.get("rot") else (ag.get("dono") or "")
+                cr_email = str((ev.get("creator") or {}).get("email", "")).lower()
+                if ag.get("rot") and cr_email in HEADS_EMAILS:
+                    cat_ev, resp = "todas", ""      # as 3 heads (dourado)
+                elif ag.get("rot"):
+                    cat_ev, resp = "sc", _rot_responsavel(d_ini.date())
+                else:
+                    cat_ev, resp = cat, (ag.get("dono") or "")
                 for nome in pessoas:
                     suf = "" if len(pessoas) == 1 else "-" + nome[:8]
                     rid = f"GCAL-{caltag}-" + ev.get("id", "")[:34] + suf
@@ -424,7 +436,7 @@ def sincronizar_agendas(sess):
                           categoria=excluded.categoria, responsavel=excluded.responsavel""",
                         (rid, d_ini.strftime("%d/%m/%Y"), d_ini.date(), nome, titulo,
                          d_ini.strftime("%H:%M"), str(mins), mins, "agenda Google",
-                         cat, resp))
+                         cat_ev, resp))
             for nome in pessoas:
                 cur.execute("""delete from juridico.reunioes
                     where assessor=%s and id_reuniao like %s
