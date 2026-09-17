@@ -782,7 +782,7 @@ const S = {
         p_motivo:x.motivo,p_resultado:x.resultado||"",p_nota:x.nota||"",p_id_hist:hid});
     if(!ok)throw new Error("não foi possível encerrar");return{ok:true};},
   async reabrir(x){const nova=await novoIdS("OP");
-    const ok=await rpcS("reabrir_caso",{p_id_enc:x.id_encerrado,p_linha:x.linha,p_nova_tarefa:nova,p_check:x.check,p_proximo:x.proximo});
+    const ok=await rpcS("reabrir_caso",{p_id_enc:x.id_encerrado,p_linha:x.linha,p_nova_tarefa:nova,p_check:x.check,p_proximo:x.proximo,p_assessor:x.assessor||null});
     if(!ok)throw new Error("não foi possível reabrir");return{ok:true};},
   async correcaoEnviar(t,x){okS(await supa.from("operacional").update({correcao_head:x.head,correcao_link:x.link||"",
       correcao_justif:x.justificativa||"",correcao_data:brHoje(),correcao_data_dt:hojeISO(),
@@ -3917,13 +3917,23 @@ async function verCaso(id,linha){const c=E._casos.find(x=>x.id_encerrado===id&&x
   ge("m-corpo").innerHTML=dados+nota+hist;
 }
 function abrirReabrir(id,linha){
+  // escolher para QUEM o caso volta — primeiro da lista é quem estava com
+  // ele no arquivamento (pedido da Bruna, 17/09/2026)
+  const c=(E._casos||[]).find(x=>x.id_encerrado===id&&x.linha===linha)||{};
+  const dono=loginDe(c.assessor||"")||c.assessor||"";
+  const outros=OPERACIONAIS.filter(n=>n!==dono);
   modal2("&#128260; Reabrir caso","Volta ao operacional ativo",`
-    <div class="bloco-t">Frequência</div>
+    <div class="bloco-t">Volta para qual assessor?</div>
+    <select class="fsel" id="rb-ass" style="width:100%">
+      ${dono?`<option value="${esc(dono)}" selected>${esc(dono)} — quem arquivou</option>`:""}
+      ${outros.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join("")}</select>
+    <div class="bloco-t" style="margin-top:8px">Frequência</div>
     <select class="fsel" id="rb-check" style="width:100%">${["IMEDIATO","DIÁRIO","SEMANAL","MENSAL"].map(x=>`<option>${x}</option>`).join("")}</select>
     <div class="bloco-t" style="margin-top:8px">Data de retorno</div><input type="date" class="fsel" id="rb-data" value="${hojeISO()}" style="width:100%">
     <button class="btn btp btw" style="margin-top:10px" onclick='fazerReabrir(${JSON.stringify(id)},${linha})'>&#128260; Reabrir caso</button>`);}
 async function fazerReabrir(id,linha){
-  try{await DB.reabrir({id_encerrado:id,linha:linha,check:ge("rb-check").value,proximo:ge("rb-data").value||hojeISO()});}
+  try{await DB.reabrir({id_encerrado:id,linha:linha,check:ge("rb-check").value,
+    proximo:ge("rb-data").value||hojeISO(),assessor:(ge("rb-ass")||{}).value||""});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Caso reaberto!","ok");fecharModal2();fecharModal();telaCasos();}
 
