@@ -4951,8 +4951,13 @@ function legendaAgenda(){
 async function telaAgenda(){
   setNav("agenda","Minha Agenda"); carregando();
   let ops,reu;try{[ops,reu]=await Promise.all([DB.tarefas(),DB.reunioes()]);}catch(e){return erro(e.message);}
-  const ts=(ops||[]).map(classificar).filter(t=>ehMeuNome(t.assessor));E.tarefas=(ops||[]).map(classificar);
-  const minhasReu=(reu||[]).filter(r=>r.assessor===E.perfil.nome_sistema);
+  const ehHeadAg=E.perfil.head_sim;
+  if(!E._agPessoa)E._agPessoa=E.perfil.nome_sistema;
+  const alvoAg=ehHeadAg?E._agPessoa:E.perfil.nome_sistema;
+  const todosAg=alvoAg==="__todos__";
+  E.tarefas=(ops||[]).map(classificar);
+  const ts=E.tarefas.filter(t=>todosAg?true:(alvoAg===E.perfil.nome_sistema?ehMeuNome(t.assessor):String(t.assessor||"").trim()===alvoAg));
+  const minhasReu=(reu||[]).filter(r=>todosAg?true:r.assessor===alvoAg);
   const chave=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
   const hoje=new Date();hoje.setHours(0,0,0,0);const kHoje=chave(hoje);
   if(!E._agModo)E._agModo="semana";
@@ -4978,13 +4983,23 @@ async function telaAgenda(){
         <b style="color:var(--navy);text-transform:capitalize;min-width:150px;text-align:center">${titulo}</b>
         <button class="btn bts btsm" onclick="agNavegar(1)">&#9654;</button>
         <button class="btn btp btsm" onclick="E._agRef='${kHoje}';telaAgenda()">Hoje</button></div>
-      <button class="btn btg btsm" onclick="abrirReuniao()">+ Reunião</button></div>`+legendaAgenda();
+      <button class="btn btg btsm" onclick="abrirReuniao()">+ Reunião</button></div>`
+    +(ehHeadAg?`<div class="painel" style="padding:8px 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span style="font-size:12px;color:var(--gray)">&#128101; Agenda de:</span>
+      <select class="fsel" onchange="E._agPessoa=this.value;telaAgenda()">
+        <option value="${esc(E.perfil.nome_sistema)}" ${alvoAg===E.perfil.nome_sistema?"selected":""}>&#128100; minha</option>
+        <option value="__todos__" ${todosAg?"selected":""}>&#128506;&#65039; todos (equipe)</option>
+        <optgroup label="por pessoa">
+        ${[...new Set((E.equipe||[]).filter(m=>String(m.status||"").toUpperCase()==="ATIVO").map(m=>m.nome_sistema))].filter(n=>n!==E.perfil.nome_sistema).sort().map(n=>`<option value="${esc(n)}" ${alvoAg===n?"selected":""}>${esc(n)}</option>`).join("")}
+        </optgroup></select>
+      ${todosAg||alvoAg!==E.perfil.nome_sistema?`<span style="font-size:11px;color:var(--dani)">vendo ${todosAg?"a equipe toda":"a agenda de "+esc(alvoAg)}</span>`:""}</div>`:"")
+    +legendaAgenda();
 
   if(E._agModo==="dia"){
     const k=chave(ref),ehH=k===kHoje;
     const rs=reuDe(k),tr=tarDe(k);
     h+=`<div class="painel"><div class="bloco-t">&#128197; Compromissos${ehH?" de hoje":""} (${rs.length})</div>
-      ${rs.length?rs.map(r=>`<div class="linha-item" style="border-left:5px solid ${reuCor(r)};background:${reuBg(r)};border-radius:8px;padding:6px 10px;margin-bottom:3px"><span style="font-size:13px"><b>${esc(r.horario||"—")}</b> · ${esc(r.titulo)}${r.cliente?" — "+esc(r.cliente):""} ${reuBadge(r)}</span>
+      ${rs.length?rs.map(r=>`<div class="linha-item" style="border-left:5px solid ${reuCor(r)};background:${reuBg(r)};border-radius:8px;padding:6px 10px;margin-bottom:3px"><span style="font-size:13px"><b>${esc(r.horario||"—")}</b> · ${esc(r.titulo)}${r.cliente?" — "+esc(r.cliente):""} ${reuBadge(r)}${todosAg?` <span class="tag tda">${esc(r.assessor)}</span>`:""}</span>
         <span style="font-size:11px;color:var(--gray)">${esc(r.duracao_min||30)}min ${reuGoogle(r)?"&#128197; Google":`<button class="btn bts btsm" onclick='removerReuniao(${JSON.stringify(r.id_reuniao)})'>&#10005;</button>`}</span></div>`).join("")
         :'<div class="vazio">Sem compromissos neste dia.</div>'}</div>
     <div class="painel"><div class="bloco-t">&#128203; Tarefas com data neste dia (${tr.length})</div>
@@ -5006,7 +5021,7 @@ async function telaAgenda(){
       grade+=`<div class="cald ${ehH?"hoje":""}" style="cursor:pointer" onclick="E._agModo='dia';E._agRef='${k}';telaAgenda()">
         <div style="font-size:11px;font-weight:700;color:var(--gray)">${nomes[i]}${rs.length?` · <span style="color:var(--dani)">${rs.length} reun.</span>`:""}</div>
         <div style="font-weight:700;color:${ehH?"var(--dani)":"var(--text)"}">${d.getDate()}</div>
-        ${rs.map(r=>`<div class="calpin" style="background:${reuBg(r)};border-left-color:${reuCor(r)}" title="${esc(r.titulo)}"><b>${esc(r.horario||"")}</b> ${esc(r.titulo||"")}${r.categoria==="sc"?`<br><span style="font-size:9.5px;color:${String(r.responsavel||"")===E.perfil.nome_sistema?"#C79A00":"var(--gray)"}">${String(r.responsavel||"")===E.perfil.nome_sistema?"⭐ seu dia":"dia de "+esc(r.responsavel||"")}</span>`:r.categoria==="sdr"?`<br><span style="font-size:9.5px;color:var(--roxo)">👤 Nicholas</span>`:""}</div>`).join("")}
+        ${rs.map(r=>`<div class="calpin" style="background:${reuBg(r)};border-left-color:${reuCor(r)}" title="${esc(r.titulo)}${todosAg?" · "+esc(r.assessor):""}"><b>${esc(r.horario||"")}</b> ${todosAg?esc(r.assessor)+": ":""}${esc(r.titulo||"")}${r.categoria==="sc"?`<br><span style="font-size:9.5px;color:${String(r.responsavel||"")===E.perfil.nome_sistema?"#C79A00":"var(--gray)"}">${String(r.responsavel||"")===E.perfil.nome_sistema?"⭐ seu dia":"dia de "+esc(r.responsavel||"")}</span>`:r.categoria==="sdr"?`<br><span style="font-size:9.5px;color:var(--roxo)">👤 Nicholas</span>`:""}</div>`).join("")}
         ${pins.slice(0,4).map(({t,est})=>`<div class="calpin" style="background:var(--gray-lt);border-left-color:var(--gray);${est?"opacity:.6;border-left-style:dashed":""}">&#128203; ${esc(String(t.cliente||"").split(" ")[0])}</div>`).join("")}
         ${pins.length>4?`<div style="color:var(--dani);font-weight:700;font-size:10px;margin-top:2px">+${pins.length-4} tarefa(s)</div>`:""}</div>`;});
     grade+=`</div><div style="font-size:11px;color:var(--gray);margin-top:4px">&#128197; = reunião · &#128203; cheio = data marcada · tracejado = estimado · toque num dia para abrir</div>`;
