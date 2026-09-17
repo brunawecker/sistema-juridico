@@ -3507,13 +3507,17 @@ async function telaMeusPremios(){
 function abrirPedidoPremio(id,nome){
   const d=new Date();d.setDate(d.getDate()+15);const min=d.toISOString().slice(0,10);
   modal2("&#128203; Requerer uso: "+esc(nome),"As heads recebem o pedido no Diário delas",`
-    <div class="bloco-t">Data desejada * <span style="font-weight:400;color:var(--gray)">(mínimo 15 dias: a partir de ${brData(min)})</span></div>
-    <input type="date" class="fsel" id="pp-data" min="${min}" value="${min}" style="width:100%">
+    <div style="background:var(--red-lt);color:var(--red);border-radius:9px;padding:8px 12px;font-size:13px;font-weight:700;margin-bottom:8px">
+      &#9200; REGRA: 15 dias de antecedência — a data mais próxima possível é ${brData(min)}. O calendário não aceita antes disso.</div>
+    <div class="bloco-t">Data desejada *</div>
+    <input type="date" class="fsel" id="pp-data" min="${min}" value="${min}" style="width:100%"
+      onchange="if(this.value&&this.value<this.min){this.value=this.min;toast('Mínimo de 15 dias de antecedência — ajustei para '+brData(this.min)+'.','erro');}">
     <div class="bloco-t" style="margin-top:8px">Observação (opcional)</div>
     <input class="fi" id="pp-obs" placeholder="Ex: consulta médica marcada, viagem em família...">
     <button class="btn btp btw" style="margin-top:10px" onclick="salvarPedidoPremio(${id})">&#128228; Enviar pedido</button>`);}
 async function salvarPedidoPremio(id){
-  const dt=ge("pp-data").value;if(!dt){toast("Escolha a data.","erro");return;}
+  const el=ge("pp-data"),dt=el.value;if(!dt){toast("Escolha a data.","erro");return;}
+  if(dt<el.min){toast("Mínimo de 15 dias de antecedência — a data mais próxima é "+brData(el.min)+".","erro");return;}
   try{await DB.premioPedidoAdd(id,dt,(ge("pp-obs").value||"").trim());}
   catch(e){toast(e.message,"erro");return;}
   toast("Pedido enviado — as heads veem no Diário e você acompanha aqui.","ok");
