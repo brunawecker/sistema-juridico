@@ -894,6 +894,7 @@ const S = {
     const tresHeads=d.escopo==="3heads";
     const gente=tresHeads?["Bruna","Danielly","Eduarda"]:[E.perfil.nome_sistema];
     const cat=tresHeads?"todas":"manual";
+    const empurra=true;  // toda reunião criada no sistema tenta espelhar no Google
     const grupo=tresHeads?("g"+Date.now().toString(36)):"";
     let primeiro=null;
     for(const nome of gente){const reu=await novoIdS("REU");if(!primeiro)primeiro=reu;
@@ -901,7 +902,7 @@ const S = {
         assessor:nome,titulo:d.titulo,cliente:d.cliente||"",id_cliente:d.id_cliente||null,
         horario:d.horario||"",horario_hr:d.horario||null,duracao_min:String(d.duracao||30),
         duracao_min_num:d.duracao||30,obs:(d.obs||"")+(grupo?" ["+grupo+"]":""),categoria:cat,responsavel:"",
-        a_empurrar:tresHeads}));}
+        a_empurrar:empurra}));}
     if(d.id_cliente&&!tresHeads)await histS("",d.id_cliente,"REUNIÃO","Reunião: "+d.titulo+(d.horario?" às "+d.horario:"")+" ("+(d.duracao||30)+"min)");
     return{ok:true,id:primeiro};},
   async reuniaoDel(id){
