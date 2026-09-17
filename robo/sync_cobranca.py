@@ -31,8 +31,10 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly",
 # com a conta-robô (leitor-planilha@migracao-juridico.iam.gserviceaccount.com)
 # Cada agenda: cal, quem VÊ (ver), categoria/cor, se é rodízio (rot).
 # categoria: pessoal(azul) · sc(plataforma SC, rodízio) · sdr(Nicholas) · manual
-HEADS_ROT = ["Bruna", "Danielly", "Eduarda"]
-ROT_ANCORA = date(2026, 9, 14)  # segunda-feira base: índice 0 = Bruna
+# rodízio reancorado em 17/09/2026 (pedido da Bruna): qui 17 = Eduarda,
+# sex 18 = Bruna, seg 21 = Danielly, e cicla nos dias úteis a partir daí.
+HEADS_ROT = ["Eduarda", "Bruna", "Danielly"]
+ROT_ANCORA = date(2026, 9, 17)  # índice 0 = Eduarda (a partir de hoje)
 AGENDAS = [
     # SDRs → reuniões do Nicholas, visíveis às heads (contar quantas ele tem)
     {"cal": "nicodemeneghe@gmail.com", "ver": ["Nicholas"], "cat": "sdr"},
