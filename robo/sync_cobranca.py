@@ -38,7 +38,7 @@ ROT_ANCORA = date(2026, 9, 17)  # índice 0 = Eduarda (a partir de hoje)
 AGENDAS = [
     # SDRs → reuniões do Nicholas, visíveis às heads (contar quantas ele tem)
     {"cal": "nicodemeneghe@gmail.com", "ver": ["Nicholas"], "cat": "sdr"},
-    {"cal": "plataformabd.38@gmail.com",
+    {"cal": "plataformabd3.8@gmail.com",
      "ver": ["Nicholas", "Bruna", "Danielly", "Eduarda"], "cat": "sdr", "dono": "Nicholas"},
     {"cal": "souzademarqueseduarda@gmail.com",
      "ver": ["Nicholas", "Bruna", "Danielly", "Eduarda"], "cat": "sdr", "dono": "Nicholas"},
