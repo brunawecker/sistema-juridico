@@ -1771,7 +1771,7 @@ async function abrirTarefa(id){
     DB.sessaoConcluir(c.min).catch(()=>{});
     if(c.min>=1)DB.tempo({id_tarefa:ant.id_tarefa,id_cliente:ant.id_cliente,minutos:c.min}).catch(()=>{});
     if(c.nota)DB.nota({id_tarefa:ant.id_tarefa,id_cliente:ant.id_cliente,tipo:"HISTORICO",texto:c.nota}).catch(()=>{});}
-  E.atual=t;E._propGateOk=false;
+  E.atual=t;E._propGateOk=false;E._laudoGateOk=false;
   t._consulta=!podeAgirNa(t);
   ge("m-titulo").textContent=t.cliente||"";
   ge("m-sub").innerHTML=`<span style="cursor:pointer" title="Clique para corrigir o tipo" onclick="editarOperacao()">${esc(t.operacao||"")} &#9998;</span> · ${esc(t.advogada||"")} · ${esc(t.check_||"")} · ${esc(t.assessor||"")}`;
@@ -2168,6 +2168,8 @@ async function concluirTarefa(){
   // ou existe proposta do cliente, ou lança agora, ou justifica por escrito
   if(String(t.operacao||"").includes("Proposta Comercial")&&!E._propGateOk){
     E._gateDepois="concluir";abrirGateProposta();return;}
+  // laudo: concluir exige confirmar/atualizar a FASE (Bruna, 17/09/2026)
+  if(t._laudo&&!E._laudoGateOk){E._laudoDepois="concluir";abrirGateLaudo();return;}
   let prox;if(dm)prox=dm;else{const d=new Date();d.setDate(d.getDate()+(/SEMANAL/.test(check)?7:/MENSAL/.test(check)?30:1));prox=d.toISOString().slice(0,10);}
   if(!confirm(dm?`Concluir? A tarefa volta em ${brData(dm)}.`:`Concluir? Volta sozinha pela frequência (${check}).`))return;
   try{const contaC=minutosDaSessao(t);await DB.concluir(t,{check,proximo:prox});await DB.sessaoConcluir(contaC.min);
@@ -2210,6 +2212,31 @@ async function abrirGateProposta(){
 }
 function gatePropOk(){E._propGateOk=true;fecharModal2();
   (E._gateDepois==="encerrar"?abrirEncerrar:concluirTarefa)();}
+// portão da FASE do laudo: concluir/encerrar laudo exige dizer em que fase
+// ele está (pedido da Bruna, 17/09/2026) — alimenta o painel de laudos
+function abrirGateLaudo(){
+  const t=E.atual;
+  modal2("&#129514; Em que fase está este laudo? *",esc(t.cliente)+(t._laudoDias!==null?` — há ${t._laudoDias}d na fase atual`:""),`
+    <div style="font-size:12.5px;margin-bottom:8px">${t.etapa_laudo
+      ?`Fase registrada: <b style="color:${laudoCor(t.etapa_laudo)}">${esc(t.etapa_laudo)}</b>. Confirme ou atualize antes de seguir:`
+      :"Este laudo ainda está <b>sem fase registrada</b> — escolha para continuar:"}</div>
+    <select class="fsel" id="lg-etapa" style="width:100%">
+      <option value=""${t.etapa_laudo?"":" selected"}>— escolher a fase —</option>
+      ${LAUDO_ETAPAS.map(e2=>`<option${t.etapa_laudo===e2?" selected":""}>${esc(e2)}</option>`).join("")}</select>
+    <button class="btn btp btw" style="margin-top:10px" onclick="gateLaudoOk()">&#10003; Confirmar fase e continuar</button>`);
+}
+async function gateLaudoOk(){
+  const t=E.atual,v=ge("lg-etapa").value;
+  if(!v){toast("Escolha a fase do laudo — é ela que alimenta o painel de laudos.","erro");return;}
+  const mudou=v!==(t.etapa_laudo||"");
+  if(mudou){
+    try{await DB.tarefaUpdate(t,{campos:{etapa_laudo:v,etapa_laudo_dt:hojeISO()},
+      hist_texto:`🧪 Etapa do laudo: ${t.etapa_laudo||"—"} → ${v} (confirmada ao ${E._laudoDepois==="encerrar"?"encerrar":"concluir"})`,hist_tipo:"HISTORICO"});}
+    catch(e){toast("Erro: "+e.message,"erro");return;}
+    t.etapa_laudo=v;t.etapa_laudo_dt=hojeISO();}
+  E._laudoGateOk=true;fecharModal2();
+  (E._laudoDepois==="encerrar"?abrirEncerrar:concluirTarefa)();
+}
 async function gatePropLancar(){
   const t=E.atual;fecharModal2();
   await abrirProposta();
@@ -2404,6 +2431,8 @@ function abrirEncerrar(){const t=E.atual;
   // uma porta lateral para fechar parecer sem proposta (fechada em 11/09/2026)
   if(String(t.operacao||"").includes("Proposta Comercial")&&!E._propGateOk){
     E._gateDepois="encerrar";abrirGateProposta();return;}
+  // laudo: arquivar também exige a fase final (alimenta a taxa de deferimento)
+  if(t._laudo&&!E._laudoGateOk){E._laudoDepois="encerrar";abrirGateLaudo();return;}
   modal2("&#128193; Encerrar: "+esc(t.cliente),"Esta ação move para Casos Encerrados",`
     <div class="bloco-t">Motivo *</div>
     <select class="fsel" id="en-mot" style="width:100%">${["CONCLUÍDO","RENÚNCIA","PREJUDICADO","CANCELADO","MONITORAMENTO"].map(m=>`<option>${m}</option>`).join("")}</select>
@@ -2522,7 +2551,7 @@ function fecharModal(){
     if(conta.min>=1&&E.atual)DB.tempo({id_tarefa:E.atual.id_tarefa,id_cliente:E.atual.id_cliente,minutos:conta.min}).catch(()=>{});
     if(conta.nota&&E.atual)DB.nota({id_tarefa:E.atual.id_tarefa,id_cliente:E.atual.id_cliente,tipo:"HISTORICO",texto:conta.nota}).catch(()=>{});}
   const pa=document.getElementById("pergunta-atividade");if(pa)pa.remove();
-  ge("modal").classList.remove("aberto");E.atual=null;E.timerIni=null;E._propGateOk=false;}
+  ge("modal").classList.remove("aberto");E.atual=null;E.timerIni=null;E._propGateOk=false;E._laudoGateOk=false;}
 function modal2(titulo,sub,corpo){ge("m2-titulo").innerHTML=titulo;ge("m2-sub").innerHTML=sub;
   ge("m2-corpo").innerHTML=corpo;ge("modal2").classList.add("aberto");}
 function fecharModal2(){ge("modal2").classList.remove("aberto");}
