@@ -3342,6 +3342,10 @@ async function telaCentral(){
     <div id="tric-box"></div>`;
   carregarTricount();
 }
+// máscara de moeda REAL (pt-BR): digita só números, vê "R$ 1.234,56"
+function mascaraReal(el){const d=String(el.value||"").replace(/\D/g,"").slice(0,12);
+  el.value=d?(+d/100).toLocaleString("pt-BR",{style:"currency",currency:"BRL"}):"";}
+function valorReal(el){const d=String((el||{}).value||"").replace(/\D/g,"");return d?+d/100:0;}
 // ===== 💸 Divisão de gastos das heads — "tricount" (Bruna, 17/09/2026) ====
 // Só heads: o banco devolve vazio/erro para qualquer outra pessoa.
 function headsAtivas(){const hs=(E.equipe||[]).filter(m=>/^head/i.test(m.cargo||"")&&String(m.status||"").toUpperCase()==="ATIVO").map(m=>m.nome_sistema);
@@ -3369,7 +3373,7 @@ async function carregarTricount(){
     <div class="bloco-t" style="color:#1E8449">&#128184; Divisão de gastos das heads — só vocês veem</div>
     <div class="linha-acao" style="margin-bottom:6px">
       <input class="fi" id="tg-desc" placeholder="O que foi? Ex: pizza da reunião, prêmio do paintball..." style="flex:2;margin:0">
-      <input class="fsel" id="tg-valor" type="number" min="0.01" step="0.01" placeholder="R$" style="width:90px">
+      <input class="fsel" id="tg-valor" inputmode="numeric" placeholder="R$ 0,00" style="width:110px" oninput="mascaraReal(this)">
       <select class="fsel" id="tg-pago" title="quem pagou">${heads.map(h=>`<option${h===eu?" selected":""}>${esc(h)}</option>`).join("")}</select>
       <select class="fsel" id="tg-cat"><option>Geral</option><option>&#127918; Jogos</option></select></div>
     <div class="linha-acao" style="margin-bottom:6px"><span style="font-size:11px;color:var(--gray)">Dividir entre:</span>
@@ -3388,7 +3392,7 @@ async function carregarTricount(){
   </div>`;
 }
 async function tricAdd(){
-  const desc=(ge("tg-desc").value||"").trim(),val=parseFloat(ge("tg-valor").value);
+  const desc=(ge("tg-desc").value||"").trim(),val=valorReal(ge("tg-valor"));
   const parts=[...document.querySelectorAll(".tg-part:checked")].map(x=>x.value);
   if(!desc){toast("Descreva o gasto.","erro");return;}
   if(!val||val<=0){toast("Informe o valor.","erro");return;}
