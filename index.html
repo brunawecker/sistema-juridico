@@ -3109,19 +3109,19 @@ function quadroLembretes(lembs){
 function abrirLembrete(){
   const nomes=[...new Set((E.equipe||[]).filter(m=>String(m.status||"").toUpperCase()==="ATIVO").map(m=>m.nome_sistema))].filter(n=>n!==E.perfil.nome_sistema).sort();
   const amanha=(()=>{const d=new Date();d.setDate(d.getDate()+1);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");})();
-  modal2("&#128276; Novo lembrete de combinado","Aparece na SUA Central no dia marcado — só você vê",`
+  modal2("&#128278; Retomar depois / lembrete","Aparece na SUA agenda no dia marcado — só você vê (não conta horas)",`
     <div class="bloco-t">Cliente / assunto *</div>
     <input class="fi" id="lb-cli" placeholder="Ex: LAVOGA ALIMENTOS · reunião de alinhamento..." oninput="buscaLembCli()">
     <div id="lb-cli-res"></div>
     <div id="lb-cli-ok" style="display:none;font-size:11px;color:var(--green);margin:-4px 0 4px">&#128279; Vinculado ao cadastro — o lembrete aparece na ficha do cliente (só para heads)</div>
     <div class="bloco-t" style="margin-top:8px">O que foi combinado / o que cobrar *</div>
-    <textarea class="fta" id="lb-txt" placeholder="Ex: cliente pediu retorno sobre a proposta depois do dia 20; cobrar levantamento do assessor..."></textarea>
+    <textarea class="fta" id="lb-txt" placeholder="Ex: retomar a análise da CAPAG amanhã; cliente pediu retorno depois do dia 20; ligar de novo..."></textarea>
     <div class="linha-acao" style="margin-top:8px">
       <label style="font-size:11px">&#128197; Me lembrar em:</label><input type="date" class="fsel" id="lb-data" value="${amanha}">
       <label style="font-size:11px">Tipo:</label><select class="fsel" id="lb-alvo">
-        <option value="para mim">recontatar cliente (eu mesma)</option>
-        ${nomes.map(n=>`<option value="${esc(n)}">cobrar ${esc(n)}</option>`).join("")}</select></div>
-    <button class="btn btp btw" style="margin-top:10px" onclick="salvarLembrete()">&#128276; Guardar lembrete</button>`);
+        <option value="para mim">retomar com o cliente (eu)</option>
+        ${E.perfil.head_sim?nomes.map(n=>`<option value="${esc(n)}">cobrar ${esc(n)}</option>`).join(""):""}</select></div>
+    <button class="btn btp btw" style="margin-top:10px" onclick="salvarLembrete()">&#128278; Guardar</button>`);
   E._lbCli=null;rascunhoLiga("lb-txt","lb:novo");}
 // digitou 3+ letras: oferece vincular a um cliente EXISTENTE (opcional) —
 // pedido da Bruna, 17/09/2026; o vínculo faz o lembrete aparecer na ficha
@@ -3142,14 +3142,15 @@ async function salvarLembrete(){
   const idCli=(E._lbCli&&E._lbCli.nome===cli)?E._lbCli.id:null;
   try{await DB.lembreteAdd(cli,txt,dt,alvo,idCli);}catch(e){toast("Erro: "+e.message,"erro");return;}
   rascunhoLimpa("lb:novo");
-  toast("Lembrete guardado — aparece na sua Central em "+brData(dt)+".","ok");fecharModal2();telaCentral();}
+  toast("Guardado — aparece na sua agenda em "+brData(dt)+".","ok");fecharModal2();
+  (E.view==="agenda"?telaAgenda:telaCentral)();}
 async function lembreteFeito(id){
   try{await DB.lembreteFeito(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
-  toast("Atualizado!","ok");telaCentral();}
+  toast("Atualizado!","ok");(E.view==="agenda"?telaAgenda:telaCentral)();}
 async function lembreteApagar(id){
   if(!confirm("Apagar este lembrete?"))return;
   try{await DB.lembreteApagar(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
-  toast("Apagado.","ok");telaCentral();}
+  toast("Apagado.","ok");(E.view==="agenda"?telaAgenda:telaCentral)();}
 async function telaCentral(){
   if(!E.perfil.head_sim)return telaMinhas();
   setNav("central","Central do Dia"); carregando();
@@ -4951,7 +4952,7 @@ function legendaAgenda(){
   </div>`;}
 async function telaAgenda(){
   setNav("agenda","Minha Agenda"); carregando();
-  let ops,reu;try{[ops,reu]=await Promise.all([DB.tarefas(),DB.reunioes()]);}catch(e){return erro(e.message);}
+  let ops,reu,lembs;try{[ops,reu,lembs]=await Promise.all([DB.tarefas(),DB.reunioes(),DB.lembretes().catch(()=>[])]);}catch(e){return erro(e.message);}
   const ehHeadAg=E.perfil.head_sim;
   if(!E._agPessoa)E._agPessoa=E.perfil.nome_sistema;
   const alvoAg=ehHeadAg?E._agPessoa:E.perfil.nome_sistema;
@@ -4984,7 +4985,9 @@ async function telaAgenda(){
         <b style="color:var(--navy);text-transform:capitalize;min-width:150px;text-align:center">${titulo}</b>
         <button class="btn bts btsm" onclick="agNavegar(1)">&#9654;</button>
         <button class="btn btp btsm" onclick="E._agRef='${kHoje}';telaAgenda()">Hoje</button></div>
-      <button class="btn btg btsm" onclick="abrirReuniao()">+ Reunião</button></div>`
+      <button class="btn btg btsm" onclick="abrirReuniao()" title="Conta as horas no seu dia">+ Reunião</button>
+      <button class="btn bts btsm" onclick="abrirLembrete()" title="Só anotação, não conta horas">&#128278; Retomar depois</button></div>`
+    +((alvoAg===E.perfil.nome_sistema&&!todosAg)?quadroRetomar(lembs||[]):"")
     +(ehHeadAg?`<div class="painel" style="padding:8px 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <span style="font-size:12px;color:var(--gray)">&#128101; Agenda de:</span>
       <select class="fsel" onchange="E._agPessoa=this.value;telaAgenda()">
@@ -5046,6 +5049,22 @@ async function telaAgenda(){
   }
   ge("conteudo").innerHTML=h;
 }
+function quadroRetomar(lembs){
+  const hj2=hojeISO();
+  const pend=(lembs||[]).filter(l=>!l.feito);
+  if(!pend.length)return "";
+  const atras=pend.filter(l=>l.data_lembrete<hj2),hoje=pend.filter(l=>l.data_lembrete===hj2),fut=pend.filter(l=>l.data_lembrete>hj2).slice(0,6);
+  const linha=(l,cor)=>`<div class="linha-item"><span style="font-size:12.5px">
+      <b style="color:${cor}">${brData(l.data_lembrete)}</b> · <b>${esc(l.cliente)}</b> — ${esc(l.texto)}
+      ${l.alvo&&l.alvo!=="para mim"?`<span class="tag ta">cobrar ${esc(l.alvo)}</span>`:""}</span>
+    <span><button class="btn btg btsm" onclick="lembreteFeito(${l.id})">&#10003; feito</button>
+      <button class="btn bts btsm" onclick="lembreteApagar(${l.id})">&#10005;</button></span></div>`;
+  return `<div class="painel" style="border-left:4px solid var(--roxo)">
+    <div class="bloco-t" style="color:var(--roxo)">&#128278; Para retomar (${pend.length})</div>
+    ${atras.length?`<div style="font-size:11px;font-weight:700;color:var(--red)">Atrasados</div>`+atras.map(l=>linha(l,"var(--red)")).join(""):""}
+    ${hoje.length?`<div style="font-size:11px;font-weight:700;color:var(--amber);margin-top:3px">Hoje</div>`+hoje.map(l=>linha(l,"var(--amber)")).join(""):""}
+    ${fut.length?`<div style="font-size:11px;font-weight:700;color:var(--gray);margin-top:3px">Próximos</div>`+fut.map(l=>linha(l,"var(--navy)")).join(""):""}</div>`;
+}
 function agNavegar(n){
   const d=new Date((E._agRef||hojeISO())+"T00:00:00");
   if(E._agModo==="dia")d.setDate(d.getDate()+n);
@@ -5082,7 +5101,9 @@ async function salvarReuniao(){
 // ============================================== TELA: PRODUTIVIDADE
 async function telaProdutividade(){
   setNav("prod","Minha Produtividade"); carregando();
-  let hist,ops,casos;try{[hist,ops,casos]=await Promise.all([DB.historicoHoje(),DB.tarefas(),DB.casos().catch(()=>[])]);}catch(e){return erro(e.message);}
+  let hist,ops,casos,reu;try{[hist,ops,casos,reu]=await Promise.all([DB.historicoHoje(),DB.tarefas(),DB.casos().catch(()=>[]),DB.reunioes().catch(()=>[])]);}catch(e){return erro(e.message);}
+  const minReuHoje=(reu||[]).filter(r=>r.assessor===E.perfil.nome_sistema&&String(r.data_dt||"").slice(0,10)===hojeISO())
+    .reduce((s,m)=>s+(parseInt(m.duracao_min_num||m.duracao_min)||0),0);
   const meu=(hist||[]).filter(r=>ehMeuNome(r.autor));
   const mapa={};(ops||[]).forEach(t=>{if(t.id_tarefa)mapa[t.id_tarefa]=t;});
   // tarefa encerrada hoje já saiu do quadro ativo — o nome do cliente vem
@@ -5120,7 +5141,7 @@ async function telaProdutividade(){
   ge("conteudo").innerHTML=`<div class="sg">
     <div class="sc"><div class="sl">Andamentos hoje</div><div class="sv">${updates}</div></div>
     <div class="sc"><div class="sl">Tarefas tocadas</div><div class="sv">${lista.length}</div></div>
-    <div class="sc"><div class="sl">Tempo hoje</div><div class="sv green pq">${fmtMin(min)}</div></div>
+    <div class="sc"><div class="sl">Tempo hoje ${minReuHoje?`<span style="font-size:9px;color:var(--gray)">(inclui ${fmtMin(minReuHoje)} de reunião)</span>`:""}</div><div class="sv green pq">${fmtMin(min+minReuHoje)}</div></div>
     <div class="sc"><div class="sl">Concluídas</div><div class="sv green">${concl}</div></div>
     <div class="sc"><div class="sl">Encerradas (arquivadas)</div><div class="sv">${ence}</div></div></div>
     <div class="bloco-t">O que você trabalhou hoje</div>`+
