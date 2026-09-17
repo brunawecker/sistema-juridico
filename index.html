@@ -135,6 +135,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .cald.fora{background:#FAFBFC;opacity:.5}
 .calpin{background:var(--ice);border-left:2px solid var(--navy);border-radius:3px;padding:1px 4px;margin-top:2px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* agenda das heads: células e pins bem maiores, com quebra de linha */
+.ag-grid{gap:7px}
+.ag-grid .cald{min-height:150px;font-size:11.5px;padding:8px}
+.ag-grid .cald>div:first-child+div{font-size:15px}
+.ag-grid .calpin{font-size:11.5px;padding:3px 7px;margin-top:4px;white-space:normal;line-height:1.3;border-left-width:4px}
+@media(max-width:760px){.ag-grid{grid-template-columns:1fr!important}.ag-grid .cald{min-height:auto}}
 /* MODAL */
 .mfundo{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:none;align-items:center;justify-content:center;padding:14px}
 .mfundo.aberto{display:flex}
@@ -4952,16 +4958,16 @@ async function telaAgenda(){
     ts.filter(t=>{if(t._concluida||t._delegada||t._emCorrecao)return false;const dr=String(t.data_revisao_dt||"").slice(0,10);return !dr||dr<kHoje;})
       .sort((a,b)=>(a._g-b._g)||((a._dias??9)-(b._dias??9)))
       .forEach(t=>{for(const d of dias){const k=chave(d);if(k<kHoje||d.getDay()===0||d.getDay()===6)continue;if(usoDia[k]<teto){estimDia[k].push(t);usoDia[k]++;return;}}});
-    let grade=`<div class="calgrid" style="grid-template-columns:repeat(7,1fr)">`;
+    let grade=`<div class="calgrid ag-grid" style="grid-template-columns:repeat(7,1fr)">`;
     dias.forEach((d,i)=>{const k=chave(d),ehH=k===kHoje;
       const rs=reuDe(k),tarDia=tarDe(k),estDia=estimDia[k]||[];
       const pins=tarDia.map(t=>({t,est:false})).concat(estDia.map(t=>({t,est:true})));
       grade+=`<div class="cald ${ehH?"hoje":""}" style="cursor:pointer" onclick="E._agModo='dia';E._agRef='${k}';telaAgenda()">
-        <div style="font-size:10px;font-weight:700;color:var(--gray)">${nomes[i]}</div>
-        <div style="font-weight:700;font-size:13px;color:${ehH?"var(--dani)":"var(--text)"}">${d.getDate()}</div>
-        ${rs.map(r=>`<div class="calpin" style="background:#F5F7FA;border-left-color:${reuCor(r)}" title="${esc(r.titulo)}${r.categoria==="sc"?" · dia de "+esc(r.responsavel||""):r.categoria==="sdr"?" · Nicholas":""}">&#128197; ${esc(r.horario||"")} ${esc(String(r.titulo||"").slice(0,14))}</div>`).join("")}
-        ${pins.slice(0,3).map(({t,est})=>`<div class="calpin" style="${est?"opacity:.65;border-left-style:dashed":""}">&#128203; ${esc(String(t.cliente||"").split(" ")[0])}</div>`).join("")}
-        ${pins.length>3?`<div style="color:var(--dani);font-weight:700">+${pins.length-3}</div>`:""}</div>`;});
+        <div style="font-size:11px;font-weight:700;color:var(--gray)">${nomes[i]}${rs.length?` · <span style="color:var(--dani)">${rs.length} reun.</span>`:""}</div>
+        <div style="font-weight:700;color:${ehH?"var(--dani)":"var(--text)"}">${d.getDate()}</div>
+        ${rs.map(r=>`<div class="calpin" style="background:#F5F7FA;border-left-color:${reuCor(r)}" title="${esc(r.titulo)}"><b>${esc(r.horario||"")}</b> ${esc(r.titulo||"")}${r.categoria==="sc"?`<br><span style="font-size:9.5px;color:${String(r.responsavel||"")===E.perfil.nome_sistema?"#C79A00":"var(--gray)"}">${String(r.responsavel||"")===E.perfil.nome_sistema?"⭐ seu dia":"dia de "+esc(r.responsavel||"")}</span>`:r.categoria==="sdr"?`<br><span style="font-size:9.5px;color:var(--roxo)">👤 Nicholas</span>`:""}</div>`).join("")}
+        ${pins.slice(0,4).map(({t,est})=>`<div class="calpin" style="background:var(--gray-lt);border-left-color:var(--gray);${est?"opacity:.6;border-left-style:dashed":""}">&#128203; ${esc(String(t.cliente||"").split(" ")[0])}</div>`).join("")}
+        ${pins.length>4?`<div style="color:var(--dani);font-weight:700;font-size:10px;margin-top:2px">+${pins.length-4} tarefa(s)</div>`:""}</div>`;});
     grade+=`</div><div style="font-size:11px;color:var(--gray);margin-top:4px">&#128197; = reunião · &#128203; cheio = data marcada · tracejado = estimado · toque num dia para abrir<br>
       <span style="color:var(--green)">&#9632;</span> plataforma SC (rodízio) · <span style="color:var(--roxo)">&#9632;</span> SDRs/Nicholas · <span style="color:var(--navy)">&#9632;</span> pessoal · <span style="color:#C79A00">&#9632;</span> as 3 heads</div>`;
     h+=grade;
@@ -4969,16 +4975,16 @@ async function telaAgenda(){
   else{ // mês
     const prim=new Date(ref.getFullYear(),ref.getMonth(),1);
     const ini=(prim.getDay()+6)%7,nd=new Date(ref.getFullYear(),ref.getMonth()+1,0).getDate();
-    let grade=`<div class="calgrid" style="grid-template-columns:repeat(7,1fr)">`;
-    grade+=nomes.map(n=>`<div style="text-align:center;font-size:10px;font-weight:700;color:var(--gray);padding:4px">${n}</div>`).join("");
-    for(let b=0;b<ini;b++)grade+=`<div class="cald" style="background:transparent;border:none"></div>`;
+    let grade=`<div class="calgrid ag-grid" style="grid-template-columns:repeat(7,1fr)">`;
+    grade+=nomes.map(n=>`<div style="text-align:center;font-size:11px;font-weight:700;color:var(--gray);padding:4px">${n}</div>`).join("");
+    for(let b=0;b<ini;b++)grade+=`<div class="cald" style="background:transparent;border:none;min-height:0"></div>`;
     for(let dia=1;dia<=nd;dia++){const d=new Date(ref.getFullYear(),ref.getMonth(),dia);const k=chave(d),ehH=k===kHoje;
       const rs=reuDe(k),ntar=tarDe(k).length;
       grade+=`<div class="cald ${ehH?"hoje":""}" style="cursor:pointer" onclick="E._agModo='dia';E._agRef='${k}';telaAgenda()">
-        <div style="font-weight:700;font-size:12px;color:${ehH?"var(--dani)":"var(--text)"}">${dia}</div>
-        ${rs.slice(0,3).map(r=>`<div class="calpin" style="background:#F5F7FA;border-left-color:${reuCor(r)}" title="${esc(r.titulo)}">&#128197; ${esc(r.horario||"")} ${esc(String(r.titulo||"").slice(0,10))}</div>`).join("")}
-        ${rs.length>3?`<div style="color:var(--dani);font-weight:700;font-size:10px">+${rs.length-3} reunião(ões)</div>`:""}
-        ${ntar?`<div style="font-size:9px;color:var(--gray)">&#128203; ${ntar}</div>`:""}</div>`;}
+        <div style="font-weight:700;color:${ehH?"var(--dani)":"var(--text)"}">${dia}${rs.length?` <span style="font-size:10px;color:var(--dani)">(${rs.length})</span>`:""}</div>
+        ${rs.slice(0,4).map(r=>`<div class="calpin" style="background:#F5F7FA;border-left-color:${reuCor(r)}" title="${esc(r.titulo)}"><b>${esc(r.horario||"")}</b> ${esc(String(r.titulo||"").slice(0,18))}</div>`).join("")}
+        ${rs.length>4?`<div style="color:var(--dani);font-weight:700;font-size:10px">+${rs.length-4} reunião(ões)</div>`:""}
+        ${ntar?`<div style="font-size:10px;color:var(--gray);margin-top:2px">&#128203; ${ntar} tarefa(s)</div>`:""}</div>`;}
     grade+=`</div><div style="font-size:11px;color:var(--gray);margin-top:4px">&#128197; = reuniões da agenda · &#128203; = nº de tarefas com data · toque num dia para os detalhes</div>`;
     h+=grade;
   }
