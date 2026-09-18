@@ -3197,11 +3197,12 @@ async function telaDiario(dia){
     // 🎟️ fichas em DOBRO para validar ANTES da roleta (sexta 15h)
     let dobros=[];try{dobros=await DB.fichaDobroAbertas();}catch(e){}
     if(dobros.length){
-      const rotD={CONTADOR_NOVO:"&#129534; Contador novo",REATIVACAO:"&#128260; Reativação"};
+      const rotD={CONTADOR_NOVO:"&#129534; Contador novo",REATIVACAO:"&#128260; Reativação",INDICACAO_CLIENTE:"&#129309; Indicação de cliente"};
       h+=`<div class="painel" style="background:#FBF7EA;border-color:#E6D9AE">
         <div class="bloco-t" style="color:#7F6000">&#127903;&#65039; Fichas em DOBRO para validar (${dobros.length}) — antes de sexta 15h</div>`+
         dobros.map(d=>`<div class="linha-item"><span style="font-size:12.5px">${rotD[d.tipo]||esc(d.tipo)} · <b>${esc(d.pessoa)}</b> · cliente <b>${esc(d.cliente)}</b>
           ${d.contador_empresa?`<br><span style="font-size:11.5px">contador: <b>${esc(d.contador_empresa)}</b> · <span style="font-family:'DM Mono'">${esc(d.contador_cnpj||"")}</span> · vinculado à casa: ${esc(d.vinculo_casa||"—")}</span>`:""}
+          ${d.tipo==="INDICACAO_CLIENTE"&&d.contador_cnpj?`<br><span style="font-size:11.5px">indicou o CNPJ novo: <span style="font-family:'DM Mono'"><b>${esc(d.contador_cnpj)}</b></span></span>`:""}
           ${d.evidencia?`<br><span style="font-size:11px;color:var(--gray)">B.I.: ${esc(String(d.evidencia).slice(0,160))}</span>`:""}
           ${d.anexo_caminho?`<br><a style="font-size:11px;color:var(--dani);cursor:pointer;text-decoration:underline" onclick='abrirDoc(${JSON.stringify(d.anexo_caminho)})'>&#128206; ${esc(d.anexo_nome||"anexo")}</a>`:""}</span>
           <span><button class="btn btg btsm" onclick="decidirDobro(${d.id},true)">&#10003; validar (2 fichas)</button>
@@ -3718,7 +3719,7 @@ async function telaMeusPremios(){
     ${(()=>{
       // 🎟️ FICHA EM DOBRO (Bruna, 18/09/2026): contador parceiro novo e
       // cliente reativado — pedido vai à validação das heads antes da roleta
-      const rot={CONTADOR_NOVO:"&#129534; Contador parceiro novo",REATIVACAO:"&#128260; Cliente reativado"};
+      const rot={CONTADOR_NOVO:"&#129534; Contador parceiro novo",REATIVACAO:"&#128260; Cliente reativado",INDICACAO_CLIENTE:"&#129309; Indicação de cliente"};
       const stD={PENDENTE:'<span class="tag td2">aguardando validação</span>',
         APROVADO:'<span class="tag tek">&#10003; validada — 2 fichas</span>',
         NEGADO:'<span class="tag ti">negada</span>',CANCELADO:'<span class="tag tm">cancelada</span>'};
@@ -3729,10 +3730,12 @@ async function telaMeusPremios(){
         <div class="bloco-t" style="color:#7F6000">&#127903;&#65039; Ficha em DOBRO — pedir validação das heads</div>
         <div style="font-size:11.5px;color:var(--gray);margin-bottom:8px">Vale 2 fichas na roleta, <b>após validação das heads</b>. Corte: <b>sexta 15h00</b> — pedido às 15h01 já conta para a roleta seguinte.<br>
           &#129534; <b>Contador parceiro novo:</b> só o <b>1º contrato</b> indicado por ele vale dobro — anexe o contrato (CNPJ e empresa do contador estão nele).<br>
-          &#128260; <b>Cliente reativado:</b> 6+ meses sem pagar e <b>sem MS, TIS ou garantias em andamento</b> — junte as evidências do B.I.</div>
+          &#128260; <b>Cliente reativado:</b> 6+ meses sem pagar e <b>sem MS, TIS ou garantias em andamento</b> — junte as evidências do B.I.<br>
+          &#129309; <b>Indicação de cliente:</b> cliente da casa indicou um <b>CNPJ novo</b> (que não seja dele mesmo) — vale ficha a mais.</div>
         <div class="linha-acao" style="margin-bottom:6px">
           <button class="btn btp btsm" onclick="abrirDobro('CONTADOR_NOVO')">&#129534; Contador parceiro novo</button>
           <button class="btn btp btsm" onclick="abrirDobro('REATIVACAO')">&#128260; Cliente reativado</button>
+          <button class="btn btp btsm" onclick="abrirDobro('INDICACAO_CLIENTE')">&#129309; Indicação de cliente</button>
           <button class="btn bts btsm" onclick="abrirContadorAntigo()" title="Contrato antigo, só para registro na base — não vale ficha">&#128218; Contador antigo (sem ficha)</button></div>
         ${ab.length?`<div style="font-size:11px;font-weight:700;color:var(--gray);margin-bottom:3px">Aguardando validação (${ab.length})</div>`+ab.map(ld).join(""):""}
         ${hi.length?`<details style="margin-top:6px"><summary style="font-size:12px;color:var(--gray);cursor:pointer">Histórico de dobros (${hi.length}) — toque para consultar</summary>
@@ -3742,13 +3745,18 @@ async function telaMeusPremios(){
 }
 // modal do pedido de ficha em dobro (os dois tipos)
 function abrirDobro(tipo){
-  const cont=tipo==="CONTADOR_NOVO";
-  modal2(cont?"&#129534; Contador parceiro novo":"&#128260; Cliente reativado",
+  const cont=tipo==="CONTADOR_NOVO",ind=tipo==="INDICACAO_CLIENTE";
+  modal2(cont?"&#129534; Contador parceiro novo":ind?"&#129309; Indicação de cliente":"&#128260; Cliente reativado",
     "Vai para validação das heads antes da roleta (sexta 15h)",`
-    <div class="bloco-t">Cliente ${cont?"do contrato novo":"reativado"} * <span style="font-weight:400;color:var(--gray)">(busque no cadastro)</span></div>
+    <div class="bloco-t">Cliente ${cont?"do contrato novo":ind?"que INDICOU":"reativado"} * <span style="font-weight:400;color:var(--gray)">(busque no cadastro)</span></div>
     <input class="fi" id="fd-cli" placeholder="Digite 3+ letras do nome..." oninput="buscaDobroCli()">
     <div id="fd-cli-res"></div>
     <div id="fd-cli-ok" style="display:none;font-size:11px;color:var(--green);margin:-4px 0 6px">&#128279; Cliente vinculado</div>
+    ${ind?`
+    <div class="bloco-t" style="margin-top:6px">CNPJ novo indicado *</div>
+    <input class="fi" id="fd-cnpj" placeholder="CNPJ da empresa indicada (não pode ser do próprio cliente)">
+    <div class="bloco-t" style="margin-top:6px">Observação (opcional)</div>
+    <input class="fi" id="fd-evid" placeholder="Ex: contato do indicado, contexto da indicação...">`:""}
     ${cont?`
     <div class="linha-acao"><input class="fi" id="fd-emp" placeholder="Empresa/nome do contador *" style="flex:2;margin:0">
       <input class="fi" id="fd-cnpj" placeholder="CPF/CNPJ do contador *" style="flex:1;margin:0"></div>
@@ -3758,7 +3766,7 @@ function abrirDobro(tipo){
       <input class="fi" id="fd-vinc-q" placeholder="Qual cliente/contador?" style="flex:1;margin:0;display:none"></div>
     <div class="bloco-t" style="margin-top:6px">&#128206; Contrato do contador parceiro (anexo) *</div>
     <input type="file" id="fd-file" class="fsel" style="width:100%">`
-    :`
+    :ind?"":`
     <div class="bloco-t" style="margin-top:6px">Evidências do B.I. * <span style="font-weight:400;color:var(--gray)">(última fatura paga há 6+ meses; sem MS/TIS/garantias em andamento)</span></div>
     <textarea class="fta" id="fd-evid" placeholder="Ex: última fatura paga em 02/03/2026; sem MS/TIS/garantias ativas no operacional; voltou a pagar em 15/09..."></textarea>
     <div class="bloco-t" style="margin-top:6px">&#128206; Print/anexo do B.I. (opcional)</div>
@@ -3787,6 +3795,11 @@ async function salvarDobro(tipo){
     if(!d.emp){toast("Informe a empresa do contador.","erro");return;}
     const dg1=String(d.cnpj).replace(/\D/g,"").length;if(dg1!==11&&dg1!==14){toast("CPF/CNPJ do contador inválido — CPF tem 11 dígitos, CNPJ 14.","erro");return;}
     if(!f){toast("Anexe o contrato do contador parceiro — é obrigatório.","erro");return;}
+  }else if(tipo==="INDICACAO_CLIENTE"){
+    d.cnpj=(ge("fd-cnpj").value||"").trim();
+    const dgI=String(d.cnpj).replace(/\D/g,"").length;
+    if(dgI!==11&&dgI!==14){toast("CNPJ indicado inválido — confira os dígitos.","erro");return;}
+    d.evid=(ge("fd-evid").value||"").trim()||null;
   }else{
     d.evid=(ge("fd-evid").value||"").trim();
     if(!d.evid){toast("Junte as evidências do B.I. antes de enviar.","erro");return;}
