@@ -3750,8 +3750,8 @@ function abrirDobro(tipo){
     <div id="fd-cli-res"></div>
     <div id="fd-cli-ok" style="display:none;font-size:11px;color:var(--green);margin:-4px 0 6px">&#128279; Cliente vinculado</div>
     ${cont?`
-    <div class="linha-acao"><input class="fi" id="fd-emp" placeholder="Empresa do contador *" style="flex:2;margin:0">
-      <input class="fi" id="fd-cnpj" placeholder="CNPJ do contador *" style="flex:1;margin:0"></div>
+    <div class="linha-acao"><input class="fi" id="fd-emp" placeholder="Empresa/nome do contador *" style="flex:2;margin:0">
+      <input class="fi" id="fd-cnpj" placeholder="CPF/CNPJ do contador *" style="flex:1;margin:0"></div>
     <div class="bloco-t" style="margin-top:6px">Veio vinculado a algum cliente/contador já da casa?</div>
     <div class="linha-acao"><select class="fsel" id="fd-vinc-s" onchange="ge('fd-vinc-q').style.display=this.value==='Sim'?'block':'none'">
       <option>Não</option><option>Sim</option></select>
@@ -3785,7 +3785,7 @@ async function salvarDobro(tipo){
     d.emp=(ge("fd-emp").value||"").trim();d.cnpj=(ge("fd-cnpj").value||"").trim();
     const vs=ge("fd-vinc-s").value;d.vinc=vs==="Sim"?("Sim — "+(ge("fd-vinc-q").value||"").trim()):"Não";
     if(!d.emp){toast("Informe a empresa do contador.","erro");return;}
-    if(String(d.cnpj).replace(/\D/g,"").length!==14){toast("CNPJ do contador inválido — confira os 14 dígitos.","erro");return;}
+    const dg1=String(d.cnpj).replace(/\D/g,"").length;if(dg1!==11&&dg1!==14){toast("CPF/CNPJ do contador inválido — CPF tem 11 dígitos, CNPJ 14.","erro");return;}
     if(!f){toast("Anexe o contrato do contador parceiro — é obrigatório.","erro");return;}
   }else{
     d.evid=(ge("fd-evid").value||"").trim();
@@ -3835,8 +3835,8 @@ function abrirContadorAntigo(){
     <input class="fi" id="fd-cli" placeholder="Digite 3+ letras do nome..." oninput="buscaDobroCli()">
     <div id="fd-cli-res"></div>
     <div id="fd-cli-ok" style="display:none;font-size:11px;color:var(--green);margin:-4px 0 6px">&#128279; Cliente vinculado</div>
-    <div class="linha-acao"><input class="fi" id="fd-emp" placeholder="Empresa do contador *" style="flex:2;margin:0">
-      <input class="fi" id="fd-cnpj" placeholder="CNPJ do contador *" style="flex:1;margin:0"></div>
+    <div class="linha-acao"><input class="fi" id="fd-emp" placeholder="Empresa/nome do contador *" style="flex:2;margin:0">
+      <input class="fi" id="fd-cnpj" placeholder="CPF/CNPJ do contador *" style="flex:1;margin:0"></div>
     <div class="bloco-t" style="margin-top:6px">&#128206; Contrato do contador (anexo) *</div>
     <input type="file" id="fd-file" class="fsel" style="width:100%">
     <button class="btn btp btw" style="margin-top:10px" onclick="salvarContadorAntigo()">&#128218; Registrar na base</button>`);
@@ -3847,7 +3847,7 @@ async function salvarContadorAntigo(){
   const emp=(ge("fd-emp").value||"").trim(),cnpj=(ge("fd-cnpj").value||"").trim();
   const f=(ge("fd-file")||{}).files?ge("fd-file").files[0]:null;
   if(!emp){toast("Informe a empresa do contador.","erro");return;}
-  if(String(cnpj).replace(/\D/g,"").length!==14){toast("CNPJ do contador inválido — confira os 14 dígitos.","erro");return;}
+  const dg2=String(cnpj).replace(/\D/g,"").length;if(dg2!==11&&dg2!==14){toast("CPF/CNPJ do contador inválido — CPF tem 11 dígitos, CNPJ 14.","erro");return;}
   if(!f){toast("Anexe o contrato do contador.","erro");return;}
   try{await DB.contadorAntigoRegistrar(E._fdCli.id,emp,cnpj);}catch(e){toast(e.message,"erro");return;}
   if(f.size>25*1024*1024)toast("Registrado, mas o anexo passou de 25 MB — anexe pelo cartão do cliente.","erro");
