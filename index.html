@@ -3334,7 +3334,10 @@ async function telaCentral(){
     ${(()=>{
       const conduzo=(props||[]).filter(p2=>loginDe(String(p2.quem_pediu||p2.responsavel||""))===eu
         &&String(p2.fechada||"NÃO")!=="SIM"&&!/recusad/i.test(String(p2.status||"")));
-      const aAgendar=conduzo.filter(p2=>!p2.data_reuniao);
+      // parecer ainda em finalização NÃO pede agendamento — só entra aqui
+      // quando o status disser "Parecer pronto" em diante (Bruna, 18/09/2026)
+      const aAgendar=conduzo.filter(p2=>!p2.data_reuniao
+        &&!/parecer em finaliza/i.test(String(p2.status||"")));
       const agendadas=conduzo.filter(p2=>p2.data_reuniao&&String(p2.data_reuniao).slice(0,10)>=hojeISO())
         .sort((a2,b2)=>String(a2.data_reuniao).localeCompare(String(b2.data_reuniao)));
       if(!aAgendar.length&&!agendadas.length)return "";
