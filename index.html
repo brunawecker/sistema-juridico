@@ -1539,12 +1539,15 @@ function montarPlanoDia(nome,ativas,reun,histHoje,props){
   const fuJanela=fuEfetivo(FOLLOWUP[nome]||0,propsFu.length);
   let reservaFu=0;
   if(fuJanela>0){reservaFu=fuJanela;rem=Math.max(0,rem-reservaFu);}
-  for(const t of diar){if(jaAdd[t.id_tarefa])continue;
-    if(rem-t._tempo<0){fila.push(t);continue;}if(push1(t,t._dias<0?2:3))rem-=t._tempo;}
+  // ATRASADAS ocupam o dia ANTES das em dia (caso do Ygor — Bruna,
+  // 19/09/2026): a capacidade vai primeiro para o que está vencido; a
+  // garantia de no mínimo 3 atrasadas mesmo com dia lotado continua
   let nAtr=0;
   for(const t of atr){if(jaAdd[t.id_tarefa])continue;
     if(rem<=0&&nAtr>=3){fila.push(t);continue;}if(push1(t,2)){rem-=t._tempo;nAtr++;}}
   rem=Math.max(0,rem);
+  for(const t of diar){if(jaAdd[t.id_tarefa])continue;
+    if(rem-t._tempo<0){fila.push(t);continue;}if(push1(t,t._dias<0?2:3))rem-=t._tempo;}
   for(const t of hoje0){if(jaAdd[t.id_tarefa])continue;
     if(rem<=0){fila.push(t);continue;}if(push1(t,3))rem-=t._tempo;}
   const imedVencidas=imed.filter(t=>typeof t._dias==="number"&&t._dias<0);
@@ -1656,7 +1659,11 @@ async function telaMinhas(){
       <span>${esc(t.cliente)} · ${esc(t.operacao||"")}</span><b>${esc(t.status_tarefa)}</b></div>`).join("")+`</div>`;
   if(fila.length)h+=`<div class="painel" style="background:var(--gray-lt)">
     <div class="bloco-t">&#9203; Na fila — ${fila.length} tarefa(s) (&asymp; ${(filaMin/Math.max(1,capDia)).toFixed(1)} dia(s) de trabalho)</div>
-    <div style="font-size:11px;color:var(--gray)">Não cabem na capacidade de hoje. Entram nos próximos dias na ordem de prioridade — ou a head pode liberar/delegar.</div></div>`;
+    <div style="font-size:11px;color:var(--gray);margin-bottom:5px">Não cabem na capacidade de hoje — entram nos próximos dias NESTA ordem (mais atrasada primeiro). Nada "aparece do nada": o que vier a seguir no seu dia está listado aqui.</div>
+    ${fila.slice(0,15).map(t=>`<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')">
+      <span style="font-size:12px">${esc(t.cliente)} · ${esc(t.operacao||"")} <span style="color:var(--gray);font-size:10px">&#9201;${t._tempo}min</span></span>
+      ${atrasoDias(t)>0?`<span class="tag ti">${atrasoDias(t)}d vencida</span>`:`<span class="tag tm">${t._dias===0?"de hoje":"agendada"}</span>`}</div>`).join("")}
+    ${fila.length>15?`<div style="font-size:11px;color:var(--gray);margin-top:3px">+${fila.length-15} mais adiante na fila</div>`:""}</div>`;
   // sugestão do robô: delegar quando o dia não fecha (só para quem pode delegar)
   if(AUTORIZADOS_DELEGAR.includes(nome)&&planejado>capDisp){
     let excesso=planejado-capDisp,nSug=0;
