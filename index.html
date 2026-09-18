@@ -1659,11 +1659,8 @@ async function telaMinhas(){
   if(meetings.length)h+=`<div class="painel"><div class="bloco-t">&#128197; Compromissos hoje</div>`+
     meetings.map(m=>`<div class="linha-item"><span><b>${esc(m.horario||"—")}</b> ${esc(m.titulo)}${m.cliente?" · "+esc(m.cliente):""}</span>
       <span>${esc(m.duracao_min||m.duracao_min_num||30)}min <button class="btn bts btsm" onclick="removerReuniao('${esc(m.id_reuniao)}')">&#10005;</button></span></div>`).join("")+`</div>`;
-  if(emCorr.length)h+=`<div class="painel" style="background:#F5F2FC;border-color:#D9CEF0">
-    <div class="bloco-t" style="color:#6B4FBF">&#9999; ${emCorr.length} aguardando correção</div>`+
-    emCorr.map(t=>`<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')">
-      <span>${esc(t.cliente)} · ${esc(t.operacao||"")}</span>
-      <span style="color:#6B4FBF">→ ${esc(t.correcao_head)}${t.correcao_retorno_dt?" · retorno "+brData(t.correcao_retorno_dt):""}</span></div>`).join("")+`</div>`;
+  // em correção NÃO é tarefa ativa (Bruna, 19/09/2026): depende da head —
+  // vai para o FINAL da tela, minimizada (montada depois da lista, abaixo)
   // delegadas moram na tela própria "Tarefas Delegadas" (Bruna, 19/09/2026);
   // aqui fica só o atalho
   if(deleg.length)h+=`<div class="painel" style="background:#EEF3F9;border-color:#C9D8EA;cursor:pointer" onclick="telaDelegadas()">
@@ -1709,8 +1706,16 @@ async function telaMinhas(){
       <option value="0">&#9888;&#65039; Prazo fatal</option><option value="0.5">&#128204; Fixas do dia</option>
       <option value="1">&#128308; Imediatas</option><option value="2">&#128992; Atrasadas</option>
       <option value="3">&#128309; Hoje</option></select></div>
-    <div id="mt-lista"></div>
-    <div id="mt-corrigir"></div>`;
+    <div id="mt-lista"></div>`;
+  if(emCorr.length)h+=`<div class="painel" style="background:#F5F2FC;border-color:#D9CEF0">
+    <details><summary style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px">
+      <span class="bloco-t" style="color:#6B4FBF;margin-bottom:0">&#9999; Em correção com a head (${emCorr.length})</span>
+      <span style="font-size:10px;color:var(--gray)">não contam como ativas — voltam como tarefa quando a head devolver (toque para ver)</span></summary>
+    <div style="margin-top:6px">`+
+    emCorr.map(t=>`<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')">
+      <span>${esc(t.cliente)} · ${esc(t.operacao||"")}</span>
+      <span style="color:#6B4FBF">→ ${esc(t.correcao_head)}${t.correcao_retorno_dt?" · retorno "+brData(t.correcao_retorno_dt):""}</span></div>`).join("")+`</div></details></div>`;
+  h+=`<div id="mt-corrigir"></div>`;
   ge("conteudo").innerHTML=h;
   desenhaMinhas();
   if(E.perfil.head_sim||CORR_HEADS.includes(nome))painelParaCorrigir("mt-corrigir");
