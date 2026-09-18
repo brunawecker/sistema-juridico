@@ -5270,8 +5270,10 @@ async function telaAgenda(){
     const k=chave(ref),ehH=k===kHoje;
     const rs=reuDe(k),tr=tarDe(k);
     h+=`<div class="painel"><div class="bloco-t">&#128197; Compromissos${ehH?" de hoje":""} (${rs.length})</div>
-      ${rs.length?rs.map(r=>`<div class="linha-item" style="border-left:5px solid ${reuCor(r)};background:${reuBg(r)};border-radius:8px;padding:6px 10px;margin-bottom:3px"><span style="font-size:13px"><b>${esc(r.horario||"—")}</b> · ${esc(r.titulo)}${r.cliente?" — "+esc(r.cliente):""} ${reuBadge(r)}${todosAg?` <span class="tag tda">${esc(r.assessor)}</span>`:""}</span>
-        <span style="font-size:11px;color:var(--gray)">${esc(r.duracao_min||r.duracao_min_num||30)}min ${reuGoogle(r)?"&#128197; Google":`<button class="btn bts btsm" onclick='removerReuniao(${JSON.stringify(r.id_reuniao)})'>&#10005;</button>`}</span></div>`).join("")
+      ${rs.length?rs.map((r,ri)=>{E._reuMap=E._reuMap||{};E._reuMap[r.id_reuniao]=r;
+        const temDet=r.descricao||r.local||r.convidados||r.link_ev;
+        return `<div class="linha-item" style="border-left:5px solid ${reuCor(r)};background:${reuBg(r)};border-radius:8px;padding:6px 10px;margin-bottom:3px${temDet?";cursor:pointer":""}" ${temDet?`onclick='verReuniao(${JSON.stringify(r.id_reuniao)})'`:""}><span style="font-size:13px"><b>${esc(r.horario||"—")}</b> · ${esc(r.titulo)}${r.cliente?" — "+esc(r.cliente):""} ${reuBadge(r)}${todosAg?` <span class="tag tda">${esc(r.assessor)}</span>`:""}${temDet?' <span style="font-size:10px;color:var(--dani)">&#128269; detalhes</span>':""}</span>
+        <span style="font-size:11px;color:var(--gray)">${esc(r.duracao_min||r.duracao_min_num||30)}min ${reuGoogle(r)?"&#128197; Google":`<button class="btn bts btsm" onclick='event.stopPropagation();removerReuniao(${JSON.stringify(r.id_reuniao)})'>&#10005;</button>`}</span></div>`;}).join("")
         :'<div class="vazio">Sem compromissos neste dia.</div>'}</div>
     <div class="painel"><div class="bloco-t">&#128203; Tarefas com data neste dia (${tr.length})</div>
       ${tr.length?tr.map(t=>cardTarefa(t,false,true)).join(""):'<div style="font-size:12px;color:var(--gray)">Nenhuma tarefa marcada para este dia.</div>'}</div>`;
@@ -5331,6 +5333,19 @@ function quadroRetomar(lembs){
     ${atras.length?`<div style="font-size:11px;font-weight:700;color:var(--red)">Atrasados</div>`+atras.map(l=>linha(l,"var(--red)")).join(""):""}
     ${hoje.length?`<div style="font-size:11px;font-weight:700;color:var(--amber);margin-top:3px">Hoje</div>`+hoje.map(l=>linha(l,"var(--amber)")).join(""):""}
     ${fut.length?`<div style="font-size:11px;font-weight:700;color:var(--gray);margin-top:3px">Próximos</div>`+fut.map(l=>linha(l,"var(--navy)")).join(""):""}</div>`;
+}
+function verReuniao(id){
+  const r=(E._reuMap||{})[id];if(!r)return;
+  const linhas=String(r.convidados||"").split(",").map(x=>x.trim()).filter(Boolean);
+  modal2("&#128197; "+esc(r.titulo),
+    `${esc(r.horario||"")}${r.duracao_min?" · "+esc(r.duracao_min)+"min":""}${r.data?" · "+esc(r.data):""} ${reuBadge(r)}`,
+    `${r.local?`<div class="bloco-t">&#128205; Local</div><div style="font-size:13px">${esc(r.local)}</div>`:""}
+     ${r.descricao?`<div class="bloco-t" style="margin-top:8px">&#128221; Descrição</div>
+       <div style="font-size:13px;white-space:pre-wrap;background:var(--gray-lt);border-radius:8px;padding:8px 11px;max-height:240px;overflow:auto">${esc(r.descricao)}</div>`:""}
+     ${linhas.length?`<div class="bloco-t" style="margin-top:8px">&#128101; Convidados (${linhas.length})</div>
+       <div style="font-size:12px;color:var(--gray)">${linhas.map(esc).join("<br>")}</div>`:""}
+     ${!r.local&&!r.descricao&&!linhas.length?`<div style="font-size:13px;color:var(--gray)">Este evento não tem descrição ou convidados no Google.</div>`:""}
+     ${r.link_ev?`<a href="${esc(r.link_ev)}" target="_blank" class="btn btp btw" style="margin-top:12px;display:block;text-align:center;text-decoration:none">&#128279; Abrir no Google / entrar na reunião</a>`:""}`);
 }
 function agNavegar(n){
   const d=new Date((E._agRef||hojeISO())+"T00:00:00");
