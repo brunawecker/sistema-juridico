@@ -5466,7 +5466,7 @@ async function ordenarReceptores(selId){
   if(maduFora)ord.push("Madu");
   const atual=sel.value;
   sel.innerHTML=ord.map((n,i)=>{const c=info(n);
-    const det=c?` — ${c.total_ativas} ativas · &#9889;${+c.n_imediatas||0} imediatas · ${c.n_diarias} diárias · ${c.n_semanais} semanais`:"";
+    const det=c?` — ${c.total_ativas} ativas · ⚡${+c.n_imediatas||0} imediatas · ${c.n_diarias} diárias · ${c.n_semanais} semanais`:"";
     const aus=ausenteAte(n);
     const rot=(n==="Madu"&&maduFora)?`${n} (advogada — só tarefas diretas das heads)`
       :aus?`${n} 🏖 AUSENTE até ${brData(aus)} — evite delegar`
