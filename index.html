@@ -730,6 +730,11 @@ const S = {
   async premioPedidoDecidir(id,ok,motivo){return rpcS("premio_pedido_decidir",{p_id:id,p_aprovar:ok,p_motivo:motivo||null});},
   async premioPedidoCancelar(id){return rpcS("premio_pedido_cancelar",{p_id:id});},
   async premioRecebi(id){return rpcS("premio_confirmar_recebido",{p_id:id});},
+  async fichaDobroAdd(d){return rpcS("ficha_dobro_add",{p_tipo:d.tipo,p_id_cliente:d.idCli||null,p_cliente:d.cliente,p_contador_empresa:d.emp||null,p_contador_cnpj:d.cnpj||null,p_vinculo:d.vinc||null,p_evidencia:d.evid||null});},
+  async fichaDobroAnexar(id,caminho,nome){return rpcS("ficha_dobro_anexar",{p_id:id,p_caminho:caminho,p_nome:nome});},
+  async fichaDobroMeus(){return okS(await supa.rpc("ficha_dobro_meus"))||[];},
+  async fichaDobroAbertas(){return okS(await supa.rpc("ficha_dobro_abertas"))||[];},
+  async fichaDobroDecidir(id,ok,motivo){return rpcS("ficha_dobro_decidir",{p_id:id,p_aprovar:ok,p_motivo:motivo||null});},
   async headGastosAcertar(){return rpcS("head_gastos_acertar",{});},
   async lembreteFeito(id){return rpcS("lembrete_feito",{p_id:id});},
   async lembreteApagar(id){return rpcS("lembrete_apagar",{p_id:id});},
@@ -789,7 +794,7 @@ const S = {
     if(x.data_revisao){u.data_revisao_dt=x.data_revisao;u.data_revisao=brData(x.data_revisao);}
     if(x.prazo_fatal){u.prazo_fatal_dt=x.prazo_fatal;u.prazo_fatal=brData(x.prazo_fatal);}
     if(x.queda_impedimento){u.queda_impedimento_dt=x.queda_impedimento;u.queda_impedimento=brData(x.queda_impedimento);}
-    if(x.limpar_prazo){u.prazo_fatal=null;u.prazo_fatal_dt=null;}
+    if(x.limpar_prazo){u.prazo_fatal=null;u.prazo_fatal_dt=null;u.retomada_fatal_dt=null;}
     okS(await supa.from("operacional").update(u).eq("id_tarefa",t.id_tarefa).eq("linha",t.linha));
     if(x.hist_texto)await histS(t.id_tarefa,t.id_cliente,x.hist_tipo||"ASSESSOR",x.hist_texto);
     return{ok:true};},
@@ -973,7 +978,7 @@ const S = {
     if(up.error)throw new Error(up.error.message);
     okS(await supa.from("documentos").insert({id_cliente:idCli,id_tarefa:idTar||null,
       nome_arquivo:file.name,caminho,tamanho:file.size,autor:E.perfil.nome_sistema}));
-    return{ok:true};},
+    return{ok:true,caminho};},
   async docAbrir(caminho){
     const r=await supa.storage.from("documentos").createSignedUrl(caminho,3600);
     if(r.error)throw new Error(r.error.message);
@@ -1451,7 +1456,7 @@ function cardTarefa(t,mostrarAssessor,mostrarTempo){
   return `<div class="tc ${t._urg===0?"uF":t._urg===0.5?"uP":"u"+(t._g||5)}" onclick="abrirTarefa('${esc(t.id_tarefa)}')"><div style="flex:1;min-width:0">
     <div class="tcc">${esc(t.cliente)}${fin}</div>
     <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${ec}${tagLanc(t)}${es}${hd}${pf}${ass}${tmp}</div></div>
-    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">${dt}${t.prazo_fatal_dt?`<span class="tdy ov" style="font-weight:700">FATAL: ${brData(t.prazo_fatal_dt)}</span>`:""}</div></div>`;
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">${dt}${t.prazo_fatal_dt?`<span class="tdy ov" style="font-weight:700">FATAL: ${brData(t.prazo_fatal_dt)}</span>`:""}${t.prazo_fatal_dt&&t.retomada_fatal_dt&&String(t.retomada_fatal_dt).slice(0,10)>hojeISO()?`<span class="tdy ok" title="Andamento do dia cumprido — dorme até a retomada">&#9203; retoma ${brData(t.retomada_fatal_dt)}</span>`:""}</div></div>`;
 }
 // Banner de prazos fatais desta semana (clicável)
 function bannerPrazoFatal(ts){
@@ -1502,8 +1507,11 @@ function montarPlanoDia(nome,ativas,reun,histHoje,props){
   // depois as FIXAS no dia delas; só então imediatas e o resto. O follow-up
   // continua sendo o cartão "Comece por aqui", acima até do fatal.
   // fatal fica no topo ENQUANTO o prazo não for marcado como cumprido —
-  // mesmo AGUARDANDO com retorno futuro ("sempre entra na frente")
-  const fatal=ativas.filter(t=>t.prazo_fatal_dt)
+  // mesmo AGUARDANDO com retorno futuro ("sempre entra na frente").
+  // EXCEÇÃO (Bruna, 19/09/2026): andamento do dia dado + RETOMADA marcada →
+  // o cartão dorme e só volta ao topo na data de retomada.
+  const fatal=ativas.filter(t=>t.prazo_fatal_dt
+      &&!(t.retomada_fatal_dt&&String(t.retomada_fatal_dt).slice(0,10)>hjISO2))
     .sort((a,b)=>((a._pfDias??999)-(b._pfDias??999)));
   const fixasDia=ativas.filter(t=>!t._concluida&&!t.prazo_fatal_dt&&ehFixaCard(t)
     &&typeof t._dias==="number"&&t._dias<=0);
@@ -1912,6 +1920,7 @@ function desenharCard(t,hist){
     <div>Frequência:<br><b>${esc(t.check_||"—")}</b></div>
     <div>Próxima revisão:<br><b>${brData(t.data_revisao_dt)||"—"}</b></div>
     ${t.prazo_fatal_dt?`<div>Prazo fatal:<br><b style="color:${t._prazoAlerta?"var(--red)":"var(--navy)"}">${brData(t.prazo_fatal_dt)}</b>
+      ${t.retomada_fatal_dt&&String(t.retomada_fatal_dt).slice(0,10)>hojeISO()?`<br><span style="font-size:11px;color:var(--gray)">&#9203; dorme até ${brData(t.retomada_fatal_dt)}</span>`:""}
       ${(isHead||ehMeuNome(t.assessor))?` <button class="btn bts btsm" style="padding:1px 8px;font-size:10px" title="O prazo foi cumprido — limpar o alerta" onclick="marcarPrazoCumprido()">&#10003; cumprido</button>`:""}</div>`:""}
     <div>Responsável:<br><b>${esc(t.assessor||"—")}</b></div>
     <div>Criada em:<br><b>${(()=>{if(t.data_inclusao_dt)return brData(String(t.data_inclusao_dt).slice(0,10));
@@ -1971,6 +1980,7 @@ function desenharCard(t,hist){
     <div class="linha-acao"><label style="font-size:11px">Cobrar a cada:</label>
       <select class="fsel" id="ag2-freq">${[3,5,7,10,14].map(n=>`<option ${n===7?"selected":""} value="${n}">${n} dias</option>`).join("")}</select>
       <label style="font-size:11px">Prazo fatal:</label><input type="date" class="fsel" id="ag2-fatal" value="${t.prazo_fatal_dt?String(t.prazo_fatal_dt).slice(0,10):""}">
+      <label style="font-size:11px" title="Depende de retorno de terceiro? O cartão sai do topo dos fatais e volta nesta data (no máximo no próprio prazo)">&#9203; Retomada do fatal:</label><input type="date" class="fsel" id="ag2-retomada" value="${t.retomada_fatal_dt?String(t.retomada_fatal_dt).slice(0,10):""}">
       <button class="btn btsm" style="background:#1F4E79;color:white" onclick="colocarAguardando()">&#9203; Aguardando c/ follow-up</button></div></div></div>`;}
   // concluir
   h+=`<div class="bloco"><div class="bloco-t">Atualizar / concluir</div><div class="linha-acao">
@@ -2091,12 +2101,39 @@ async function salvarNota(tipo){
       t.prazo_fatal_dt=null;t.prazo_fatal=null;t._prazoAlerta=false;t._pfDias=null;}}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   rascunhoLimpa("and:"+t.id_tarefa);
+  // PRAZO FATAL (Bruna, 19/09/2026): andamento do dia dado (ex.: guia enviada,
+  // esperando terceiro) → o cartão sai do topo e volta na data de RETOMADA
+  if(tipo==="ASSESSOR"&&t.prazo_fatal_dt&&ehMeuNome(t.assessor)){
+    toast("Salvo!","ok");abrirRetomadaFatal();return;}
   // regra da Bruna (16/09/2026): IMEDIATO é só o exigido para o DIA — deu
   // andamento (execução, não supervisão), o cartão sai de imediato e a
   // pessoa escolhe a próxima frequência na hora
   if(tipo==="ASSESSOR"&&String(t.check_||"").toUpperCase()==="IMEDIATO"&&ehMeuNome(t.assessor)){
     toast("Salvo!","ok");abrirProxFreq();return;}
   toast("Salvo!","ok");abrirTarefa(t.id_tarefa);}
+// andamento em PRAZO FATAL → escolher a retomada (ou manter no topo)
+function abrirRetomadaFatal(){
+  const t=E.atual,max=String(t.prazo_fatal_dt).slice(0,10);
+  const am=new Date(hojeISO()+"T12:00:00");am.setDate(am.getDate()+1);
+  let def=am.toISOString().slice(0,10);if(def>max)def=max;
+  modal2("&#9203; Andamento no PRAZO FATAL — e agora?",esc(t.cliente)+" — fatal "+brData(t.prazo_fatal_dt),`
+    <div style="font-size:12.5px;margin-bottom:8px">Você cumpriu o andamento do dia desta tarefa com <b>prazo fatal</b>. Se agora ela depende de retorno de terceiro (cliente, cartório…), marque a <b>retomada</b>: o cartão sai do topo dos fatais e volta nessa data — no máximo no próprio prazo fatal.</div>
+    <label style="font-size:11px">Retomar com o cliente em:</label>
+    <input type="date" class="fsel" id="rf-data" min="${hojeISO()}" max="${max}" value="${def}" style="width:100%">
+    <button class="btn btp btw" style="margin-top:8px" onclick="salvarRetomadaFatal()">&#9203; Dormir até a retomada</button>
+    <button class="btn bts btw" style="margin-top:6px" onclick="fecharModal2();abrirTarefa(E.atual.id_tarefa)">&#9889; Ainda falta algo — manter no topo</button>
+    <button class="btn btg btw" style="margin-top:6px" onclick="fecharModal2();marcarPrazoCumprido()">&#9989; O prazo foi CUMPRIDO — limpar o fatal</button>`);
+}
+async function salvarRetomadaFatal(){
+  const t=E.atual,d=ge("rf-data").value,max=String(t.prazo_fatal_dt).slice(0,10);
+  if(!d){toast("Escolha a data de retomada.","erro");return;}
+  if(d>max){toast("A retomada não pode passar do prazo fatal ("+brData(max)+").","erro");return;}
+  if(d<=hojeISO()){toast("Retomada é a partir de amanhã — o andamento de hoje você já deu. No dia do prazo, não dá para adiar.","erro");return;}
+  try{await DB.tarefaUpdate(t,{campos:{retomada_fatal_dt:d},data_revisao:d,
+    hist_texto:`⏸ Prazo fatal ${brData(t.prazo_fatal_dt)}: andamento do dia cumprido — cartão dorme e RETOMA em ${brData(d)}.`,hist_tipo:"HISTORICO"});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Combinado: o cartão volta ao topo em "+brData(d)+".","ok");
+  fecharModal2();fecharModal();recarregar();}
 // andamento em imediata → reprogramar o cartão (obrigatório)
 function abrirProxFreq(){
   const t=E.atual;
@@ -2324,9 +2361,14 @@ async function colocarAguardando(){
     const real=fatal;fatal=fatalComMargem(fatal);
     if(fatal!==real)notaPF=` (REAL ${brData(real)} — no sistema vale ${brData(fatal)}, margem D-2)`;}
   if(travaImpedimento(t))return;
+  // retomada do fatal: opcional, nunca além do prazo fatal em vigor
+  const retomada=(ge("ag2-retomada")||{}).value||"";
+  const pfVigente=fatal||String(t.prazo_fatal_dt||"").slice(0,10);
+  if(retomada&&!pfVigente){toast("Retomada é só para tarefa com prazo fatal — preencha o prazo fatal.","erro");return;}
+  if(retomada&&retomada>pfVigente){toast("A retomada não pode passar do prazo fatal ("+brData(pfVigente)+").","erro");return;}
   const prox=new Date();prox.setDate(prox.getDate()+freq);const pISO=prox.toISOString().slice(0,10);
-  try{await DB.tarefaUpdate(t,{campos:{check_:"AGUARDANDO"},data_revisao:pISO,...(fatal?{prazo_fatal:fatal}:{}),
-    hist_texto:`Tarefa definida como AGUARDANDO. Follow-up a cada ${freq} dias. Prazo fatal: ${fatal?brData(fatal)+notaPF:"não definido"}. Próximo retorno: ${brData(pISO)}.`});}
+  try{await DB.tarefaUpdate(t,{campos:{check_:"AGUARDANDO",...(retomada?{retomada_fatal_dt:retomada}:{})},data_revisao:pISO,...(fatal?{prazo_fatal:fatal}:{}),
+    hist_texto:`Tarefa definida como AGUARDANDO. Follow-up a cada ${freq} dias. Prazo fatal: ${fatal?brData(fatal)+notaPF:(pfVigente?brData(pfVigente):"não definido")}.${retomada?` Retomada do fatal: ${brData(retomada)}.`:""} Próximo retorno: ${brData(pISO)}.`});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   toast(`Aguardando! Próximo follow-up em ${freq} dias.`,"ok");fecharModal();recarregar();}
 async function avancarFollowUp(){
@@ -3151,6 +3193,19 @@ async function telaDiario(dia){
           <span><button class="btn btg btsm" onclick="decidirPedidoPremio(${p.id},true)">&#10003; aprovar</button>
           <button class="btn bts btsm" style="color:var(--red);border-color:var(--red)" onclick="decidirPedidoPremio(${p.id},false)">negar</button></span></div>`).join("")+
         `<div style="font-size:10px;color:var(--gray);margin-top:4px">Regra: pedido com 15 dias de antecedência (o sistema já trava no formulário do assessor). Aprovar grava a data na roleta — agenda de folgas.</div></div>`;}
+    // 🎟️ fichas em DOBRO para validar ANTES da roleta (sexta 15h)
+    let dobros=[];try{dobros=await DB.fichaDobroAbertas();}catch(e){}
+    if(dobros.length){
+      const rotD={CONTADOR_NOVO:"&#129534; Contador novo",REATIVACAO:"&#128260; Reativação"};
+      h+=`<div class="painel" style="background:#FBF7EA;border-color:#E6D9AE">
+        <div class="bloco-t" style="color:#7F6000">&#127903;&#65039; Fichas em DOBRO para validar (${dobros.length}) — antes de sexta 15h</div>`+
+        dobros.map(d=>`<div class="linha-item"><span style="font-size:12.5px">${rotD[d.tipo]||esc(d.tipo)} · <b>${esc(d.pessoa)}</b> · cliente <b>${esc(d.cliente)}</b>
+          ${d.contador_empresa?`<br><span style="font-size:11.5px">contador: <b>${esc(d.contador_empresa)}</b> · <span style="font-family:'DM Mono'">${esc(d.contador_cnpj||"")}</span> · vinculado à casa: ${esc(d.vinculo_casa||"—")}</span>`:""}
+          ${d.evidencia?`<br><span style="font-size:11px;color:var(--gray)">B.I.: ${esc(String(d.evidencia).slice(0,160))}</span>`:""}
+          ${d.anexo_caminho?`<br><a style="font-size:11px;color:var(--dani);cursor:pointer;text-decoration:underline" onclick='abrirDoc(${JSON.stringify(d.anexo_caminho)})'>&#128206; ${esc(d.anexo_nome||"anexo")}</a>`:""}</span>
+          <span><button class="btn btg btsm" onclick="decidirDobro(${d.id},true)">&#10003; validar (2 fichas)</button>
+          <button class="btn bts btsm" style="color:var(--red);border-color:var(--red)" onclick="decidirDobro(${d.id},false)">negar</button></span></div>`).join("")+
+        `<div style="font-size:10px;color:var(--gray);margin-top:4px">Validada, a ficha extra entra sozinha no Placar do ciclo. Contador novo aprovado fica registrado na ficha do cliente ("contador parceiro").</div></div>`;}
   }
   const por={};
   (hist||[]).forEach(r=>{const a=loginDe(r.autor);if(!a||a==="Sistema"||a==="Migração")return;
@@ -3613,9 +3668,10 @@ async function tricApagar(id){
 // ===== 🎁 MEUS PRÊMIOS — requerimento de uso (Bruna, 17/09/2026) =====
 async function telaMeusPremios(){
   setNav("prem","Meus Prêmios"); carregando();
-  let ps=[],peds=[];
+  let ps=[],peds=[],dob=[];
   try{ps=await DB.premiosMeus();}catch(e){return erro(e.message);}
   try{peds=await DB.premioPedidosMeus();}catch(e){}
+  try{dob=await DB.fichaDobroMeus();}catch(e){}
   const stTag={PENDENTE:'<span class="tag td2">aguardando as heads</span>',
     APROVADO:'<span class="tag tek">&#10003; aprovado</span>',
     NEGADO:'<span class="tag ti">negado</span>',CANCELADO:'<span class="tag tm">cancelado</span>'};
@@ -3657,7 +3713,92 @@ async function telaMeusPremios(){
         ${ab.length?ab.map(lp).join(""):'<div style="font-size:12px;color:var(--gray)">Nenhum pedido aguardando resposta.</div>'}
         ${hist.length?`<details style="margin-top:8px"><summary style="font-size:12px;color:var(--gray);cursor:pointer">Histórico de pedidos (${hist.length}) — toque para consultar</summary>
           <div style="margin-top:4px;opacity:.8">${hist.map(lp).join("")}</div></details>`:""}</div>`;
+    })()}
+    ${(()=>{
+      // 🎟️ FICHA EM DOBRO (Bruna, 18/09/2026): contador parceiro novo e
+      // cliente reativado — pedido vai à validação das heads antes da roleta
+      const rot={CONTADOR_NOVO:"&#129534; Contador parceiro novo",REATIVACAO:"&#128260; Cliente reativado"};
+      const stD={PENDENTE:'<span class="tag td2">aguardando validação</span>',
+        APROVADO:'<span class="tag tek">&#10003; validada — 2 fichas</span>',
+        NEGADO:'<span class="tag ti">negada</span>',CANCELADO:'<span class="tag tm">cancelada</span>'};
+      const ab=dob.filter(d=>d.status==="PENDENTE"),hi=dob.filter(d=>d.status!=="PENDENTE");
+      const ld=d=>`<div class="linha-item"><span style="font-size:12.5px">${rot[d.tipo]||esc(d.tipo)} · <b>${esc(d.cliente)}</b>${d.contador_empresa?` · ${esc(d.contador_empresa)}`:""}${d.anexo_nome?` · &#128206; ${esc(d.anexo_nome)}`:""}${d.status==="NEGADO"&&d.motivo?`<br><span style="font-size:11px;color:var(--red)">motivo: ${esc(d.motivo)}</span>`:""}</span>
+        <span>${stD[d.status]||esc(d.status)}</span></div>`;
+      return `<div class="painel" style="background:#FBF7EA;border-color:#E6D9AE">
+        <div class="bloco-t" style="color:#7F6000">&#127903;&#65039; Ficha em DOBRO — pedir validação das heads</div>
+        <div style="font-size:11.5px;color:var(--gray);margin-bottom:8px">Vale 2 fichas na roleta, <b>após validação das heads</b>. Corte: <b>sexta 15h00</b> — pedido às 15h01 já conta para a roleta seguinte.<br>
+          &#129534; <b>Contador parceiro novo:</b> só o <b>1º contrato</b> indicado por ele vale dobro — anexe o contrato (CNPJ e empresa do contador estão nele).<br>
+          &#128260; <b>Cliente reativado:</b> 6+ meses sem pagar e <b>sem MS, TIS ou garantias em andamento</b> — junte as evidências do B.I.</div>
+        <div class="linha-acao" style="margin-bottom:6px">
+          <button class="btn btp btsm" onclick="abrirDobro('CONTADOR_NOVO')">&#129534; Contador parceiro novo</button>
+          <button class="btn btp btsm" onclick="abrirDobro('REATIVACAO')">&#128260; Cliente reativado</button></div>
+        ${ab.length?`<div style="font-size:11px;font-weight:700;color:var(--gray);margin-bottom:3px">Aguardando validação (${ab.length})</div>`+ab.map(ld).join(""):""}
+        ${hi.length?`<details style="margin-top:6px"><summary style="font-size:12px;color:var(--gray);cursor:pointer">Histórico de dobros (${hi.length}) — toque para consultar</summary>
+          <div style="margin-top:4px;opacity:.8">${hi.map(ld).join("")}</div></details>`:""}
+      </div>`;
     })()}`;
+}
+// modal do pedido de ficha em dobro (os dois tipos)
+function abrirDobro(tipo){
+  const cont=tipo==="CONTADOR_NOVO";
+  modal2(cont?"&#129534; Contador parceiro novo":"&#128260; Cliente reativado",
+    "Vai para validação das heads antes da roleta (sexta 15h)",`
+    <div class="bloco-t">Cliente ${cont?"do contrato novo":"reativado"} * <span style="font-weight:400;color:var(--gray)">(busque no cadastro)</span></div>
+    <input class="fi" id="fd-cli" placeholder="Digite 3+ letras do nome..." oninput="buscaDobroCli()">
+    <div id="fd-cli-res"></div>
+    <div id="fd-cli-ok" style="display:none;font-size:11px;color:var(--green);margin:-4px 0 6px">&#128279; Cliente vinculado</div>
+    ${cont?`
+    <div class="linha-acao"><input class="fi" id="fd-emp" placeholder="Empresa do contador *" style="flex:2;margin:0">
+      <input class="fi" id="fd-cnpj" placeholder="CNPJ do contador *" style="flex:1;margin:0"></div>
+    <div class="bloco-t" style="margin-top:6px">Veio vinculado a algum cliente/contador já da casa?</div>
+    <div class="linha-acao"><select class="fsel" id="fd-vinc-s" onchange="ge('fd-vinc-q').style.display=this.value==='Sim'?'block':'none'">
+      <option>Não</option><option>Sim</option></select>
+      <input class="fi" id="fd-vinc-q" placeholder="Qual cliente/contador?" style="flex:1;margin:0;display:none"></div>
+    <div class="bloco-t" style="margin-top:6px">&#128206; Contrato do contador parceiro (anexo) *</div>
+    <input type="file" id="fd-file" class="fsel" style="width:100%">`
+    :`
+    <div class="bloco-t" style="margin-top:6px">Evidências do B.I. * <span style="font-weight:400;color:var(--gray)">(última fatura paga há 6+ meses; sem MS/TIS/garantias em andamento)</span></div>
+    <textarea class="fta" id="fd-evid" placeholder="Ex: última fatura paga em 02/03/2026; sem MS/TIS/garantias ativas no operacional; voltou a pagar em 15/09..."></textarea>
+    <div class="bloco-t" style="margin-top:6px">&#128206; Print/anexo do B.I. (opcional)</div>
+    <input type="file" id="fd-file" class="fsel" style="width:100%">`}
+    <button class="btn btp btw" style="margin-top:10px" onclick="salvarDobro('${tipo}')">&#127903;&#65039; Enviar para validação</button>`);
+  E._fdCli=null;
+}
+async function buscaDobroCli(){
+  E._fdCli=null;const ok=ge("fd-cli-ok");if(ok)ok.style.display="none";
+  const q=(ge("fd-cli").value||"").trim().toLowerCase();const box=ge("fd-cli-res");if(!box)return;
+  if(q.length<3){box.innerHTML="";return;}
+  if(!E._clsTodos||!E._clsTodos.length){try{E._clsTodos=await DB.clientes("");}catch(e){E._clsTodos=[];}}
+  box.innerHTML=(E._clsTodos||[]).filter(c=>String(c.nome||"").toLowerCase().includes(q)).slice(0,6)
+    .map(c=>`<div class="linha-item" style="cursor:pointer;font-size:12px" onclick='vincDobroCli(${JSON.stringify(c.id_cliente)},${JSON.stringify(c.nome)})'>&#128279; ${esc(c.nome)} <span style="color:var(--gray);font-size:10px">${esc(c.cnpj_cpf||"")}</span></div>`).join("");
+}
+function vincDobroCli(id,nome){E._fdCli={id,nome};ge("fd-cli").value=nome;
+  ge("fd-cli-res").innerHTML="";const ok=ge("fd-cli-ok");if(ok)ok.style.display="block";}
+async function salvarDobro(tipo){
+  const cont=tipo==="CONTADOR_NOVO";
+  if(!E._fdCli||ge("fd-cli").value!==E._fdCli.nome){toast("Busque e selecione o cliente no cadastro.","erro");return;}
+  const f=(ge("fd-file")||{}).files?ge("fd-file").files[0]:null;
+  let d={tipo,idCli:E._fdCli.id,cliente:E._fdCli.nome};
+  if(cont){
+    d.emp=(ge("fd-emp").value||"").trim();d.cnpj=(ge("fd-cnpj").value||"").trim();
+    const vs=ge("fd-vinc-s").value;d.vinc=vs==="Sim"?("Sim — "+(ge("fd-vinc-q").value||"").trim()):"Não";
+    if(!d.emp){toast("Informe a empresa do contador.","erro");return;}
+    if(String(d.cnpj).replace(/\D/g,"").length!==14){toast("CNPJ do contador inválido — confira os 14 dígitos.","erro");return;}
+    if(!f){toast("Anexe o contrato do contador parceiro — é obrigatório.","erro");return;}
+  }else{
+    d.evid=(ge("fd-evid").value||"").trim();
+    if(!d.evid){toast("Junte as evidências do B.I. antes de enviar.","erro");return;}
+  }
+  let id;
+  try{id=await DB.fichaDobroAdd(d);}catch(e){toast(e.message,"erro");return;}
+  if(f){
+    if(f.size>25*1024*1024){toast("Pedido enviado, mas o anexo passou de 25 MB — anexe pelo cartão do cliente e avise as heads.","erro");}
+    else try{const up=await DB.docEnviar(f,E._fdCli.id,"FICHA-DOBRO-"+id);
+      await DB.fichaDobroAnexar(id,up.caminho,f.name);}
+    catch(e){toast("Pedido enviado, mas o anexo falhou: "+e.message,"erro");}
+  }
+  toast("🎟️ Pedido enviado — as heads validam antes da roleta.","ok");
+  fecharModal2();telaMeusPremios();
 }
 function abrirPedidoPremio(id,nome){
   const d=new Date();d.setDate(d.getDate()+15);const min=d.toISOString().slice(0,10);
@@ -3685,6 +3826,12 @@ async function confirmarRecebido(id){
   if(!confirm("Confirmar que você RECEBEU este prêmio das heads?"))return;
   try{await DB.premioRecebi(id);}catch(e){toast(e.message,"erro");return;}
   toast("🎁 Registrado — aproveite!","ok");telaMeusPremios();}
+async function decidirDobro(id,ok){
+  let motivo=null;
+  if(!ok){motivo=prompt("Motivo da negativa (o assessor vai ver):");if(motivo===null)return;}
+  else if(!confirm("Validar? A ficha em dobro entra no Placar deste ciclo."))return;
+  try{await DB.fichaDobroDecidir(id,ok,motivo);}catch(e){toast(e.message,"erro");return;}
+  toast(ok?"🎟️ Validada — ficha extra no Placar.":"Negada — o assessor vê o motivo na tela dele.","ok");recarregar();}
 async function decidirPedidoPremio(id,ok){
   let motivo=null;
   if(!ok){motivo=prompt("Motivo da negativa (o assessor vai ver):");if(motivo===null)return;}
@@ -5168,7 +5315,8 @@ async function telaComercial(){
       const fichasCom=r=>fichasSemana(r)
         +((reinado&&reinado.pessoa===r.pessoa&&!reinado.ficha_usada)?1:0)
         +desafios.filter(d=>d.vencedor===r.pessoa).length
-        +(fx[r.pessoa]||0);
+        +(fx[r.pessoa]||0)
+        +(+r.bonus||0);   // 🎟️ ficha em dobro APROVADA pelas heads (sql/073-074)
       const ordF=[...pl].sort((a,b)=>fichasCom(b)-fichasCom(a)||(+b.valor_novos)-(+a.valor_novos));
       // empate no critério da semana → decide o MAIOR VALOR (Bruna, 25/08)
       const ordC=[...pl].sort((a,b)=>cc.medir(b)-cc.medir(a)||(+b.valor_novos)-(+a.valor_novos));
@@ -5204,7 +5352,7 @@ async function telaComercial(){
         ${ehHead?`<div class="linha-acao" style="margin-top:8px">
           <select class="fsel" id="pl-coroar" style="min-width:140px">${ordC.map((r,i)=>`<option ${i===0?"selected":""}>${esc(r.pessoa)}</option>`).join("")}</select>
           <button class="btn btsm" style="background:#FFD966;color:#5A4500;font-weight:700" onclick="coroarAgora()">&#128081; Coroar (reina a próxima semana)</button></div>`:""}
-        <div style="font-size:10px;opacity:.75;margin-top:5px">&#127903;&#65039; = SÓ contratos novos PAGOS na semana (1 cada). O selo &#128176;&#10003; indica carteira em dia — essa ficha só nasce na sexta às 15h, se a semana fechar sem atraso. Indicação em dobro, contador novo, reativação e voto do time são somados pelo responsável no quadro da sexta.</div></div>`;
+        <div style="font-size:10px;opacity:.75;margin-top:5px">&#127903;&#65039; = SÓ contratos novos PAGOS na semana (1 cada). O selo &#128176;&#10003; indica carteira em dia — essa ficha só nasce na sexta às 15h, se a semana fechar sem atraso. Contador parceiro novo e cliente reativado agora entram pelo pedido de <b>ficha em dobro</b> (Meus Prêmios) — a ficha extra soma aqui sozinha após a validação das heads. Indicação em dobro e voto do time seguem no quadro da sexta.</div></div>`;
     }
   }catch(e){}
   let h;
