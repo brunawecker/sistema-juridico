@@ -16,6 +16,9 @@
   --sh2:0 4px 16px rgba(68,127,152,.15),0 12px 40px rgba(68,127,152,.1);
 }
 *{box-sizing:border-box;margin:0;padding:0}
+/* 🟥 menu do João em tons de vermelho (pedido da Bruna, 18/09/2026);
+   fica ANTES do reinado de propósito: coroado, o dourado vence */
+body.menu-vermelho .sb{background:linear-gradient(170deg,#6E1E16 0%,#A93226 50%,#C25B4C 100%)}
 /* 👑 REINADO: o coroado da semana vê o sistema INTEIRO em tons dourados */
 body.reinado{--navy:#8A6D1C;--navy-lt:#B08D2E;--ice:#F7EFD8;--glacier:#EAD9A8;
   --dani:#7A5E14;--dani-lt:#FBF4DF;--gray:#8A7A4A;--gray-lt:#F7F3E6;
@@ -1013,6 +1016,8 @@ async function entrou(){
     &&!/head/i.test(m.cargo||"")&&!/vendedor|comercial|outro time/i.test(m.cargo||""))
     .map(m=>m.nome_sistema);
   if(opsAtivos.length){OPERACIONAIS.length=0;opsAtivos.forEach(n=>OPERACIONAIS.push(n));}
+  // menu em tons de vermelho só para o João (vale também no "Ver como")
+  document.body.classList.toggle("menu-vermelho",loginDe(p.nome_sistema)==="João");
   ge("tela-login").style.display="none"; ge("app").style.display="block";
   ge("sb-av").textContent=(p.nome_sistema||"?").charAt(0);
   ge("sb-nm").textContent=p.nome_sistema; ge("sb-rl").textContent=p.cargo+(p.admin_sim?" · ADMIN":"");
