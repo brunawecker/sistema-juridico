@@ -724,6 +724,7 @@ const S = {
   async headGastosAcertar(){return rpcS("head_gastos_acertar",{});},
   async lembreteFeito(id){return rpcS("lembrete_feito",{p_id:id});},
   async lembreteApagar(id){return rpcS("lembrete_apagar",{p_id:id});},
+  async sinalAgendar(idp){try{return await rpcS("sinal_agendar_apresentacao",{p_id_proposta:idp});}catch(e){return false;}},
   async franqueados(){return okS(await supa.from("franqueados").select("*").order("franqueado"))||[];},
   async franqueadoContato(id,status){return rpcS("franqueado_contato",{p_id:id,p_status:status||""});},
   async franqueadoResp(id,resp){return rpcS("franqueado_resp",{p_id:id,p_resp:resp});},
@@ -4873,7 +4874,12 @@ async function salvarNegociacao(id){
       valor_mes:vmes||null,data_pagto:dpag||null,data_reuniao:dreu||null});
     if(E._avulsa&&String(E._avulsa.desc||"").indexOf("📞")>-1)E._fuRodadasSessao=(E._fuRodadasSessao||0)+1;
     rascunhoLimpa("ng:"+id,"ngp:"+id);
-    toast(r.convertido?"🎉 Rodada salva — cliente convertido em OFICIAL!":"Rodada registrada!","ok");}
+    let avisou=false;
+    if(etapa==="Parecer pronto — agendar apresentação"){
+      const pr=E._propMap[id];const quem=pr?String(pr.quem_pediu||pr.responsavel||"").trim():"";
+      avisou=!!(await DB.sinalAgendar(id));
+      if(avisou)toast("Parecer pronto! Sinal enviado para "+(quem||"quem conduz a venda")+" agendar a 1ª reunião de apresentação.","ok");}
+    if(!avisou)toast(r.convertido?"🎉 Rodada salva — cliente convertido em OFICIAL!":"Rodada registrada!","ok");}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   fecharModal2();telaPropostas();
 }
