@@ -1661,13 +1661,18 @@ async function telaMinhas(){
   // aqui fica só o atalho
   if(deleg.length)h+=`<div class="painel" style="background:#EEF3F9;border-color:#C9D8EA;cursor:pointer" onclick="telaDelegadas()">
     <div class="bloco-t" style="color:#1F4E79">&#129309; ${deleg.length} tarefa(s) delegada(s) aguardando retorno — acompanhe em <u>Tarefas Delegadas</u> &#9656;</div></div>`;
-  if(fila.length)h+=`<div class="painel" style="background:var(--gray-lt)">
-    <div class="bloco-t">&#9203; Na fila — ${fila.length} tarefa(s) (&asymp; ${(filaMin/Math.max(1,capDia)).toFixed(1)} dia(s) de trabalho)</div>
-    <div style="font-size:11px;color:var(--gray);margin-bottom:5px">Não cabem na capacidade de hoje — entram nos próximos dias NESTA ordem (mais atrasada primeiro). Nada "aparece do nada": o que vier a seguir no seu dia está listado aqui.</div>
+  // fila MINIMIZADA por padrão (Bruna, 19/09/2026) — informação disponível
+  // num toque, sem poluir o visual do dia
+  if(fila.length){const nV=fila.filter(t=>atrasoDias(t)>0).length;
+  h+=`<div class="painel" style="background:var(--gray-lt)">
+    <details><summary style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px">
+      <span class="bloco-t" style="margin-bottom:0">&#9203; Na fila — ${fila.length} tarefa(s)${nV?` · <b style="color:var(--red)">${nV} vencida(s)</b>`:""}</span>
+      <span style="font-size:10px;color:var(--gray)">(&asymp; ${(filaMin/Math.max(1,capDia)).toFixed(1)} dia(s) de trabalho — toque para ver a lista)</span></summary>
+    <div style="font-size:11px;color:var(--gray);margin:6px 0 5px">Não cabem na capacidade de hoje — entram nos próximos dias NESTA ordem (mais atrasada primeiro). Nada "aparece do nada": o que vier a seguir no seu dia está listado aqui.</div>
     ${fila.slice(0,15).map(t=>`<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')">
       <span style="font-size:12px">${esc(t.cliente)} · ${esc(t.operacao||"")} <span style="color:var(--gray);font-size:10px">&#9201;${t._tempo}min</span></span>
       ${atrasoDias(t)>0?`<span class="tag ti">${atrasoDias(t)}d vencida</span>`:`<span class="tag tm">${t._dias===0?"de hoje":"agendada"}</span>`}</div>`).join("")}
-    ${fila.length>15?`<div style="font-size:11px;color:var(--gray);margin-top:3px">+${fila.length-15} mais adiante na fila</div>`:""}</div>`;
+    ${fila.length>15?`<div style="font-size:11px;color:var(--gray);margin-top:3px">+${fila.length-15} mais adiante na fila</div>`:""}</details></div>`;}
   // sugestão do robô: delegar quando o dia não fecha (só para quem pode delegar)
   if(AUTORIZADOS_DELEGAR.includes(nome)&&planejado>capDisp){
     let excesso=planejado-capDisp,nSug=0;
