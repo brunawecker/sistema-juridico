@@ -735,6 +735,7 @@ const S = {
   async fichaDobroMeus(){return okS(await supa.rpc("ficha_dobro_meus"))||[];},
   async fichaDobroAbertas(){return okS(await supa.rpc("ficha_dobro_abertas"))||[];},
   async fichaDobroDecidir(id,ok,motivo){return rpcS("ficha_dobro_decidir",{p_id:id,p_aprovar:ok,p_motivo:motivo||null});},
+  async contadorAntigoRegistrar(idCli,emp,cnpj){return rpcS("contador_parceiro_registrar",{p_id_cliente:idCli,p_empresa:emp,p_cnpj:cnpj});},
   async headGastosAcertar(){return rpcS("head_gastos_acertar",{});},
   async lembreteFeito(id){return rpcS("lembrete_feito",{p_id:id});},
   async lembreteApagar(id){return rpcS("lembrete_apagar",{p_id:id});},
@@ -3731,7 +3732,8 @@ async function telaMeusPremios(){
           &#128260; <b>Cliente reativado:</b> 6+ meses sem pagar e <b>sem MS, TIS ou garantias em andamento</b> — junte as evidências do B.I.</div>
         <div class="linha-acao" style="margin-bottom:6px">
           <button class="btn btp btsm" onclick="abrirDobro('CONTADOR_NOVO')">&#129534; Contador parceiro novo</button>
-          <button class="btn btp btsm" onclick="abrirDobro('REATIVACAO')">&#128260; Cliente reativado</button></div>
+          <button class="btn btp btsm" onclick="abrirDobro('REATIVACAO')">&#128260; Cliente reativado</button>
+          <button class="btn bts btsm" onclick="abrirContadorAntigo()" title="Contrato antigo, só para registro na base — não vale ficha">&#128218; Contador antigo (sem ficha)</button></div>
         ${ab.length?`<div style="font-size:11px;font-weight:700;color:var(--gray);margin-bottom:3px">Aguardando validação (${ab.length})</div>`+ab.map(ld).join(""):""}
         ${hi.length?`<details style="margin-top:6px"><summary style="font-size:12px;color:var(--gray);cursor:pointer">Histórico de dobros (${hi.length}) — toque para consultar</summary>
           <div style="margin-top:4px;opacity:.8">${hi.map(ld).join("")}</div></details>`:""}
@@ -3826,6 +3828,34 @@ async function confirmarRecebido(id){
   if(!confirm("Confirmar que você RECEBEU este prêmio das heads?"))return;
   try{await DB.premioRecebi(id);}catch(e){toast(e.message,"erro");return;}
   toast("🎁 Registrado — aproveite!","ok");telaMeusPremios();}
+// contrato ANTIGO de contador parceiro: só registro na base, sem ficha
+function abrirContadorAntigo(){
+  modal2("&#128218; Contador parceiro antigo — só registro","Não vale ficha do jogo; grava na ficha do cliente e guarda o contrato",`
+    <div class="bloco-t">Cliente vinculado * <span style="font-weight:400;color:var(--gray)">(busque no cadastro)</span></div>
+    <input class="fi" id="fd-cli" placeholder="Digite 3+ letras do nome..." oninput="buscaDobroCli()">
+    <div id="fd-cli-res"></div>
+    <div id="fd-cli-ok" style="display:none;font-size:11px;color:var(--green);margin:-4px 0 6px">&#128279; Cliente vinculado</div>
+    <div class="linha-acao"><input class="fi" id="fd-emp" placeholder="Empresa do contador *" style="flex:2;margin:0">
+      <input class="fi" id="fd-cnpj" placeholder="CNPJ do contador *" style="flex:1;margin:0"></div>
+    <div class="bloco-t" style="margin-top:6px">&#128206; Contrato do contador (anexo) *</div>
+    <input type="file" id="fd-file" class="fsel" style="width:100%">
+    <button class="btn btp btw" style="margin-top:10px" onclick="salvarContadorAntigo()">&#128218; Registrar na base</button>`);
+  E._fdCli=null;
+}
+async function salvarContadorAntigo(){
+  if(!E._fdCli||ge("fd-cli").value!==E._fdCli.nome){toast("Busque e selecione o cliente no cadastro.","erro");return;}
+  const emp=(ge("fd-emp").value||"").trim(),cnpj=(ge("fd-cnpj").value||"").trim();
+  const f=(ge("fd-file")||{}).files?ge("fd-file").files[0]:null;
+  if(!emp){toast("Informe a empresa do contador.","erro");return;}
+  if(String(cnpj).replace(/\D/g,"").length!==14){toast("CNPJ do contador inválido — confira os 14 dígitos.","erro");return;}
+  if(!f){toast("Anexe o contrato do contador.","erro");return;}
+  try{await DB.contadorAntigoRegistrar(E._fdCli.id,emp,cnpj);}catch(e){toast(e.message,"erro");return;}
+  if(f.size>25*1024*1024)toast("Registrado, mas o anexo passou de 25 MB — anexe pelo cartão do cliente.","erro");
+  else try{await DB.docEnviar(f,E._fdCli.id,"CONTADOR-PARCEIRO");}
+  catch(e){toast("Registrado, mas o anexo falhou: "+e.message,"erro");}
+  toast("📚 Contador parceiro registrado na ficha do cliente (sem ficha do jogo).","ok");
+  fecharModal2();telaMeusPremios();
+}
 async function decidirDobro(id,ok){
   let motivo=null;
   if(!ok){motivo=prompt("Motivo da negativa (o assessor vai ver):");if(motivo===null)return;}
