@@ -521,6 +521,13 @@ def sincronizar_agendas(sess):
                 d_fim = _dt.fromisoformat(fim).astimezone(sp)
                 mins = max(15, int((d_fim - d_ini).total_seconds() // 60))
                 titulo = (ev.get("summary") or "Reunião (agenda Google)")[:180]
+                descricao = (ev.get("description") or "")[:2000]
+                local = (ev.get("location") or "")[:300]
+                link_ev = (ev.get("hangoutLink") or ev.get("htmlLink") or "")[:400]
+                convidados = ", ".join(
+                    (a2.get("displayName") or a2.get("email") or "")
+                    for a2 in (ev.get("attendees") or [])
+                    if not a2.get("resource"))[:600]
                 cr_email = str((ev.get("creator") or {}).get("email", "")).lower()
                 origem = ((ev.get("extendedProperties") or {}).get("private") or {}).get("origem", "")
                 if ag.get("rot") and (cr_email in HEADS_EMAILS or origem == "sistema-3heads"):
@@ -535,17 +542,20 @@ def sincronizar_agendas(sess):
                     vivos.append(rid)
                     cur.execute("""insert into juridico.reunioes
                         (id_reuniao, data, data_dt, assessor, titulo, cliente,
-                         horario, duracao_min, duracao_min_num, obs, categoria, responsavel)
-                        values (%s,%s,%s,%s,%s,'',%s,%s,%s,%s,%s,%s)
+                         horario, duracao_min, duracao_min_num, obs, categoria, responsavel,
+                         descricao, local, link_ev, convidados)
+                        values (%s,%s,%s,%s,%s,'',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                         on conflict (id_reuniao) do update set
                           data=excluded.data, data_dt=excluded.data_dt,
                           titulo=excluded.titulo, horario=excluded.horario,
                           duracao_min=excluded.duracao_min,
                           duracao_min_num=excluded.duracao_min_num,
-                          categoria=excluded.categoria, responsavel=excluded.responsavel""",
+                          categoria=excluded.categoria, responsavel=excluded.responsavel,
+                          descricao=excluded.descricao, local=excluded.local,
+                          link_ev=excluded.link_ev, convidados=excluded.convidados""",
                         (rid, d_ini.strftime("%d/%m/%Y"), d_ini.date(), nome, titulo,
                          d_ini.strftime("%H:%M"), str(mins), mins, "agenda Google",
-                         cat_ev, resp))
+                         cat_ev, resp, descricao, local, link_ev, convidados))
             for nome in pessoas:
                 cur.execute("""delete from juridico.reunioes
                     where assessor=%s and id_reuniao like %s
