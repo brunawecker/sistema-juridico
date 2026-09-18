@@ -1138,6 +1138,7 @@ function montarMenu(){
     ["com","&#128188;","Comercial",telaComercial],
     ["diario","&#9200;","Acompanhamento Diário",telaDiario],
     ["minhas","&#128203;","Minhas Tarefas",telaMinhas],
+    ["deleg","&#129309;","Tarefas Delegadas",telaDelegadas],
     ["assessor","&#128101;","Por Assessor",telaPorAssessor],
     ["cap","&#127919;","Capacidade da Equipe",telaCapacidade],
     ["agora","&#128994;","Em Andamento Agora",telaAgora],
@@ -1153,7 +1154,7 @@ function montarMenu(){
     ["fix","&#128260;","Tarefas Fixas",telaFixas],
     ["cfg","&#9881;&#65039;","Configurações",telaConfig],
   ];
-  else itens=[
+  else{itens=[
     ["minhas","&#128203;","Minhas Tarefas",telaMinhas],
     ["agenda","&#128197;","Minha Agenda",telaAgenda],
     ["com","&#128188;","Meu Comercial",telaComercial],
@@ -1163,6 +1164,9 @@ function montarMenu(){
     ["prop","&#128203;","Minhas Propostas",telaPropostas],
     ["fix","&#128260;","Tarefas Fixas",telaFixas],
   ];
+  // quem pode delegar gere os impulsos num ambiente próprio (Bruna, 19/09/2026)
+  if(AUTORIZADOS_DELEGAR.includes(p.nome_sistema))
+    itens.splice(1,0,["deleg","&#129309;","Tarefas Delegadas",telaDelegadas]);}
   E._itens=itens;
   montarFab(vend);
   retomarSessaoAtiva();
@@ -1653,10 +1657,10 @@ async function telaMinhas(){
     emCorr.map(t=>`<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')">
       <span>${esc(t.cliente)} · ${esc(t.operacao||"")}</span>
       <span style="color:#6B4FBF">→ ${esc(t.correcao_head)}${t.correcao_retorno_dt?" · retorno "+brData(t.correcao_retorno_dt):""}</span></div>`).join("")+`</div>`;
-  if(deleg.length)h+=`<div class="painel" style="background:#EEF3F9;border-color:#C9D8EA">
-    <div class="bloco-t" style="color:#1F4E79">&#129309; Delegadas — aguardando retorno (${deleg.length}) <span style="font-weight:400">— não contam na capacidade</span></div>`+
-    deleg.map(t=>`<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')">
-      <span>${esc(t.cliente)} · ${esc(t.operacao||"")}</span><b>${esc(t.status_tarefa)}</b></div>`).join("")+`</div>`;
+  // delegadas moram na tela própria "Tarefas Delegadas" (Bruna, 19/09/2026);
+  // aqui fica só o atalho
+  if(deleg.length)h+=`<div class="painel" style="background:#EEF3F9;border-color:#C9D8EA;cursor:pointer" onclick="telaDelegadas()">
+    <div class="bloco-t" style="color:#1F4E79">&#129309; ${deleg.length} tarefa(s) delegada(s) aguardando retorno — acompanhe em <u>Tarefas Delegadas</u> &#9656;</div></div>`;
   if(fila.length)h+=`<div class="painel" style="background:var(--gray-lt)">
     <div class="bloco-t">&#9203; Na fila — ${fila.length} tarefa(s) (&asymp; ${(filaMin/Math.max(1,capDia)).toFixed(1)} dia(s) de trabalho)</div>
     <div style="font-size:11px;color:var(--gray);margin-bottom:5px">Não cabem na capacidade de hoje — entram nos próximos dias NESTA ordem (mais atrasada primeiro). Nada "aparece do nada": o que vier a seguir no seu dia está listado aqui.</div>
@@ -1719,6 +1723,44 @@ function desenhaMinhas(){
       +g[k].map(t=>cardTarefa(t,false,true)).join("");});
   alvo.innerHTML=algum?h:`<div class="vazio"><div style="font-size:30px">&#127881;</div>
     <p style="font-weight:600;margin-top:8px">Nenhuma tarefa pendente!</p></div>`;
+}
+// ============================================ TELA: TAREFAS DELEGADAS
+// (Bruna, 19/09/2026): quem delegou gere os impulsos AQUI, num ambiente
+// próprio — eles saem do Minhas Tarefas (lá fica só um atalho)
+async function telaDelegadas(){
+  setNav("deleg","Tarefas Delegadas"); carregando();
+  let dados;try{dados=await DB.tarefas();}catch(e){return erro(e.message);}
+  const ts=(dados||[]).map(classificar);E.tarefas=ts;
+  const minhas=ts.filter(t=>t._delegada&&ehMeuNome(t.assessor));
+  // o(s) impulso(s) ativo(s) desta tarefa: subtarefa com "Origem: <id>"
+  const subDe=t=>ts.filter(s=>s.id_tarefa!==t.id_tarefa&&!s._delegada
+    &&String(s.supervisao||"").includes("Origem: "+t.id_tarefa+" |"));
+  const itens=minhas.map(t=>{const subs=subDe(t);
+    const venc=subs.some(s=>typeof s._dias==="number"&&s._dias<0);
+    const ord=subs.length?Math.min.apply(null,subs.map(s=>s._dias??99)):99;
+    return {t,subs,venc,ord};}).sort((a,b)=>a.venc===b.venc?a.ord-b.ord:(a.venc?-1:1));
+  const nVenc=itens.filter(x=>x.venc).length;
+  let h=`<div class="sg">
+    <div class="sc"><div class="sl">Delegadas</div><div class="sv">${itens.length}</div></div>
+    <div class="sc"><div class="sl">Retorno vencido</div><div class="sv ${nVenc?"red":"green"}">${nVenc}</div></div></div>
+  <div style="font-size:11.5px;color:var(--gray);margin-bottom:8px">Tarefas suas que estão na mão de outra pessoa por impulso. Não contam na sua capacidade nem aparecem no Minhas Tarefas — o cartão volta para você quando a pessoa finalizar o impulso. <b>Vencido</b> = a rodada combinada passou e ainda não devolveram: cobre a pessoa ou avise a head.</div>`;
+  if(!itens.length)h+=`<div class="vazio"><div style="font-size:30px">&#129309;</div>
+    <p style="font-weight:600;margin-top:8px">Nenhuma tarefa delegada agora.</p>
+    <p style="font-size:12px;color:var(--gray)">Quando você enviar um impulso, ele aparece aqui para acompanhamento.</p></div>`;
+  itens.forEach(({t,subs,venc})=>{
+    const para=(String(t.status_tarefa||"").split("→")[1]||subs.map(s=>s.assessor).join(", ")||"?").trim();
+    const pedido=subs.length?String(String(subs[0].supervisao||"").split("Pedido: ")[1]||"").slice(0,140):"";
+    h+=`<div class="tc ${venc?"u1":"u5"}">
+      <div style="flex:1;min-width:0">
+        <div class="tcc" style="cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')">${esc(t.cliente)}</div>
+        <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>
+          <span class="tag" style="background:#1F4E79;color:white">&#129309; com ${esc(para)}</span>
+          ${subs.map(s=>`<span class="tag ${typeof s._dias==="number"&&s._dias<0?"ti":"tm"}" style="cursor:pointer" onclick="abrirTarefa('${esc(s.id_tarefa)}')" title="abrir o impulso (${esc(s.id_tarefa)})">${esc(s.check_||"")}${typeof s._dias==="number"&&s._dias<0?` · vencido há ${Math.abs(s._dias)}d`:(s.data_revisao_dt?` · rodada ${brData(s.data_revisao_dt)}`:"")}</span>`).join("")}</div>
+        ${pedido?`<div class="tco" style="margin-top:3px;font-style:italic">"${esc(pedido)}"</div>`:""}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
+        <button class="btn bts btsm" onclick="abrirTarefa('${esc(t.id_tarefa)}')">abrir</button></div></div>`;});
+  ge("conteudo").innerHTML=h;
 }
 // cartão diário do follow-up de propostas — clica e abre a fila + relógio
 function fuCardHtml(){
