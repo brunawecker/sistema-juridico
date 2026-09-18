@@ -100,6 +100,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .tc:hover{box-shadow:var(--sh2);transform:translateY(-1px)}
 .tc.u1{border-left-color:var(--red)}.tc.u2{border-left-color:var(--amber)}
 .tc.u3{border-left-color:#3B82F6}.tc.u4{border-left-color:#8B5CF6}.tc.u5{border-left-color:var(--glacier)}
+.tc.uF{border-left-color:#7B0000;background:linear-gradient(135deg,#FFF8F7,#FDEDEC)}
+.tc.uP{border-left-color:#0F766E}
 .tcc{font-size:13px;font-weight:600;color:var(--navy)}
 .tcm{display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap}
 .tco{font-size:11px;color:var(--gray)}
@@ -609,6 +611,10 @@ const L = {  // modo local (servidor de teste na máquina)
   correcaoDevolver(t){return this.f("/api/correcao_devolver",P({id_tarefa:t.id_tarefa,linha:t.linha,id_cliente:t.id_cliente}));},
   correcaoPuxar(t){return this.f("/api/correcao_puxar",P({id_tarefa:t.id_tarefa,linha:t.linha,id_cliente:t.id_cliente}));},
   delegar(t,x){return this.f("/api/delegar",P({quando:x.quando||null,id_tarefa:t.id_tarefa,...x}));},
+  // redirecionamento só existe no site publicado (Supabase)
+  async redirPedir(){throw new Error("Pedido de redirecionamento só no site publicado.");},
+  async redirListar(){return [];},
+  async redirDecidir(){throw new Error("Aprovação de redirecionamento só no site publicado.");},
   impulsoFinalizar(id){return this.f("/api/impulso_finalizar",P({id_tarefa:id}));},
   criarTarefa(d){return this.f("/api/criar_tarefa",P(d));},
   criarCliente(d){return this.f("/api/criar_cliente",P(d));},
@@ -819,7 +825,12 @@ const S = {
     await histS(t.id_tarefa,t.id_cliente,"CORRECAO","Correção concluída — devolvida ao assessor (imediato)");return{ok:true};},
   async delegar(t,x){const sub=await novoIdS("OP"),hid=await novoIdS("HIS");
     await rpcS("delegar_impulso",{p_id_tarefa:t.id_tarefa,p_para:x.para,p_desc:x.descricao,
-      p_freq:x.freq||"IMEDIATO",p_sub_id:sub,p_hist_id:hid,p_quando:x.quando||null});return{ok:true,sub:sub};},
+      p_freq:x.freq||"DIÁRIO",p_sub_id:sub,p_hist_id:hid,p_quando:x.quando||null});return{ok:true,sub:sub};},
+  // 🔁 redirecionamento de tarefa (prazo fatal na mão errada): assessor pede,
+  // head responsável aprova — sql/071
+  async redirPedir(id,para,motivo){return rpcS("redir_pedir",{p_id_tarefa:id,p_para:para,p_motivo:motivo});},
+  async redirListar(){return okS(await supa.rpc("redir_listar"))||[];},
+  async redirDecidir(id,aprovar){return rpcS("redir_decidir",{p_id:id,p_aprovar:aprovar});},
   async impulsoFinalizar(id){const hid=await novoIdS("HIS");
     const ok=await rpcS("finalizar_impulso",{p_sub_id:id,p_hist_id:hid});
     if(!ok)throw new Error("não foi possível finalizar");return{ok:true};},
@@ -1397,6 +1408,15 @@ function dataLanc(t){
 // real (caso Zona Country, 16/09/2026)
 function lancKey(t){const m=String(dataLanc(t)||"").match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   return m?`${m[3]}-${m[2]}-${m[1]}`:"9999-12-31";}
+// cartão criado pelo robô a partir de uma tarefa fixa (📌)
+function ehFixaCard(t){return String(t.status_tarefa||"")==="TAREFA FIXA"||String(t.cliente||"").startsWith("📌");}
+// prazo fatal entra no banco com MARGEM D-2 em dias úteis (Bruna, 19/09/2026);
+// nunca cai em fim de semana nem antes de hoje. Recebe/retorna AAAA-MM-DD.
+function fatalComMargem(iso){if(!iso)return "";
+  const d=new Date(iso+"T12:00:00");d.setDate(d.getDate()-2);
+  while(d.getDay()===0||d.getDay()===6)d.setDate(d.getDate()-1);
+  const hj=new Date(hojeISO()+"T12:00:00");
+  return (d<hj?hj:d).toISOString().slice(0,10);}
 // atraso em dias pela REVISÃO — regra da Bruna (16/09/2026): o que conta é
 // há quanto tempo a tarefa está NA MESA sem toque. Voltou da correção ontem?
 // É a menos atrasada das imediatas — vai para o fim da fila delas.
@@ -1428,7 +1448,7 @@ function cardTarefa(t,mostrarAssessor,mostrarTempo){
   const pf=t._prazoAlerta?`<span class="tag ti">&#9888; ${brData(t.prazo_fatal_dt)}</span>`:"";
   const ass=mostrarAssessor&&t.assessor?`<span class="tco">&#128100; ${esc(t.assessor)}</span>`:"";
   const tmp=mostrarTempo?`<span class="tco" style="font-family:'DM Mono'">&#9201;${t._tempo}min</span>`:"";
-  return `<div class="tc u${t._g||5}" onclick="abrirTarefa('${esc(t.id_tarefa)}')"><div style="flex:1;min-width:0">
+  return `<div class="tc ${t._urg===0?"uF":t._urg===0.5?"uP":"u"+(t._g||5)}" onclick="abrirTarefa('${esc(t.id_tarefa)}')"><div style="flex:1;min-width:0">
     <div class="tcc">${esc(t.cliente)}${fin}</div>
     <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${ec}${tagLanc(t)}${es}${hd}${pf}${ass}${tmp}</div></div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">${dt}${t.prazo_fatal_dt?`<span class="tdy ov" style="font-weight:700">FATAL: ${brData(t.prazo_fatal_dt)}</span>`:""}</div></div>`;
@@ -1478,19 +1498,31 @@ function montarPlanoDia(nome,ativas,reun,histHoje,props){
   const jaTrab=(histHoje||[]).filter(r=>r.tipo==="TIMER"&&loginDe(r.autor)===nome)
     .reduce((s,r)=>s+(parseInt((String(r.texto||"").match(/(\d+)\s*min/)||[])[1])||0),0);
   const cap=capDe(nome), capDia=Math.max(60,cap-minReu), capDisp=Math.max(0,capDia-jaTrab);
-  const imed=ativas.filter(t=>t._g===1), atr=ativas.filter(t=>t._g===2).sort((a,b)=>a._dias-b._dias),
-        diar=ativas.filter(t=>t._g===3&&/DI[ÁA]RIO/.test(t._chk)),
-        hoje0=ativas.filter(t=>t._g===3&&!/DI[ÁA]RIO/.test(t._chk));
+  // topo do dia (Bruna, 19/09/2026): PRAZO FATAL sempre na frente de tudo;
+  // depois as FIXAS no dia delas; só então imediatas e o resto. O follow-up
+  // continua sendo o cartão "Comece por aqui", acima até do fatal.
+  // fatal fica no topo ENQUANTO o prazo não for marcado como cumprido —
+  // mesmo AGUARDANDO com retorno futuro ("sempre entra na frente")
+  const fatal=ativas.filter(t=>t.prazo_fatal_dt)
+    .sort((a,b)=>((a._pfDias??999)-(b._pfDias??999)));
+  const fixasDia=ativas.filter(t=>!t._concluida&&!t.prazo_fatal_dt&&ehFixaCard(t)
+    &&typeof t._dias==="number"&&t._dias<=0);
+  const topo=t=>!!t.prazo_fatal_dt||fixasDia.includes(t);
+  const imed=ativas.filter(t=>t._g===1&&!topo(t)), atr=ativas.filter(t=>t._g===2&&!topo(t)).sort((a,b)=>a._dias-b._dias),
+        diar=ativas.filter(t=>t._g===3&&/DI[ÁA]RIO/.test(t._chk)&&!topo(t)),
+        hoje0=ativas.filter(t=>t._g===3&&!/DI[ÁA]RIO/.test(t._chk)&&!topo(t));
   const dow=new Date().getDay();
-  const semanal=ativas.filter(t=>t._chk==="SEMANAL"&&t._dias>0&&t._dias<=6&&(dow===1||dow===2));
-  const mensal=ativas.filter(t=>t._chk==="MENSAL"&&t._dias>0&&t._dias<=7);
+  const semanal=ativas.filter(t=>t._chk==="SEMANAL"&&t._dias>0&&t._dias<=6&&(dow===1||dow===2)&&!topo(t));
+  const mensal=ativas.filter(t=>t._chk==="MENSAL"&&t._dias>0&&t._dias<=7&&!topo(t));
   const pesoF=t=>t._pago?0:(t._prov?1:2);
   semanal.sort((a,b)=>pesoF(a)-pesoF(b)||b._dias-a._dias);
   mensal.sort((a,b)=>pesoF(a)-pesoF(b)||b._dias-a._dias);
   const plano=[],fila=[],jaAdd={};
   const push1=(t,urg)=>{const k=t.id_tarefa;if(k&&jaAdd[k])return false;if(k)jaAdd[k]=true;t._urg=urg;plano.push(t);return true;};
+  fatal.forEach(t=>push1(t,0));
+  fixasDia.forEach(t=>push1(t,0.5));
   imed.forEach(t=>push1(t,1));
-  let rem=Math.max(0,capDisp-imed.reduce((s,t)=>s+t._tempo,0));
+  let rem=Math.max(0,capDisp-plano.reduce((s,t)=>s+t._tempo,0));
   const janelaPros=PROSPEC[nome]||0;
   let reservaPros=0;
   if(janelaPros>0&&PROSPEC_SEMPRE[nome]){reservaPros=Math.min(rem,janelaPros);rem-=reservaPros;}
@@ -1513,13 +1545,13 @@ function montarPlanoDia(nome,ativas,reun,histHoje,props){
     if(rem<=0){fila.push(t);continue;}if(push1(t,4))rem-=t._tempo;}
   // pela REVISÃO: quem está há mais tempo na mesa abre a fila; quem voltou
   // ontem (correção/impulso) vai para o fim das imediatas (Bruna, 16/09)
-  plano.sort((a,b)=>a._urg-b._urg||a._dias-b._dias);
+  plano.sort((a,b)=>a._urg-b._urg||(a._urg===0?((a._pfDias??999)-(b._pfDias??999)):(a._dias-b._dias)));
   // fila em ordem de ATRASO REAL (mais antiga primeiro) — vale para a visão
   // das heads e para o painel "Na fila" do próprio assessor
   fila.sort((a,b)=>atrasoDias(b)-atrasoDias(a)||((a._dias??9)-(b._dias??9)));
   const planejado=plano.reduce((s,t)=>s+t._tempo,0);
   const filaMin=fila.reduce((s,t)=>s+t._tempo,0);
-  return {plano,fila,imed,atr,diar,hoje0,semanal,mensal,meetings,minReu,jaTrab,
+  return {plano,fila,fatal,fixasDia,imed,atr,diar,hoje0,semanal,mensal,meetings,minReu,jaTrab,
           cap,capDia,capDisp,reservaPros,reservaFu,planejado,filaMin,propsFu};
 }
 async function telaMinhas(){
@@ -1541,7 +1573,7 @@ async function telaMinhas(){
   try{histHojeM=await DB.historicoHoje();}catch(e){}
   try{propsAllM=await DB.propostas();}catch(e){}
   const P=montarPlanoDia(nome,ativas,reun,histHojeM,propsAllM);
-  const {plano,fila,imed,atr,meetings,minReu,jaTrab,capDia,capDisp,
+  const {plano,fila,fatal,fixasDia,imed,atr,meetings,minReu,jaTrab,capDia,capDisp,
          reservaPros,reservaFu,planejado,filaMin,propsFu}=P;
   // prospecção e follow-up OCUPAM a barra do dia (quem delega vê o mesmo)
   const pct=Math.min(100,Math.round((planejado+reservaPros+reservaFu)/Math.max(1,capDisp)*100));
@@ -1635,11 +1667,14 @@ async function telaMinhas(){
       <br><span style="color:var(--gray);font-size:11px">Abra a tarefa e use o botão &#129309; Delegar — a decisão é sempre sua.</span></div></div>`;}
   h+=`<div class="sg">
     <div class="sc"><div class="sl">Hoje</div><div class="sv">${plano.length}</div></div>
+    ${fatal.length?`<div class="sc" style="border-left:3px solid #7B0000"><div class="sl">&#9888; Prazo fatal</div><div class="sv red">${fatal.length}</div></div>`:""}
+    ${fixasDia.length?`<div class="sc"><div class="sl">&#128204; Fixas do dia</div><div class="sv">${fixasDia.length}</div></div>`:""}
     <div class="sc"><div class="sl">Imediatas</div><div class="sv ${imed.length?"red":"green"}">${imed.length}</div></div>
     <div class="sc"><div class="sl">Em atraso</div><div class="sv ${atr.length?"red":"green"}">${atr.length}</div></div>
     <div class="sc"><div class="sl">Capacidade</div><div class="sv" style="color:${pctCor}">${pct}%</div></div></div>`;
   h+=`<div class="flr"><input class="si" id="mt-q" placeholder="&#128269; Filtrar por cliente..." oninput="desenhaMinhas()">
     <select class="fsel" id="mt-u" onchange="desenhaMinhas()"><option value="">Todas</option>
+      <option value="0">&#9888;&#65039; Prazo fatal</option><option value="0.5">&#128204; Fixas do dia</option>
       <option value="1">&#128308; Imediatas</option><option value="2">&#128992; Atrasadas</option>
       <option value="3">&#128309; Hoje</option></select></div>
     <div id="mt-lista"></div>
@@ -1654,15 +1689,15 @@ function desenhaMinhas(){
   let lista=E._plano||[];
   if(q)lista=(E._minhasTodas||[]).filter(t=>!t._delegada&&!t._emCorrecao&&
     (String(t.cliente||"").toLowerCase().includes(q)||String(t.operacao||"").toLowerCase().includes(q)));
-  if(u)lista=lista.filter(t=>String(t._urg||t._g)===u);
+  if(u)lista=lista.filter(t=>String(t._urg??t._g)===u);
   if(E._vis==="kanban"){alvo.innerHTML=renderKanban(lista);return;}
-  const rot={1:"&#128308; Imediatas",2:"&#128992; Em atraso",3:"&#128309; Para hoje",4:"&#128995; Completando capacidade"};
-  const g={1:[],2:[],3:[],4:[]};lista.forEach(t=>g[t._urg||4]?.push(t));
+  const rot={0:"&#9888;&#65039; Prazo fatal",0.5:"&#128204; Fixas do dia",1:"&#128308; Imediatas",2:"&#128992; Em atraso",3:"&#128309; Para hoje",4:"&#128995; Completando capacidade"};
+  const g={0:[],0.5:[],1:[],2:[],3:[],4:[]};lista.forEach(t=>g[t._urg??4]?.push(t));
   let h="";let algum=false;
-  [1,2,3,4].forEach(k=>{
-    // 📞 o cartão do follow-up abre o dia, junto das IMEDIATAS (é diário
-    // e obrigatório — pedido da Bruna, 19/08/2026)
-    if(k===1&&E._fuCard&&(!u||u==="1")){h+=fuCardHtml();algum=true;}
+  // 📞 o follow-up é o "COMECE POR AQUI" — abre o dia acima de tudo,
+  // inclusive dos prazos fatais (decisão da Bruna, 19/09/2026)
+  if(E._fuCard&&(!u||u==="1")){h+=fuCardHtml();algum=true;}
+  [0,0.5,1,2,3,4].forEach(k=>{
     if(!g[k].length)return;algum=true;
     h+=`<div class="grupo-t"><span>${rot[k]}</span><span class="qt">${g[k].length} · ~${g[k].reduce((s,t)=>s+t._tempo,0)}min</span></div>`
       +g[k].map(t=>cardTarefa(t,false,true)).join("");});
@@ -1674,7 +1709,7 @@ function fuCardHtml(){
   const f=E._fuCard;if(!f)return "";
   const rolando=!!(E._avulsa&&String(E._avulsa.desc||"").indexOf("📞")>-1);
   const vencidas=f.fila.filter(x=>x.venc).length;
-  return `<div class="grupo-t"><span>&#128222; Comercial do dia</span><span class="qt">1 · ~${f.min}min</span></div>
+  return `<div class="grupo-t"><span>&#128640; COMECE POR AQUI — &#128222; Comercial do dia</span><span class="qt">1 · ~${f.min}min</span></div>
     <div class="tc u3" style="border-left:4px solid #1F4E79;background:#EEF3F9;cursor:pointer" onclick="abrirFollowupDia()">
       <div style="flex:1;min-width:0"><div class="tcc">&#128222; Follow-up de propostas${rolando?' <span class="tag tek">&#9201; rolando agora</span>':''}${vencidas?` <span class="tag ti">${vencidas} retorno(s) vencido(s)</span>`:""}</div>
       <div class="tco">${f.naRua} proposta(s) na rua · bloco de ${fmtMin(f.min)} — toque para abrir a fila e ligar o relógio</div></div>
@@ -1699,16 +1734,17 @@ function abrirFollowupDia(){
     +`<button class="btn btp btw" style="margin-top:10px" onclick="fecharModal2();iniciarFollowup()">&#128222; Começar follow-up (liga o relógio)</button>`);
 }
 function renderKanban(lista){
-  const cols=[[1,"&#128308; Imediatas","#FCE4D6"],[2,"&#128992; Urgentes","#FFF2CC"],
+  const cols=[[0,"&#9888;&#65039; Prazo fatal","#F5C6C2"],[0.5,"&#128204; Fixas do dia","#CFE5E0"],
+              [1,"&#128308; Imediatas","#FCE4D6"],[2,"&#128992; Urgentes","#FFF2CC"],
               [3,"&#128309; Hoje","#DBEAFE"],[4,"&#128995; Agendadas","#EDE9FE"]];
   return `<div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:8px">`+cols.map(([k,rot,bg])=>{
-    const ct=lista.filter(t=>(t._urg||t._g)===k);
+    const ct=lista.filter(t=>(t._urg??t._g)===k);
     return `<div style="flex:0 0 260px;background:var(--gray-lt);border-radius:12px;padding:9px">
       <div style="font-size:11px;font-weight:700;background:${bg};border-radius:6px;padding:5px 8px;margin-bottom:8px">${rot} (${ct.length})</div>
-      ${k===1&&E._fuCard?`<div class="tc u3" style="margin-bottom:6px;border-left:4px solid #1F4E79;background:#EEF3F9" onclick="abrirFollowupDia()">
-        <div style="flex:1;min-width:0"><div class="tcc">&#128222; Follow-up de propostas</div>
+      ${k===0&&E._fuCard?`<div class="tc u3" style="margin-bottom:6px;border-left:4px solid #1F4E79;background:#EEF3F9" onclick="abrirFollowupDia()">
+        <div style="flex:1;min-width:0"><div class="tcc">&#128640; Comece por aqui — &#128222; Follow-up</div>
         <div class="tco">${E._fuCard.naRua} na rua · ${fmtMin(E._fuCard.min)}</div></div></div>`:""}
-      ${ct.map(t=>`<div class="tc u${k}" style="margin-bottom:6px" onclick="abrirTarefa('${esc(t.id_tarefa)}')">
+      ${ct.map(t=>`<div class="tc ${k===0?"uF":k===0.5?"uP":"u"+k}" style="margin-bottom:6px" onclick="abrirTarefa('${esc(t.id_tarefa)}')">
         <div style="flex:1;min-width:0"><div class="tcc">${esc(t.cliente)}</div>
         <div class="tco">${esc(t.operacao||"")}</div>
         ${k===1&&dataLanc(t)?`<div class="tco" style="color:${dataLanc(t)===brData(hojeISO())?"var(--dani)":"var(--red)"};font-weight:700">lançada ${dataLanc(t)}</div>`:""}
@@ -1911,7 +1947,9 @@ function desenharCard(t,hist){
     <textarea class="fta" id="nota-texto" placeholder="Descreva o andamento…"></textarea>
     <div class="linha-acao"><button class="btn btp btsm" onclick="salvarNota('ASSESSOR')">Salvar andamento</button>
     ${isHead?`<button class="btn bts btsm" onclick="salvarNota('SUPERVISÃO')">&#128204; Orientação (head)</button>`:""}
-    ${podeDelegar?`<button class="btn bts btsm" onclick="abrirDelegar()">&#129309; Delegar</button>`:""}
+    ${t.prazo_fatal_dt
+      ?((ehMeuNome(t.assessor)||podeDelegar)?`<button class="btn bts btsm" style="color:#7B0000;border-color:#7B0000" onclick="abrirRedirecionar()" title="Tarefa com prazo fatal não pode ser delegada — só redirecionada com aprovação da head">&#128257; Pedir redirecionamento</button>`:"")
+      :(podeDelegar?`<button class="btn bts btsm" onclick="abrirDelegar()">&#129309; Delegar</button>`:"")}
     <button class="btn bts btsm" style="color:#6B4FBF;border-color:#6B4FBF" onclick="abrirCorrecao()">&#9999; Enviar p/ correção</button></div></div>`;
   // redistribuir (head)
   if(isHead){const ops=OPERACIONAIS.filter(a=>a!==t.assessor).map(a=>`<option>${a}</option>`).join("");
@@ -2278,11 +2316,17 @@ async function gatePropJustificar(){
   (E._gateDepois==="encerrar"?abrirEncerrar:concluirTarefa)();
 }
 async function colocarAguardando(){
-  const t=E.atual,freq=parseInt(ge("ag2-freq").value)||7,fatal=ge("ag2-fatal").value;
+  const t=E.atual,freq=parseInt(ge("ag2-freq").value)||7;
+  let fatal=ge("ag2-fatal").value,notaPF="";
+  // data NOVA de prazo fatal ganha a margem D-2 útil; a que já estava
+  // gravada (pré-preenchida no campo) não é descontada de novo
+  if(fatal&&fatal!==String(t.prazo_fatal_dt||"").slice(0,10)){
+    const real=fatal;fatal=fatalComMargem(fatal);
+    if(fatal!==real)notaPF=` (REAL ${brData(real)} — no sistema vale ${brData(fatal)}, margem D-2)`;}
   if(travaImpedimento(t))return;
   const prox=new Date();prox.setDate(prox.getDate()+freq);const pISO=prox.toISOString().slice(0,10);
   try{await DB.tarefaUpdate(t,{campos:{check_:"AGUARDANDO"},data_revisao:pISO,...(fatal?{prazo_fatal:fatal}:{}),
-    hist_texto:`Tarefa definida como AGUARDANDO. Follow-up a cada ${freq} dias. Prazo fatal: ${fatal?brData(fatal):"não definido"}. Próximo retorno: ${brData(pISO)}.`});}
+    hist_texto:`Tarefa definida como AGUARDANDO. Follow-up a cada ${freq} dias. Prazo fatal: ${fatal?brData(fatal)+notaPF:"não definido"}. Próximo retorno: ${brData(pISO)}.`});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   toast(`Aguardando! Próximo follow-up em ${freq} dias.`,"ok");fecharModal();recarregar();}
 async function avancarFollowUp(){
@@ -2327,14 +2371,18 @@ function htmlPacote(extras,prefixo){
     <div style="font-size:10px;color:var(--gray);margin-top:4px">Cada uma vira um impulso próprio e volta individualmente para o dono ao ser finalizada.</div></div>`;
 }
 function abrirDelegar(){const t=E.atual;
+  // tarefa com PRAZO FATAL não sai da mão do responsável (Bruna, 19/09/2026)
+  if(t.prazo_fatal_dt){toast("Tarefa com PRAZO FATAL não pode ser delegada — quem cumpre é o assessor responsável. Está com a pessoa errada? Use 🔁 Pedir redirecionamento.","erro");return;}
   const ops=alvosDelegacao(E.perfil.nome_sistema).map(a=>`<option>${a}</option>`).join("");
   E._pacoteExtras=pacoteDoCliente(t);
   modal2("&#129309; Delegar impulso",esc(t.cliente)+" — pedir uma ação a outro assessor",`
     <div id="dg-carga" style="font-size:11px;color:var(--gray);margin-bottom:6px">carregando a carga do grupo…</div>
     <div class="linha-acao"><select class="fsel" id="dg-para" onchange="const w=ge('dg-head-w');if(w)w.style.display=precisaPedidoHead(E.perfil.nome_sistema,this.value)?'block':'none'"><option value="">Para quem?</option>${ops}</select>
-    <select class="fsel" id="dg-freq"><option value="IMEDIATO">Uma vez só (imediato)</option>
-      <option value="DIÁRIO">Repetir todo dia</option><option value="SEMANAL">Toda semana</option>
+    <select class="fsel" id="dg-freq" onchange="avisoImpulsoImediato(this)"><option value="IMEDIATO">Uma vez só (imediato)</option>
+      <option value="DIÁRIO" selected>Repetir todo dia</option><option value="SEMANAL">Toda semana</option>
       <option value="MENSAL">Todo mês</option></select></div>
+    <div id="dg-freq-aviso" style="display:none;margin:6px 0;padding:8px 10px;background:var(--red-lt);border:1px solid var(--red);border-radius:8px;font-size:12px;color:var(--red)">
+      &#9889; <b>Impulso imediato não existe.</b> Se é urgente, quem cumpre é você mesmo — impulsos só podem ser <b>diários, semanais ou mensais</b>. A frequência voltou para DIÁRIO: entra no dia de quem recebe sem furar a fila das urgências.</div>
     <div id="dg-head-w" style="display:none;margin:6px 0;padding:8px 10px;background:#FFF7E6;border:1px solid var(--amber);border-radius:8px">
       <label style="font-size:12px;display:flex;gap:7px;align-items:center;cursor:pointer"><input type="checkbox" id="dg-head" style="width:16px;height:16px">
       <span>&#127963;&#65039; Confirmo que esta tarefa é <b>por pedido direto de uma das heads</b> *</span></label>
@@ -2347,6 +2395,40 @@ function abrirDelegar(){const t=E.atual;
     <button class="btn btp btw" style="margin-top:8px" onclick="confirmarDelegar()">&#129309; Enviar impulso</button>`);
   rascunhoLiga("dg-txt","dg:"+t.id_tarefa);
   carregarCargaDelegar();}
+// escolheu "imediato" no impulso? avisa e devolve para DIÁRIO — se é urgente,
+// o próprio assessor cumpre (regra da Bruna, 19/09/2026; vale para heads)
+function avisoImpulsoImediato(sel){
+  if(sel.value!=="IMEDIATO")return;
+  sel.value="DIÁRIO";
+  const av=ge("dg-freq-aviso");if(av)av.style.display="block";
+}
+// 🔁 REDIRECIONAMENTO (Bruna, 19/09/2026): tarefa com prazo fatal caiu com a
+// pessoa errada → o assessor pede a troca e a head responsável só aprova.
+async function abrirRedirecionar(){
+  const t=E.atual;
+  let pend=null;
+  try{pend=(await DB.redirListar()).find(r=>r.id_tarefa===t.id_tarefa&&r.status==="PENDENTE");}
+  catch(e){}
+  if(pend){modal2("&#128257; Redirecionamento já pedido",esc(t.cliente),
+    `<div style="font-size:13px">Já existe um pedido <b>pendente</b> desta tarefa: de <b>${esc(pend.de_assessor)}</b> para <b>${esc(pend.para_assessor)}</b>.<br>
+     <span style="color:var(--gray);font-size:12px">Motivo: ${esc(pend.motivo)}</span><br><br>
+     A head <b>${esc(pend.head||"responsável")}</b> vai decidir na Central do Dia dela.</div>`);return;}
+  const ops=OPERACIONAIS.filter(a=>a!==t.assessor).map(a=>`<option>${a}</option>`).join("");
+  modal2("&#128257; Pedir redirecionamento",esc(t.cliente)+" — prazo fatal "+(t.prazo_fatal_dt?brData(t.prazo_fatal_dt):""),
+    `<div style="font-size:12px;color:var(--gray);margin-bottom:6px">Tarefa com <b>prazo fatal</b> não pode ser delegada: quem cumpre é o assessor responsável pelo cliente. Se ela foi cadastrada com a pessoa errada, peça aqui a troca — o pedido cai na <b>Central do Dia da head responsável</b> (${esc(t.advogada||"head")}), que só aprova ou recusa.</div>
+    <select class="fsel" id="rd-para" style="width:100%"><option value="">Redirecionar para quem?</option>${ops}</select>
+    <textarea class="fta" id="rd-motivo" placeholder="Por que a tarefa deve trocar de mão? Ex.: cadastrada no meu nome por engano — o responsável pelo cliente é a Malu."></textarea>
+    <button class="btn btp btw" style="margin-top:8px" onclick="enviarRedirecionar()">&#128257; Enviar pedido à head</button>`);
+}
+async function enviarRedirecionar(){
+  const t=E.atual,para=ge("rd-para").value,mot=(ge("rd-motivo").value||"").trim();
+  if(!para){toast("Escolha para quem redirecionar.","erro");return;}
+  if(!mot){toast("Explique o motivo — a head decide com base nele.","erro");return;}
+  try{await DB.redirPedir(t.id_tarefa,para,mot);}
+  catch(e){toast("Erro: "+traduzErro(e.message),"erro");return;}
+  toast("Pedido enviado! A head "+(t.advogada||"responsável")+" decide na Central do Dia.","ok");
+  fecharModal2();
+}
 // mostra a fila de cada candidato (pedido do Ygor): do dia · total · folga —
 // só quem pode delegar chega aqui, e o banco filtra pelo grupo da pessoa
 async function carregarCargaDelegar(){
@@ -2362,6 +2444,8 @@ async function carregarCargaDelegar(){
     linhas.map(l=>`<span style="white-space:nowrap"><b>${esc(l.n)}</b> ${l.dia} do dia · ${l.tot} no total${l.pros?` · &#127919; ${fmtMin(l.pros)} prospectando`:""}${l.fu?` · &#128222; ${fmtMin(l.fu)} follow-up`:""} · ${fmtMin(l.folga)} livres</span>`).join(" &nbsp;·&nbsp; ");}
 async function confirmarDelegar(){
   const t=E.atual,para=ge("dg-para").value;let txt=(ge("dg-txt").value||"").trim();
+  if(t.prazo_fatal_dt){toast("Tarefa com PRAZO FATAL não pode ser delegada.","erro");return;}
+  if(ge("dg-freq").value==="IMEDIATO"){toast("Impulso não entra como imediato — se é urgente, quem cumpre é você. Escolha diário, semanal ou mensal.","erro");return;}
   if(!para){toast("Escolha para quem delegar.","erro");return;}
   if(!txt){toast("Descreva o que precisa ser feito.","erro");return;}
   if(precisaPedidoHead(E.perfil.nome_sistema,para)){
@@ -2643,12 +2727,14 @@ async function aprovarPacote(){
 async function executarAprovacao(i,para,extras){
   const s=(E._sugestoesTodas||[])[i];if(!s)return;
   const desc=`Impulso sugerido pelo robô (dia de ${s.de} acima da capacidade) e aprovado pela head ${E.perfil.nome_sistema}. Executar e devolver o retorno.`;
-  const quando=perguntarQuandoDelegar("IMEDIATO");
-  try{await DB.delegar(s.t,{para:para,freq:"IMEDIATO",descricao:desc,quando});}
+  // impulso nunca entra imediato — nem aprovado por head (Bruna, 19/09/2026):
+  // vai como DIÁRIO, dentro da capacidade de quem recebe
+  const quando=null;
+  try{await DB.delegar(s.t,{para:para,freq:"DIÁRIO",descricao:desc,quando});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   let nPac=0;
   for(const x of extras){
-    try{await DB.delegar(x,{para:para,freq:"IMEDIATO",quando,descricao:desc+" (pacote do cliente — atualizar junto e devolver)"});nPac++;}
+    try{await DB.delegar(x,{para:para,freq:"DIÁRIO",quando,descricao:desc+" (pacote do cliente — atualizar junto e devolver)"});nPac++;}
     catch(e){toast("Uma tarefa do pacote falhou: "+e.message,"erro");}}
   toast(`✓ Impulso criado: ${para} recebeu ${1+nPac} tarefa(s) do cliente.`,"ok");
   const idsPac=new Set(extras.map(x=>x.id_tarefa));idsPac.add(s.t.id_tarefa);
@@ -3050,7 +3136,7 @@ async function telaDiario(dia){
       hDia+=`<details class="det"><summary><b style="color:${c.text}">${esc(n)}</b> — hoje: <b>${p.plano.length}</b> (&asymp;${fmtMin(p.planejado)} de ${fmtMin(p.capDisp)})${p.reservaPros?` · &#127919;${fmtMin(p.reservaPros)}`:""}${p.reservaFu?` · &#128222;${fmtMin(p.reservaFu)}`:""} · fila: <b style="color:${p.fila.length?"var(--red)":"var(--green)"}">${p.fila.length}</b>${p.fila.length?` (&asymp;${fmtMin(p.filaMin)})`:""}</summary>
         <div style="padding:6px 10px">
         <div style="font-size:11px;font-weight:700;color:var(--navy);margin-bottom:3px">Cobrado para hoje</div>
-        ${p.plano.map(t=>`<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')"><span style="font-size:12px">${t._urg===1?"&#9889; ":""}${esc(t.cliente)} · ${esc(t.operacao||"")} <span style="color:var(--gray);font-size:10px">&#9201;${t._tempo}min</span></span>${atrasoDias(t)>0?`<span class="tdy ov">${atrasoDias(t)}d atraso</span>`:""}</div>`).join("")||'<div style="font-size:12px;color:var(--gray);padding:4px 0">nada além dos blocos fixos</div>'}
+        ${p.plano.map(t=>`<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')"><span style="font-size:12px">${t._urg===0?"&#9888;&#65039; ":t._urg===0.5?"&#128204; ":t._urg===1?"&#9889; ":""}${esc(t.cliente)} · ${esc(t.operacao||"")} <span style="color:var(--gray);font-size:10px">&#9201;${t._tempo}min</span></span>${atrasoDias(t)>0?`<span class="tdy ov">${atrasoDias(t)}d atraso</span>`:""}</div>`).join("")||'<div style="font-size:12px;color:var(--gray);padding:4px 0">nada além dos blocos fixos</div>'}
         ${p.fila.length?`<div style="font-size:11px;font-weight:700;color:var(--gray);margin:6px 0 3px">Na fila — não coube no dia (${p.fila.length}, mais atrasada primeiro)</div>`+
           p.fila.map(t=>`<div class="linha-item"><span style="cursor:pointer;font-size:12px" onclick="abrirTarefa('${esc(t.id_tarefa)}')">${esc(t.cliente)} · ${esc(t.operacao||"")}${atrasoDias(t)>0?` <span class="tag ti">${atrasoDias(t)}d vencida</span>`:""}</span>
           <button class="btn bts btsm" title="Tornar IMEDIATA: entra no plano de hoje na frente" onclick='furarFila(${JSON.stringify(t.id_tarefa)},${t.linha},${JSON.stringify(t.id_cliente||"")})'>&#9889; p/ hoje</button></div>`).join(""):""}
@@ -3313,6 +3399,7 @@ async function telaCentral(){
     ${metaMinha?tarjaMeta("MINHA meta",metaMinha,pagoMeu)
       :mHeads?tarjaMeta("Meta das HEADS — conjunta de vocês três",+mHeads.meta,pagoHeads)
       :tarjaMeta("MINHA meta",0,pagoMeu)}
+    <div id="ct-redir"></div>
     ${conflitosNic.length?`<div class="painel" style="border-left:4px solid var(--red);background:#FDEDEC">
       <div class="bloco-t" style="color:var(--red)">&#9888; Conflito na agenda do Nicholas (${conflitosNic.length}) — reuniões sobrepostas</div>
       ${conflitosNic.slice(0,6).map(([a1,b1])=>`<div class="linha-item"><span style="font-size:12.5px">
@@ -3383,6 +3470,53 @@ async function telaCentral(){
     ${quadroLembretes(lembs||[])}
     <div id="tric-box"></div>`;
   carregarTricount();
+  painelRedirecionamentos("ct-redir",ts,cls);
+}
+// 🔁 Central da head (Bruna, 19/09/2026): pedidos de redirecionamento para
+// decidir + prazos fatais que estão com quem NÃO é o responsável pelo cliente
+async function painelRedirecionamentos(alvoId,ts,cls){
+  const box=ge(alvoId);if(!box)return;
+  const eu=E.perfil.nome_sistema;
+  let peds=[];try{peds=await DB.redirListar();}catch(e){peds=[];}
+  const pend=(peds||[]).filter(r=>r.status==="PENDENTE"&&(E.perfil.admin_sim||loginDe(r.head||"")===eu));
+  const porId={};(cls||[]).forEach(c=>{if(c.id_cliente)porId[c.id_cliente]=c;});
+  const jaPedido=new Set((peds||[]).filter(r=>r.status==="PENDENTE").map(r=>r.id_tarefa));
+  const errados=(ts||[]).filter(t=>t.prazo_fatal_dt&&!t._concluida&&!t._delegada&&!t._emCorrecao
+      &&String(t.advogada||"").trim()===eu&&!jaPedido.has(t.id_tarefa))
+    .map(t=>({t,resp:loginDe(String((porId[t.id_cliente]||{}).assessor_responsavel||"").trim())}))
+    .filter(o=>o.resp&&o.resp!==loginDe(o.t.assessor||""));
+  if(!pend.length&&!errados.length){box.innerHTML="";return;}
+  box.innerHTML=`<div class="painel" style="border-left:4px solid #7B0000">
+    <div class="bloco-t" style="color:#7B0000">&#128257; Redirecionamentos — sua aprovação (${pend.length+errados.length})</div>
+    ${pend.map(r=>`<div style="border-bottom:1px solid var(--gray-lt);padding:7px 0">
+      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center">
+      <span style="font-size:12.5px;cursor:pointer" onclick="abrirTarefa('${esc(r.id_tarefa)}')">
+        <b>${esc(r.cliente||r.id_tarefa)}</b> · ${esc(r.operacao||"")}${r.prazo_fatal?` · <b style="color:#7B0000">FATAL ${brData(String(r.prazo_fatal).slice(0,10))}</b>`:""}<br>
+        <span style="font-size:11px;color:var(--gray)">${esc(r.de_assessor)} → <b>${esc(r.para_assessor)}</b> · pedido por ${esc(r.pedido_por)} em ${esc(String(r.em||"").slice(0,10).split("-").reverse().join("/"))}</span><br>
+        <span style="font-size:11px;font-style:italic;color:var(--gray)">"${esc(r.motivo)}"</span></span>
+      <span style="display:flex;gap:5px">
+        <button class="btn btg btsm" onclick="decidirRedir(${+r.id},true)">&#10003; Aprovar</button>
+        <button class="btn btr btsm" onclick="decidirRedir(${+r.id},false)">&#10007; Recusar</button></span></div></div>`).join("")}
+    ${errados.length?`<div style="font-size:11px;font-weight:700;color:#7B0000;margin-top:8px">&#9888; PRAZO FATAL com quem não é o responsável pelo cliente</div>
+      <div style="font-size:11px;color:var(--gray);margin-bottom:4px">Prazo fatal é do assessor responsável pelo cliente. Aprove a troca com um clique — ou abra a tarefa para decidir de outro jeito.</div>`
+      +errados.map(o=>`<div class="linha-item">
+        <span style="font-size:12.5px;cursor:pointer" onclick="abrirTarefa('${esc(o.t.id_tarefa)}')"><b>${esc(o.t.cliente)}</b> · ${esc(o.t.operacao||"")} · <b style="color:#7B0000">FATAL ${brData(o.t.prazo_fatal_dt)}</b><br>
+          <span style="font-size:11px;color:var(--gray)">está com <b>${esc(o.t.assessor||"—")}</b> · responsável pelo cliente: <b>${esc(o.resp)}</b></span></span>
+        <button class="btn btp btsm" onclick="aprovarTrocaFatal('${esc(o.t.id_tarefa)}','${esc(o.resp)}')">&#10003; Passar para ${esc(o.resp)}</button></div>`).join(""):""}
+  </div>`;
+}
+async function decidirRedir(id,aprovar){
+  if(!confirm(aprovar?"Aprovar o redirecionamento? A tarefa troca de assessor na hora.":"Recusar o pedido? A tarefa continua com quem está."))return;
+  try{await DB.redirDecidir(id,aprovar);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast(aprovar?"Aprovado — a tarefa trocou de mão.":"Pedido recusado.","ok");recarregar();
+}
+async function aprovarTrocaFatal(id,para){
+  const t=(E.tarefas||[]).find(x=>x.id_tarefa===id);if(!t)return;
+  if(!confirm(`Passar "${t.cliente}" para ${para} (responsável pelo cliente)?`))return;
+  try{await DB.tarefaUpdate(t,{campos:{assessor:para},
+    hist_texto:`🔁 Prazo fatal: tarefa passada de ${t.assessor||"—"} para ${para} (responsável pelo cliente) pela head ${E.perfil.nome_sistema}.`});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Tarefa agora é de "+para+".","ok");recarregar();
 }
 // máscara de moeda REAL (pt-BR): digita só números, vê "R$ 1.234,56"
 function mascaraReal(el){const d=String(el.value||"").replace(/\D/g,"").slice(0,12);
@@ -5702,14 +5836,18 @@ async function criarTarefaNova(){
   let revISO=rev.toISOString().slice(0,10);
   if(chk==="IMEDIATO"&&ge("nt-ass").value!==E.perfil.nome_sistema){
     const q=perguntarQuandoDelegar("IMEDIATO");if(q)revISO=q;}
+  // prazo fatal entra com margem D-2 útil (Bruna, 19/09/2026); o prazo REAL
+  // fica registrado na orientação da tarefa
+  const pfReal=ge("nt-pf").value||"",pfCad=pfReal?fatalComMargem(pfReal):"";
   let r;
   try{await ecacGravar(c.id_cliente,ecacNT,c.e_cac);if(ecacNT)c.e_cac=ecacNT;
     r=await DB.criarTarefa({id_cliente:c.id_cliente,cliente:c.nome,cnpj:c.cnpj_cpf,head:c.head||"",
-    operacao:op,check:chk,assessor:ge("nt-ass").value,prazo_fatal:ge("nt-pf").value||"",
+    operacao:op,check:chk,assessor:ge("nt-ass").value,prazo_fatal:pfCad,
     numero_proc:ge("nt-proc").value||"",estado:ge("nt-uf").value||"",
-    supervisao:(flagNT?MARCA_PEDIDO_HEAD+". ":"")+(ge("nt-sup").value||""),
+    supervisao:(pfReal&&pfCad!==pfReal?`⚠️ Prazo fatal REAL: ${brData(pfReal)} — no sistema vale ${brData(pfCad)} (margem D-2). `:"")
+      +(flagNT?MARCA_PEDIDO_HEAD+". ":"")+(ge("nt-sup").value||""),
     revisao:revISO});
-    toast("✓ Tarefa criada: "+r.id,"ok");}
+    toast("✓ Tarefa criada: "+r.id+(pfReal&&pfCad!==pfReal?` · prazo fatal cadastrado ${brData(pfCad)} (D-2 do real ${brData(pfReal)})`:""),"ok");}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   await enviarDocsCriacao("nt-doc",c.id_cliente||"INTERNO",r.id);
   fecharModal2();recarregar();
