@@ -3097,18 +3097,39 @@ async function telaPorAssessor(){
     const fu=fuEfetivo(FOLLOWUP[n]||0,minhasNaRua(propsPA,n).length);
     if(fu>0)ch.push(`<span class="tag tek" title="Follow-up diário de propostas — bloco obrigatório, todo dia">&#128222; ${fmtMin(fu)}/dia</span>`);
     return ch.join(" ");};
-  ge("conteudo").innerHTML=ord.map(([n,lista])=>{const atr=lista.filter(t=>t._atrasada&&!t._delegada&&!t._emCorrecao).length;
-    // próprias × impulsos recebidos + soma por frequência (Bruna, 19/09/2026)
-    const imp=lista.filter(t=>t._impulso).length,prop=lista.length-imp;
-    const cnt=k=>lista.filter(t=>{const c=String(t.check_||"").toUpperCase();return k==="DIÁRIO"?/DI[ÁA]RIO/.test(c):c===k;}).length;
+  ge("conteudo").innerHTML=ord.map(([n,lista])=>{
+    // o QUADRO reflete o dia a dia REAL (Bruna, 19/09/2026): só o que está
+    // COM a pessoa (mesma régua do Minhas Tarefas dela). O que ela delegou
+    // ou mandou para correção fica em seções recolhidas, com o atraso
+    // apontando para QUEM está segurando — não para o dono.
+    const comEle=lista.filter(t=>!t._delegada&&!t._emCorrecao);
+    const delegadas=lista.filter(t=>t._delegada);
+    const emCorr=lista.filter(t=>t._emCorrecao&&!t._delegada);
+    const atr=comEle.filter(t=>t._atrasada).length;
+    const imp=comEle.filter(t=>t._impulso).length,prop=comEle.length-imp;
+    const cnt=k=>comEle.filter(t=>{const c=String(t.check_||"").toUpperCase();return k==="DIÁRIO"?/DI[ÁA]RIO/.test(c):c===k;}).length;
     const freq=[[cnt("IMEDIATO"),"&#9889; imediatas"],[cnt("DIÁRIO"),"diárias"],[cnt("SEMANAL"),"semanais"],[cnt("MENSAL"),"mensais"],[cnt("AGUARDANDO"),"aguardando"]]
       .filter(x=>x[0]>0).map(x=>`<b>${x[0]}</b> ${x[1]}`).join(" · ");
+    const idade=t=>atrasoDias(t)>0?atrasoDias(t):0;
     return `<details class="det" open><summary><span style="flex:1;font-weight:700;color:var(--navy)">${esc(n)}</span>
       ${blocosDe(n)}
-      <span class="tag tda" title="Tarefas em que ${esc(n)} é o dono de fato">${prop} própria(s)</span>${imp?`<span class="tag" style="background:#1F4E79;color:white" title="Impulsos recebidos de colegas — devolve ao finalizar">+ ${imp} impulso(s)</span><span class="tag tm" title="Próprias + impulsos recebidos"><b>= ${lista.length}</b></span>`:""}
+      <span class="tag tda" title="Na mesa de ${esc(n)} hoje: ${prop} própria(s)${imp?` + ${imp} impulso(s) recebido(s)`:""}"><b>${comEle.length}</b> com ele(a)${imp?` (${prop}+${imp}&#129309;)`:""}</span>
+      ${delegadas.length?`<span class="tag" style="background:#1F4E79;color:white" title="Tarefas dele(a) na mão de colegas por impulso">${delegadas.length} delegada(s)</span>`:""}
+      ${emCorr.length?`<span class="tag" style="background:#6B4FBF;color:white" title="Cartões com a head para correção">${emCorr.length} em correção</span>`:""}
       <span class="tag ${atr?"ti":"tek"}">${atr} atrasadas</span></summary>
-      <div style="font-size:11.5px;color:var(--gray);padding:6px 12px 0">&#931; Soma total (${lista.length}): ${freq||"—"}</div>
-      <div style="padding:8px 12px 12px">${lista.slice(0,60).map(t=>cardTarefa(t)).join("")}</div></details>`;}).join("")
+      <div style="font-size:11.5px;color:var(--gray);padding:6px 12px 0">&#931; Na mesa (${comEle.length}): ${freq||"—"}</div>
+      <div style="padding:8px 12px 12px">${comEle.slice(0,60).map(t=>cardTarefa(t)).join("")}
+      ${delegadas.length?`<details style="margin-top:6px"><summary style="cursor:pointer;font-size:12px;font-weight:700;color:#1F4E79">&#129309; Delegadas — na mão de outros (${delegadas.length})</summary>
+        ${delegadas.map(t=>{const para=(String(t.status_tarefa||"").split("→")[1]||"?").trim();const d=idade(t);
+          return `<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')">
+          <span style="font-size:12px">${esc(t.cliente)} · ${esc(t.operacao||"")}</span>
+          <span class="tag ${d>7?"ti":"tm"}">&#129309; com ${esc(para)}${d?` há ${d}d`:""}</span></div>`;}).join("")}</details>`:""}
+      ${emCorr.length?`<details style="margin-top:6px"><summary style="cursor:pointer;font-size:12px;font-weight:700;color:#6B4FBF">&#9999; Em correção com a head (${emCorr.length})</summary>
+        ${emCorr.map(t=>{const dR=t.correcao_retorno_dt?diasAte(String(t.correcao_retorno_dt).slice(0,10)):null;
+          return `<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')">
+          <span style="font-size:12px">${esc(t.cliente)} · ${esc(t.operacao||"")}</span>
+          <span class="tag ${dR!==null&&dR<0?"ti":"tm"}">&#9999; com ${esc(t.correcao_head||"head")}${dR!==null?(dR<0?` · retorno vencido há ${Math.abs(dR)}d`:` · retorno ${brData(t.correcao_retorno_dt)}`):""}</span></div>`;}).join("")}</details>`:""}
+      </div></details>`;}).join("")
     ||`<div class="vazio">Sem tarefas.</div>`;
 }
 // =================================================== TELA: DIÁRIO (head)
