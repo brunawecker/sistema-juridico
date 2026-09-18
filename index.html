@@ -1108,7 +1108,7 @@ function alternarEscopo(){
 function montarMenu(){
   const p=E.perfil, vend=/vendedor|comercial/i.test(p.cargo||"");
   let itens;
-  if(vend) itens=[["prop","&#128203;","Propostas",telaPropostas],["com","&#128188;","Comercial",telaComercial],["agenda","&#128197;","Minha Agenda",telaAgenda]];
+  if(vend) itens=[["meudia","&#127749;","Meu Dia",telaMeuDia],["prop","&#128203;","Propostas",telaPropostas],["com","&#128188;","Comercial",telaComercial],["agenda","&#128197;","Minha Agenda",telaAgenda]];
   else if(p.head_sim) itens=[
     ["central","&#127749;","Central do Dia",telaCentral],
     ["agenda","&#128197;","Minha Agenda",telaAgenda],
@@ -3215,11 +3215,17 @@ async function telaCentral(){
   setNav("central","Central do Dia"); carregando();
   const eu=E.perfil.nome_sistema;
   const mesISO=hojeISO().slice(0,7)+"-01";
-  let ops,cob,pags,metas,props,tm,lembs,cls;
-  try{[ops,cob,pags,metas,props,tm,lembs,cls]=await Promise.all([
+  let ops,cob,pags,metas,props,tm,lembs,cls,reuC;
+  try{[ops,cob,pags,metas,props,tm,lembs,cls,reuC]=await Promise.all([
     DB.tarefas(),DB.cobranca(),DB.comercialPagamentos(mesISO),
     DB.metasMes(mesISO),DB.propostas(),DB.historicoTimers(16).catch(()=>[]),
-    DB.lembretes().catch(()=>[]),DB.clientes("").catch(()=>[])]);}catch(e){return erro(e.message);}
+    DB.lembretes().catch(()=>[]),DB.clientes("").catch(()=>[]),DB.reunioes().catch(()=>[])]);}catch(e){return erro(e.message);}
+  // ⚠ conflitos na agenda do Nicholas (3 agendas de prospecção sobrepostas)
+  const conflitosNic=(()=>{const rs=(reuC||[]).filter(r=>r.assessor==="Nicholas"&&String(r.data_dt||"").slice(0,10)>=hojeISO())
+      .map(r=>{const m=String(r.horario||"").match(/(\d{1,2}):(\d{2})/);const ini=m?(+m[1])*60+(+m[2]):null;
+        return {r,dia:String(r.data_dt||"").slice(0,10),ini,fim:ini!==null?ini+(parseInt(r.duracao_min_num||r.duracao_min)||30):null};})
+      .filter(x=>x.ini!==null).sort((a,b)=>a.dia.localeCompare(b.dia)||a.ini-b.ini);
+    const out=[];for(let i=1;i<rs.length;i++){if(rs[i].dia===rs[i-1].dia&&rs[i].ini<rs[i-1].fim)out.push([rs[i-1].r,rs[i].r]);}return out;})();
   const ts=(ops||[]).map(classificar);E.tarefas=ts;
   E._propMap=E._propMap||{};(props||[]).forEach(x=>{E._propMap[x.id_proposta]=x;});
   // ---- metas × pago (líquido do mês corrente; filtro no navegador por garantia)
@@ -3302,6 +3308,12 @@ async function telaCentral(){
     ${metaMinha?tarjaMeta("MINHA meta",metaMinha,pagoMeu)
       :mHeads?tarjaMeta("Meta das HEADS — conjunta de vocês três",+mHeads.meta,pagoHeads)
       :tarjaMeta("MINHA meta",0,pagoMeu)}
+    ${conflitosNic.length?`<div class="painel" style="border-left:4px solid var(--red);background:#FDEDEC">
+      <div class="bloco-t" style="color:var(--red)">&#9888; Conflito na agenda do Nicholas (${conflitosNic.length}) — reuniões sobrepostas</div>
+      ${conflitosNic.slice(0,6).map(([a1,b1])=>`<div class="linha-item"><span style="font-size:12.5px">
+        <b>${esc(String(a1.data||a1.data_dt||"").slice(0,10).split("-").reverse().join("/")||a1.data)}</b> · <b>${esc(a1.horario)}</b> ${esc(a1.titulo)}
+        <span style="color:var(--red)">⇄</span> <b>${esc(b1.horario)}</b> ${esc(b1.titulo)}</span></div>`).join("")}
+      <div style="font-size:11px;color:var(--gray);margin-top:4px">O Nicholas está com dois compromissos no mesmo horário — alinhem com ele.</div></div>`:""}
     <div class="painel" style="border-left:4px solid var(--red)">
       <details><summary style="cursor:pointer;display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;list-style:none">
         <span class="bloco-t" style="color:var(--red)">&#128184; Inadimplência — MINHA carteira</span>
@@ -5226,6 +5238,43 @@ function legendaAgenda(){
     ${item("var(--navy)","rgba(44,110,138,.14)","pessoal")}
     ${item("#C79A00","rgba(199,154,0,.18)","as 3 heads")}
   </div>`;}
+async function telaMeuDia(){
+  setNav("meudia","Meu Dia"); carregando();
+  const eu=E.perfil.nome_sistema,hj=hojeISO();
+  let reu,props,lembs;
+  try{[reu,props,lembs]=await Promise.all([DB.reunioes(),DB.propostas(),DB.lembretes().catch(()=>[])]);}catch(e){return erro(e.message);}
+  // agenda de hoje
+  const reuHoje=(reu||[]).filter(r=>r.assessor===eu&&String(r.data_dt||"").slice(0,10)===hj)
+    .sort((a,b)=>String(a.horario||"").localeCompare(String(b.horario||"")));
+  E._reuMap=E._reuMap||{};reuHoje.forEach(r=>E._reuMap[r.id_reuniao]=r);
+  // follow-up: propostas na rua, mais paradas primeiro
+  const naRua=minhasNaRua(props,eu);
+  const base=FOLLOWUP[eu]||0,reservaFu=fuEfetivo(base,naRua.length);
+  const ordFu=[...naRua].sort((a,b)=>{const ua=ultMovProp(a),ub=ultMovProp(b);return (ua?ua.getTime():0)-(ub?ub.getTime():0);});
+  E._propMap=E._propMap||{};ordFu.forEach(p=>E._propMap[p.id_proposta]=p);
+  const pBR=z=>{const m=String(z||"").match(/(\d{2})\/(\d{2})\/(\d{4})/);return m?new Date(+m[3],+m[2]-1,+m[1],12):null;};
+  const hj0=new Date();hj0.setHours(12,0,0,0);
+  E._fuCard={min:reservaFu,naRua:naRua.length,fila:ordFu.map(p=>({id:p.id_proposta,cliente:p.cliente,valor:p.valor,status:p.status,ret:p.data_retorno,venc:!!(pBR(p.data_retorno)&&pBR(p.data_retorno)<=hj0)}))};
+  const diasParada=p=>{const u=ultMovProp(p);if(!u)return null;return Math.round((hj0-u)/86400000);};
+  ge("conteudo").innerHTML=`
+    <div class="painel"><div class="bloco-t">&#128197; Minha agenda de hoje (${reuHoje.length})</div>
+      ${reuHoje.length?reuHoje.map(r=>{const temDet=r.descricao||r.local||r.convidados||r.link_ev;
+        return `<div class="linha-item" style="border-left:5px solid ${reuCor(r)};background:${reuBg(r)};border-radius:8px;padding:6px 10px;margin-bottom:3px${temDet?";cursor:pointer":""}" ${temDet?`onclick='verReuniao(${JSON.stringify(r.id_reuniao)})'`:""}>
+        <span style="font-size:13px"><b>${esc(r.horario||"—")}</b> · ${esc(r.titulo)} ${reuBadge(r)}${temDet?' <span style="font-size:10px;color:var(--dani)">&#128269; detalhes</span>':""}</span>
+        <span style="font-size:11px;color:var(--gray)">${esc(r.duracao_min||r.duracao_min_num||30)}min</span></div>`;}).join("")
+        :'<div style="font-size:12px;color:var(--gray)">Nenhuma reunião hoje.</div>'}</div>
+    <div class="painel" style="border-left:4px solid #1F4E79">
+      <div class="bloco-t" style="color:#1F4E79">&#128222; Follow-up do dia — suas propostas na rua (${naRua.length})</div>
+      <div style="font-size:11px;color:var(--gray);margin-bottom:5px">Mais paradas primeiro (retorno vencido em vermelho). Clique para registrar a rodada. ${reservaFu?fmtMin(reservaFu)+" reservados no seu dia.":""}</div>
+      ${ordFu.length?ordFu.slice(0,12).map(p=>{const dp=diasParada(p);
+        return `<div class="linha-item" style="cursor:pointer" onclick='abrirNegociacao(${JSON.stringify(p.id_proposta)})'>
+        <span style="font-size:12.5px"><b>${esc(p.cliente)}</b> · R$ ${esc(p.valor||"0")} · ${esc(p.status||"")}</span>
+        <span style="font-size:11px;color:${dp>=7?"var(--red)":"var(--gray)"}">${dp!==null?dp+"d sem movimento":"nova"}</span></div>`;}).join("")
+        :'<div class="vazio">Nenhuma proposta na rua. 🎉</div>'}
+      ${ordFu.length?`<button class="btn btp btw" style="margin-top:8px" onclick="iniciarFollowup()">&#128222; Começar follow-up (liga o relógio)</button>`:""}</div>
+    <div class="linha-acao" style="margin:2px 0 10px"><button class="btn btg btsm" onclick="abrirLembrete()">&#128278; Retomar depois</button></div>
+    ${quadroRetomar(lembs||[])}`;
+}
 async function telaAgenda(){
   setNav("agenda","Minha Agenda"); carregando();
   let ops,reu,lembs;try{[ops,reu,lembs]=await Promise.all([DB.tarefas(),DB.reunioes(),DB.lembretes().catch(()=>[])]);}catch(e){return erro(e.message);}
