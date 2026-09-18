@@ -1554,8 +1554,12 @@ function montarPlanoDia(nome,ativas,reun,histHoje,props){
     if(rem-t._tempo<0){fila.push(t);continue;}if(push1(t,t._dias<0?2:3))rem-=t._tempo;}
   for(const t of hoje0){if(jaAdd[t.id_tarefa])continue;
     if(rem<=0){fila.push(t);continue;}if(push1(t,3))rem-=t._tempo;}
+  // prospecção só libera SEM NADA VENCIDO (imediata lançada hoje não trava);
+  // fatais e fixas vencidas também travam — elas saíram do grupo "atrasadas"
+  // ao ganhar grupo próprio, mas continuam sendo coisa vencida (Bruna, 19/09)
   const imedVencidas=imed.filter(t=>typeof t._dias==="number"&&t._dias<0);
-  if(janelaPros>0&&!reservaPros&&imedVencidas.length===0&&atr.length===0){
+  const topoVencidas=fatal.concat(fixasDia).filter(t=>typeof t._dias==="number"&&t._dias<0);
+  if(janelaPros>0&&!reservaPros&&imedVencidas.length===0&&atr.length===0&&topoVencidas.length===0){
     reservaPros=Math.min(rem,janelaPros);rem-=reservaPros;}
   for(const t of semanal.concat(mensal)){if(jaAdd[t.id_tarefa])continue;
     if(rem<=0){fila.push(t);continue;}if(push1(t,4))rem-=t._tempo;}
