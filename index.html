@@ -1105,26 +1105,77 @@ const PF_ST={NOVA:["tda","recebida"],EM_ANALISE:["td2","em análise"],RESPONDIDA
 async function portalFranqueado(){
   if(!E.franq.senha_trocada)return portalTrocaSenha();
   portalWrap(`
-    <div class="painel"><div class="bloco-t">&#128232; Pedir parecer ou proposta ao jurídico</div>
+    <div class="painel"><div class="bloco-t">&#128232; Pedir parecer tributário (proposta comercial)</div>
+      <div style="font-size:12px;color:var(--gray);margin-bottom:8px">Preencha o CNPJ que o resto vem sozinho da Receita. O pedido entra como <b>imediato</b> no jurídico, aos cuidados da head que você escolher.</div>
       <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
-        <select class="fi" id="pf-tipo" style="flex:1;min-width:130px">
-          <option value="PARECER">Parecer</option><option value="PROPOSTA">Proposta</option></select>
-        <input class="fi" id="pf-cnpj" placeholder="CNPJ/CPF do cliente (opcional)" style="flex:1.4;min-width:180px"></div>
-      <input class="fi" id="pf-emp" placeholder="Empresa / cliente" style="margin-bottom:8px">
-      <textarea class="fi" id="pf-desc" rows="4" placeholder="Conte o que você precisa: a situação, a dúvida, o que o cliente pediu…" style="margin-bottom:10px;resize:vertical"></textarea>
-      <button class="btn btp btw" onclick="portalSolicitar()">Enviar para o jurídico</button>
+        <input class="fi" id="pf-cnpj" placeholder="CNPJ da empresa *" style="flex:1.2;min-width:170px" onblur="pfBuscaCNPJ()">
+        <select class="fi" id="pf-head" style="flex:1;min-width:150px"><option value="">Head responsável *</option></select></div>
+      <input class="fi" id="pf-emp" placeholder="Nome da empresa (vem do CNPJ)" style="margin-bottom:4px">
+      <div id="pf-cnpj-info" style="font-size:11px;color:var(--green);margin-bottom:8px"></div>
+      <textarea class="fi" id="pf-desc" rows="3" placeholder="Conte a situação: o que o cliente precisa, dívidas, o que ele pediu…" style="margin-bottom:8px;resize:vertical"></textarea>
+      <div style="background:var(--amber-lt);border-radius:9px;padding:8px 10px;margin-bottom:10px">
+        <div style="font-size:11px;font-weight:700;color:#7F6000;margin-bottom:5px">&#128273; Acesso aos dados da Receita *</div>
+        <select class="fi" id="pf-ec" style="margin-bottom:6px" onchange="ge('pf-ec-qual').style.display=this.value==='LIB'?'block':'none'">
+          <option value="">— como vamos acessar? —</option>
+          <option value="LIB">e-CAC já liberado em um CNPJ da Villela</option>
+          <option value="GOV">Login gov.br (CPF/CNPJ e senha do cliente)</option>
+          <option value="NAO">Ainda não está liberado</option></select>
+        <input class="fi" id="pf-ec-qual" placeholder="Em qual CNPJ da Villela? (ex.: 07-95)" style="display:none;margin-bottom:6px">
+        <div style="font-size:11px;color:#7F6000;margin-bottom:3px">&#128206; Certificado digital da empresa (se tiver, anexe — agiliza tudo):</div>
+        <input type="file" id="pf-cert" style="font-size:12px;max-width:100%"></div>
+      <button class="btn btp btw" id="pf-enviar" onclick="portalSolicitar()">Enviar para o jurídico</button>
       <div id="pf-aviso"></div></div>
     <div class="painel"><div class="bloco-t">&#128203; Minhas solicitações</div>
       <div id="pf-lista"><div class="vazio">Carregando…</div></div></div>`);
-  portalLista();
+  pfCarregaHeads(); portalLista();
+}
+async function pfCarregaHeads(){
+  const sel=ge("pf-head");if(!sel)return;
+  let hs=[];
+  if(E.franq&&E.franq._preview)hs=["Bruna","Danielly","Eduarda"];
+  else{const r=await supa.rpc("franq_heads");hs=r.data||[];}
+  sel.innerHTML='<option value="">Head responsável *</option>'+hs.map(h=>`<option>${esc(h)}</option>`).join("");
+}
+async function pfBuscaCNPJ(){
+  const dig=String((ge("pf-cnpj")||{}).value||"").replace(/\D/g,"");
+  E._pfCnpj=null;if(dig.length!==14)return;
+  let d;try{const r=await fetch("https://brasilapi.com.br/api/cnpj/v1/"+dig);if(!r.ok)return;d=await r.json();}catch(e){return;}
+  E._pfCnpj={municipio:d.municipio||"",uf:d.uf||""};
+  if(d.razao_social&&ge("pf-emp")&&!(ge("pf-emp").value||"").trim())ge("pf-emp").value=d.razao_social;
+  if(ge("pf-cnpj-info"))ge("pf-cnpj-info").innerHTML="&#10003; Receita: "+esc(d.razao_social||"")+(d.municipio?" — "+esc(d.municipio)+"/"+esc(d.uf||""):"");
 }
 async function portalSolicitar(){
-  if(E.franq&&E.franq._preview)return pfAviso("Visualização: aqui o pedido iria para o jurídico e apareceria na lista embaixo.","info");
-  const{error}=await supa.rpc("franq_solicitar",{p_tipo:ge("pf-tipo").value,
-    p_empresa:ge("pf-emp").value.trim(),p_cnpj:ge("pf-cnpj").value.trim(),p_descricao:ge("pf-desc").value.trim()});
+  if(E.franq&&E.franq._preview)return pfAviso("Visualização: aqui o pedido viraria uma tarefa imediata no jurídico e apareceria na lista embaixo.","info");
+  const dig=String(ge("pf-cnpj").value||"").replace(/\D/g,"");
+  if(dig.length!==14&&dig.length!==11)return pfAviso("O CNPJ da empresa é obrigatório (14 números — ou CPF, 11).");
+  if(!ge("pf-head").value)return pfAviso("Escolha a head responsável.");
+  if(!ge("pf-emp").value.trim())return pfAviso("Informe o nome da empresa.");
+  if(!ge("pf-desc").value.trim())return pfAviso("Descreva a situação do cliente.");
+  const ecSel=ge("pf-ec").value;
+  if(!ecSel)return pfAviso("Diga como vamos acessar os dados da Receita (e-CAC / gov.br).");
+  let ec=ecSel==="GOV"?"GOV (CPF/CNPJ + senha do cliente)":ecSel==="NAO"?"NÃO LIBERADO":ge("pf-ec-qual").value.trim();
+  if(ecSel==="LIB"&&!ec)return pfAviso("Diga em qual CNPJ da Villela o e-CAC está liberado.");
+  const bt=ge("pf-enviar");bt.disabled=true;bt.textContent="Enviando…";
+  const fim=()=>{bt.disabled=false;bt.textContent="Enviar para o jurídico";};
+  // certificado digital primeiro (se tiver) — vai para a pasta do cliente
+  let anexo=null,anexoNome=null,anexoTam=null;
+  const f=(ge("pf-cert").files||[])[0];
+  if(f){
+    const caminho="franq/"+E.franq.id+"/"+Date.now()+"_"+String(f.name).replace(/[^\w.\-]+/g,"_").slice(0,120);
+    const up=await supa.storage.from("documentos").upload(caminho,f);
+    if(up.error){fim();return pfAviso("O anexo não subiu: "+up.error.message);}
+    anexo=caminho;anexoNome=f.name;anexoTam=f.size;
+  }
+  const{data,error}=await supa.rpc("franq_solicitar",{p_head:ge("pf-head").value,
+    p_cnpj:dig,p_empresa:ge("pf-emp").value.trim(),p_descricao:ge("pf-desc").value.trim(),
+    p_municipio:(E._pfCnpj||{}).municipio||"",p_uf:(E._pfCnpj||{}).uf||"",p_ecac:ec,
+    p_anexo_caminho:anexo,p_anexo_nome:anexoNome,p_anexo_tamanho:anexoTam});
+  fim();
   if(error)return pfAviso(error.message);
-  ge("pf-emp").value="";ge("pf-cnpj").value="";ge("pf-desc").value="";
-  pfAviso("Enviado! O jurídico já consegue ver o seu pedido — acompanhe o andamento aqui embaixo.","info");
+  ["pf-cnpj","pf-emp","pf-desc","pf-ec-qual"].forEach(i=>ge(i).value="");
+  ge("pf-ec").value="";ge("pf-ec-qual").style.display="none";ge("pf-cert").value="";
+  ge("pf-cnpj-info").innerHTML="";E._pfCnpj=null;
+  pfAviso("Enviado! Seu pedido já virou tarefa imediata no jurídico"+(data&&data.novo?" e o cliente foi cadastrado":"")+". Acompanhe aqui embaixo.","info");
   portalLista();
 }
 async function portalLista(){
@@ -4663,9 +4714,11 @@ async function telaFranqueados(){
   const solHtml=s=>{const st=solRot[s.status]||["tm",s.status];
     return `<div class="linha-item" style="align-items:flex-start">
       <span style="font-size:12.5px"><span class="tag ${st[0]}">${st[1]}</span>
-        <b>${esc(s.franqueado)}</b> pede <b>${s.tipo==="PARECER"?"parecer":"proposta"}</b> · ${esc(s.empresa)}${s.cnpj?` · <span style="font-family:'DM Mono'">${esc(s.cnpj)}</span>`:""}
+        <b>${esc(s.franqueado)}</b> pede <b>parecer tributário</b> · ${esc(s.empresa)}${s.cnpj?` · <span style="font-family:'DM Mono'">${esc(s.cnpj)}</span>`:""}
         <span style="font-size:10.5px;color:var(--gray)">· ${new Date(s.criado).toLocaleDateString("pt-BR")}</span>
         <br><span style="font-size:11.5px;color:var(--gray)">${esc(s.descricao)}</span>
+        ${s.tarefa_id?`<br><span style="font-size:11px;color:var(--navy)">&#9889; tarefa <b style="cursor:pointer;text-decoration:underline" onclick="abrirTarefa('${esc(s.tarefa_id)}')">${esc(s.tarefa_id)}</b> (imediata) · head ${esc(s.head||"—")}${s.assessor?` · assessor <b>${esc(s.assessor)}</b>`:""}${s.ecac?` · e-CAC: ${esc(s.ecac)}`:""}</span>`:""}
+        ${s.anexo_caminho?`<br><a style="font-size:11px;color:var(--dani);cursor:pointer;text-decoration:underline" onclick='abrirDoc(${JSON.stringify(s.anexo_caminho)})'>&#128206; ${esc(s.anexo_nome||"certificado digital")}</a>`:""}
         ${s.resposta?`<br><span style="font-size:11px;color:var(--green)">resposta: ${esc(s.resposta)}${s.respondido_por?" — "+esc(s.respondido_por):""}</span>`:""}</span>
       ${["NOVA","EM_ANALISE"].includes(s.status)?`<span style="white-space:nowrap">
         <button class="btn btg btsm" onclick="responderSolicFranq(${s.id},'RESPONDIDA')">responder</button>
