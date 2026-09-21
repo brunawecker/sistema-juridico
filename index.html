@@ -1696,7 +1696,9 @@ async function carregarFinanceiro(){
 function montarPlanoDia(nome,ativas,reun,histHoje,props){
   const hjBR2=brHoje(), hjISO2=hojeISO();
   const meetings=(reun||[]).filter(r=>r.assessor===nome&&(r.data===hjBR2||String(r.data_dt||"").slice(0,10)===hjISO2));
-  const minReu=meetings.reduce((s,m)=>s+reuMinCap(m),0);
+  // compromissos de agenda descontam NO MÁXIMO 30 min do dia, no TOTAL
+  // (Bruna, 21/09/2026 — caso do "despacho com o magistrado" de 90 min)
+  const minReu=Math.min(30,meetings.reduce((s,m)=>s+reuMinCap(m),0));
   ativas.forEach(t=>{t._tempo=t._meta||tempoPlanoDe(nome,t.operacao);});
   const jaTrab=(histHoje||[]).filter(r=>r.tipo==="TIMER"&&loginDe(r.autor)===nome)
     .reduce((s,r)=>s+(parseInt((String(r.texto||"").match(/(\d+)\s*min/)||[])[1])||0),0);
@@ -1841,14 +1843,16 @@ async function telaMinhas(){
       .map(r=>({n:loginDe(r.nome),dia:r.pendentes||0,tot:r.total_ativas||0,pros:r.pros_min||0,fu:r.fu_min||0,
         folga:Math.max(0,capDe(loginDe(r.nome))-(r.minutos||0)-(r.pros_min||0)-(r.fu_min||0)-(r.trab_min||0))}))
       .sort((a,b)=>b.folga-a.folga);
-    if(lsEq.length)h+=`<div class="painel"><div class="bloco-t">&#128101; Fila do seu grupo (para decidir delegações)</div>`+
+    if(lsEq.length)h+=`<div class="painel"><details>
+      <summary class="bloco-t" style="cursor:pointer;list-style:none">&#128101; Fila do seu grupo (para decidir delegações) <span style="font-weight:400;font-size:11px;color:var(--gray)">— toque para abrir</span></summary>`+
       lsEq.map(l=>`<div class="linha-item"><span><b>${esc(l.n)}</b></span>
         <span style="font-size:12px">${l.dia} do dia · ${l.tot} no total${l.pros?` · &#127919; ${fmtMin(l.pros)} prospectando`:""}${l.fu?` · &#128222; ${fmtMin(l.fu)} follow-up`:""} · <b style="color:var(--green)">${fmtMin(l.folga)} livres</b></span></div>`).join("")+
-      `<div style="font-size:11px;color:var(--gray);margin-top:4px">Mesma régua do robô de sugestões: "do dia" = vencidas + de hoje; folga = capacidade menos a fila do dia, menos prospecção (&#127919;), follow-up de propostas (&#128222;) e o que a pessoa já trabalhou hoje.</div></div>`;
+      `<div style="font-size:11px;color:var(--gray);margin-top:4px">Mesma régua do robô de sugestões: "do dia" = vencidas + de hoje; folga = capacidade menos a fila do dia, menos prospecção (&#127919;), follow-up de propostas (&#128222;) e o que a pessoa já trabalhou hoje.</div></details></div>`;
   }
   if(meetings.length)h+=`<div class="painel"><div class="bloco-t">&#128197; Compromissos hoje</div>`+
     meetings.map(m=>`<div class="linha-item"><span><b>${esc(m.horario||"—")}</b> ${esc(m.titulo)}${m.cliente?" · "+esc(m.cliente):""}</span>
-      <span>${esc(m.duracao_min||m.duracao_min_num||30)}min <button class="btn bts btsm" onclick="removerReuniao('${esc(m.id_reuniao)}')">&#10005;</button></span></div>`).join("")+`</div>`;
+      <span>${esc(m.duracao_min||m.duracao_min_num||30)}min <button class="btn bts btsm" onclick="removerReuniao('${esc(m.id_reuniao)}')">&#10005;</button></span></div>`).join("")+
+    `<div style="font-size:10.5px;color:var(--gray);margin-top:3px">A duração acima é a do compromisso; do seu dia de tarefas ele desconta no máximo <b>30 min no total</b>.</div></div>`;
   // em correção NÃO é tarefa ativa (Bruna, 19/09/2026): depende da head —
   // vai para o FINAL da tela, minimizada (montada depois da lista, abaixo)
   // delegadas moram na tela própria "Tarefas Delegadas" (Bruna, 19/09/2026);
@@ -4383,7 +4387,7 @@ async function telaCapacidade(){
       .reduce((s,r)=>s+parseInt((String(r.texto||"").match(/(\d+)\s*min/)||[0,0])[1]),0);
     const upd=(hist||[]).filter(r=>r.tipo!=="TIMER"&&loginDe(r.autor)===nome).length;
     const reunioes=(reu||[]).filter(r=>r.assessor===nome&&(r.data===hjBR||String(r.data_dt||"").slice(0,10)===hjISO));
-    const minReu=reunioes.reduce((s,r)=>s+reuMinCap(r),0);
+    const minReu=Math.min(30,reunioes.reduce((s,r)=>s+reuMinCap(r),0)); // teto 30/dia
     const cap=capDe(nome),pct=Math.min(100,Math.round((min+minReu)/cap*100));
     const mediaTarefa=20, capDia=Math.min(Math.floor((cap-minReu)/mediaTarefa),10);
     return{nome,portfolio:minhas.length,imed,min,upd,minReu,cap,pct,capDia,reunioes};
@@ -4524,6 +4528,7 @@ async function telaPrevisao(mesRef){
     (cargaPrev||[]).forEach(r=>{trabPrev[loginDe(r.nome)]=+r.trab_min||0;});
     (reunPrev||[]).forEach(r=>{const kR=String(r.data_dt||"").slice(0,10);if(!kR)return;
       const aR=loginDe(r.assessor||"");reuMinPrev[kR+"|"+aR]=(reuMinPrev[kR+"|"+aR]||0)+reuMinCap(r);});
+    Object.keys(reuMinPrev).forEach(k=>reuMinPrev[k]=Math.min(30,reuMinPrev[k])); // teto 30/dia
     E._prevCapDados={fuMin:fuMinPrev,trab:trabPrev,reuMin:reuMinPrev,hjKey:chave(hoje)};
     const diasUteis=[];const dLoop=new Date(hoje);
     while(dLoop.getMonth()===mes){const w=dLoop.getDay();if(w!==0&&w!==6)diasUteis.push(chave(dLoop));dLoop.setDate(dLoop.getDate()+1);}
