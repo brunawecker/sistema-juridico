@@ -189,7 +189,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div id="login-corpo">
       <button class="btn btp btw" onclick="entrarGoogle()">Entrar com Google</button>
       <div class="separa">ou com e-mail e senha</div>
-      <input class="fi" id="li-email" type="email" placeholder="Seu e-mail" autocomplete="email">
+      <input class="fi" id="li-email" placeholder="Seu e-mail — franqueado: nome.sobrenome" autocomplete="username">
       <input class="fi" id="li-senha" type="password" placeholder="Senha" autocomplete="current-password">
       <button class="btn bts btw" onclick="entrarSenha()">Entrar</button>
       <button class="btn bts btw" style="margin-top:7px" onclick="criarSenha()">Primeiro acesso — criar senha</button>
@@ -1036,7 +1036,9 @@ async function iniciarLocal(){
 }
 function entrarLocal(){E.emailTeste=ge("li-quem").value;entrou();}
 async function entrarGoogle(){const{error}=await supa.auth.signInWithOAuth({provider:"google",options:{redirectTo:location.origin+location.pathname}});if(error)avisoLogin("erro",error.message);}
-async function entrarSenha(){const em=ge("li-email").value.trim(),s=ge("li-senha").value;if(!em||!s){avisoLogin("erro","Preencha e-mail e senha.");return;}const{error}=await supa.auth.signInWithPassword({email:em,password:s});if(error)avisoLogin("erro",error.message==="Invalid login credentials"?"E-mail ou senha errados. Se é a primeira vez, use o botão de primeiro acesso.":error.message);}
+async function entrarSenha(){let em=ge("li-email").value.trim().toLowerCase(),s=ge("li-senha").value;if(!em||!s){avisoLogin("erro","Preencha e-mail e senha.");return;}
+  if(!em.includes("@"))em+="@franqueados.villela.com"; // franqueado digita só nome.sobrenome
+  const{error}=await supa.auth.signInWithPassword({email:em,password:s});if(error)avisoLogin("erro",error.message==="Invalid login credentials"?"E-mail ou senha errados. Se é a primeira vez, use o botão de primeiro acesso.":error.message);}
 async function criarSenha(){const em=ge("li-email").value.trim(),s=ge("li-senha").value;if(!em||!s){avisoLogin("erro","Preencha e-mail e a senha que você quer.");return;}if(s.length<8){avisoLogin("erro","A senha precisa ter ao menos 8 caracteres.");return;}const{error}=await supa.auth.signUp({email:em,password:s,options:{emailRedirectTo:location.href}});if(error){avisoLogin("erro",error.message);return;}avisoLogin("info","Conta criada. Confira seu e-mail, clique no link de confirmação e volte para entrar.");}
 function avisoLogin(t,m){ge("login-aviso").innerHTML=`<div class="aviso ${t}">${esc(m)}</div>`;}
 async function sair(){if(MODO_SUPABASE){_sessaoAtiva=false;await supa.auth.signOut();}location.reload();}
@@ -3356,10 +3358,46 @@ async function telaDiario(dia){
   // pessoa (montarPlanoDia) — heads entendem o que o sistema cobra hoje e
   // podem furar a fila (pedido da Bruna, 16/09/2026)
   if(ehHoje&&E.perfil.head_sim){
-    let reunD=[],propsD=[];
+    let reunD=[],propsD=[],cobD=[],clsD=[];
     try{reunD=await DB.reunioes();}catch(e){}
     try{propsD=await DB.propostas();}catch(e){}
+    try{cobD=await DB.cobranca();}catch(e){}
+    try{clsD=await DB.clientes("");}catch(e){}
     await carregarTemposReais(ts);
+    // 📞 Follow-up e carteira por assessor (Bruna, 20/09/2026): na rua, follow-up
+    // parado 3d+, reserva de mercado vencida (65d → vai p/ heads) e recorrências
+    // com 3+ parcelas vencidas (negócio novo NÃO conta). As HEADS ficam de fora
+    // deste resumo por ora (pedido da Bruna).
+    const HEADS_FORA=["Bruna","Danielly","Eduarda"];
+    const _hj0=new Date();_hj0.setHours(12,0,0,0);
+    const _paradaDe=p=>{const u=ultMovProp(p);return u?Math.round((_hj0-u)/86400000):null;};
+    const _respDe=p=>loginDe(String(p.responsavel||p.quem_pediu||p.executor||"").trim());
+    const stat={},S=n=>stat[n]=stat[n]||{naRua:0,parada:0,reserva:0,rec:0,recV:0};
+    (propsD||[]).filter(propNaRua).forEach(p=>{const n=_respDe(p);
+      if(!n||HEADS_FORA.includes(n))return;
+      if(reservaVenc(p)){S(n).reserva++;return;}          // saiu do assessor → heads
+      S(n).naRua++;const dp=_paradaDe(p);if(dp!==null&&dp>=3)S(n).parada++;});
+    // recorrência: 3+ parcelas vencidas por cliente, SEM contar 'NEGÓCIO NOVO';
+    // atribui ao assessor responsável do cadastro do cliente
+    const assDeCli={};(clsD||[]).forEach(c=>{if(c.nome)assDeCli[String(c.nome).trim().toUpperCase()]=loginDe(String(c.assessor_responsavel||"").trim());});
+    const vencCli={};(cobD||[]).filter(x=>["ATRASADO","VENCIDO","VENC. HOJE"].includes(String(x.status_pgto||"").trim())
+        &&String(x.tipo_cobr||"").trim().toUpperCase()!=="NEGÓCIO NOVO")
+      .forEach(x=>{const k=String(x.cliente||"").trim();if(!k)return;const o=(vencCli[k]=vencCli[k]||{n:0,v:0});o.n++;o.v+=(+x.valor_bruto||0);});
+    Object.entries(vencCli).forEach(([cli,o])=>{if(o.n<3)return;const n=assDeCli[cli.toUpperCase()];
+      if(!n||HEADS_FORA.includes(n))return;S(n).rec++;S(n).recV+=o.v;});
+    const nomesStat=Object.keys(stat).filter(n=>{const s=stat[n];return s.naRua||s.parada||s.reserva||s.rec;})
+      .sort((a,b)=>(stat[b].parada-stat[a].parada)||(stat[b].reserva-stat[a].reserva)||(stat[b].rec-stat[a].rec));
+    if(nomesStat.length){
+      h+=`<div class="painel" style="border-left:4px solid #1F4E79">
+        <div class="bloco-t" style="color:#1F4E79">&#128222; Follow-up e carteira por assessor</div>
+        <div style="font-size:11px;color:var(--gray);margin-bottom:6px">Propostas na rua e follow-up <b>parado</b> (sem rodada há 3+ dias); <b>reserva de mercado vencida</b> (65 dias desde o lançamento → condução vai para as heads); <b>recorrências com 3+ parcelas vencidas</b> (negócio novo não conta → condução volta para a head).</div>`;
+      nomesStat.forEach(n=>{const s=stat[n],c=corDe(n);
+        h+=`<div class="linha-item"><span style="font-size:12.5px"><b style="color:${c.text}">${esc(n)}</b> · ${s.naRua} na rua`
+          +(s.parada?` · <b style="color:var(--red)">${s.parada} parada(s) 3d+</b>`:(s.naRua?` · <span style="color:var(--green)">em dia</span>`:""))
+          +(s.reserva?` · <b style="color:#7B0000">&#9203; ${s.reserva} passou reserva</b>`:"")
+          +(s.rec?` · <b style="color:#7B0000">&#128257; ${s.rec} recorrência 3+ venc. (${fmtR$(s.recV)})</b>`:"")
+          +`</span></div>`;});
+      h+=`</div>`;}
     let hDia=`<div class="painel"><div class="bloco-t">&#129517; O dia de cada assessor — o que o sistema cobra HOJE × fila de espera</div>
       <div style="font-size:11px;color:var(--gray);margin-bottom:6px">Mesma régua da tela de cada um (capacidade − reuniões − trabalhado − prospecção − follow-up; imediata fura sempre). Na fila, ⚡ torna a tarefa imediata de hoje.</div>`;
     OPERACIONAIS.forEach(n=>{
@@ -3651,36 +3689,6 @@ async function telaCentral(){
     .sort((a2,b2)=>{const ua=ultMovProp(a2),ub=ultMovProp(b2);return (ua?ua.getTime():0)-(ub?ub.getTime():0);});
   const diasParada=p2=>{const u=ultMovProp(p2);if(!u)return null;
     const h0=new Date();h0.setHours(12,0,0,0);return Math.round((h0-u)/86400000);};
-  // ⚠ Follow-up PARADO (Bruna, 20/09/2026): quem tem proposta na rua sem
-  // NENHUMA rodada há 3+ dias — visão de equipe p/ a head cobrar por nome.
-  const FU_PARADO_DIAS=3;
-  const naRuaTodas=(props||[]).filter(propNaRua);
-  const paradoPor={};
-  naRuaTodas.forEach(p2=>{
-    if(reservaVenc(p2))return;                       // já saiu para as heads
-    const resp=loginDe(String(p2.responsavel||p2.quem_pediu||p2.executor||"").trim());
-    if(!resp)return;
-    const dp=diasParada(p2);if(dp===null||dp<FU_PARADO_DIAS)return;
-    const o=(paradoPor[resp]=paradoPor[resp]||{n:0,max:0,pior:null});
-    o.n++;if(dp>o.max){o.max=dp;o.pior=p2;}});
-  const paradoLista=Object.entries(paradoPor).filter(([n])=>n!==eu)  // o meu tem painel próprio
-    .sort((a2,b2)=>b2[1].max-a2[1].max);
-  // ⏳ Reserva de mercado vencida (65d): proposta na rua que passou do prazo →
-  // condução vai para as heads e some do painel do assessor.
-  const reservaVencida=naRuaTodas.filter(reservaVenc)
-    .map(p2=>({p:p2,d:diasReserva(p2),resp:String(p2.responsavel||p2.quem_pediu||p2.executor||"").trim()}))
-    .sort((a2,b2)=>b2.d-a2.d);
-  // 🔁 Recorrências com 3+ parcelas vencidas → condução volta p/ a head (minha
-  // carteira: cobrança em aberto agrupada por cliente).
-  const REC_PARC=3;
-  const vencCli={};
-  (cob||[]).filter(x=>["ATRASADO","VENCIDO","VENC. HOJE"].includes(String(x.status_pgto||"").trim())
-      &&String(x.head||"").trim()===eu)
-    .forEach(x=>{const k=String(x.cliente||"").trim();if(!k)return;
-      const o=(vencCli[k]=vencCli[k]||{n:0,v:0,cli:x.cliente});o.n++;o.v+=(+x.valor_bruto||0);});
-  const recAssumir=Object.values(vencCli).filter(o=>o.n>=REC_PARC).sort((a2,b2)=>b2.n-a2.n)
-    .map(o=>{const c=cliPorNome[String(o.cli).trim().toUpperCase()];
-      return Object.assign({},o,{ass:c?String(c.assessor_responsavel||"").trim():"",idc:c?c.id_cliente:null});});
   ge("conteudo").innerHTML=`
     ${tarjaMeta("Meta da EQUIPE — "+new Date().toLocaleDateString("pt-BR",{month:"long"})+(mEquipe?" (conjunta, da planilha)":""),metaTot,pagoTot)}
     ${metaMinha?tarjaMeta("MINHA meta",metaMinha,pagoMeu)
@@ -3702,12 +3710,6 @@ async function telaCentral(){
         <div class="linha-item"><span style="font-size:12px"><b>${esc(x.cliente)}</b> · ${esc(x.produto||"")} · venceu ${esc(x.data_venc||"—")}</span>
         <b style="color:var(--red)">${fmtR$(+x.valor_bruto||0)}</b></div>`).join("")
         :'<div class="vazio">Nenhum inadimplente na sua carteira. 🎉</div>'}</div></details></div>
-    ${recAssumir.length?`<div class="painel" style="border-left:4px solid #7B0000">
-      <div class="bloco-t" style="color:#7B0000">&#128257; Recorrências com ${REC_PARC}+ parcelas vencidas — assumir condução (${recAssumir.length})</div>
-      <div style="font-size:11px;color:var(--gray);margin-bottom:5px">Cliente da sua carteira com ${REC_PARC} ou mais parcelas vencidas: por combinado, a condução volta para a head. Assuma o contato.</div>
-      ${recAssumir.map(o=>`<div class="linha-item">
-        <span style="font-size:12.5px">&#9888; <b>${esc(o.cli)}</b> · <b style="color:#7B0000">${o.n} parcelas vencidas</b> · ${fmtR$(o.v)}${o.ass?` · era de <b>${esc(o.ass)}</b>`:""}</span>
-        <span>${o.idc?`<button class="btn btp btsm" onclick="prepCliente('${esc(o.idc)}');telaClientes()">abrir cliente</button>`:""}</span></div>`).join("")}</div>`:""}
     ${semTarefa.length?`<div class="painel" style="border-left:4px solid var(--red)">
       <div class="bloco-t" style="color:var(--red)">&#129534; Clientes NOVOS que pagaram e estão SEM tarefa ativa (${semTarefa.length})</div>
       <div style="font-size:11px;color:var(--gray);margin-bottom:5px">Contrato novo pago neste mês, mas nenhuma tarefa aberta no cliente — provavelmente falta lançar o parecer/levantamento. O sistema NÃO cria nada sozinho: confira e abra a tarefa se for o caso.</div>
@@ -3749,19 +3751,6 @@ async function telaCentral(){
             <span style="font-size:12.5px">&#128197; <b>${esc(p2.cliente)}</b></span>
             <b style="color:${String(p2.data_reuniao).slice(0,10)===hojeISO()?"var(--red)":"var(--navy)"}">${brData(String(p2.data_reuniao).slice(0,10))}${String(p2.data_reuniao).slice(0,10)===hojeISO()?" — HOJE":""}</b></div>`).join(""):""}</div>`;
     })()}
-    ${paradoLista.length?`<div class="painel" style="border-left:4px solid var(--red)">
-      <div class="bloco-t" style="color:var(--red)">&#9888; Follow-up PARADO — na rua sem rodada há ${FU_PARADO_DIAS}+ dias (${paradoLista.length})</div>
-      <div style="font-size:11px;color:var(--gray);margin-bottom:5px">Cada rodada registrada zera a contagem. Cobre por nome — a proposta esfria quando ninguém a movimenta.</div>
-      ${paradoLista.map(([n,o])=>`<div class="linha-item">
-        <span style="font-size:12.5px"><b>${esc(n)}</b> · ${o.n} proposta(s) parada(s)${o.pior?` · pior: <b>${esc(o.pior.cliente)}</b>`:""}</span>
-        <b style="color:var(--red)">${o.max}d parada</b></div>`).join("")}</div>`:""}
-    ${reservaVencida.length?`<div class="painel" style="border-left:4px solid #7B0000">
-      <div class="bloco-t" style="color:#7B0000">&#9203; Passaram da reserva de mercado (${RESERVA_DIAS} dias) — condução das heads (${reservaVencida.length})</div>
-      <div style="font-size:11px;color:var(--gray);margin-bottom:5px">Proposta na rua há mais de ${RESERVA_DIAS} dias desde o lançamento: saiu do painel do assessor. Assumam a condução ou baixem a proposta.</div>
-      ${reservaVencida.slice(0,15).map(o=>`<div class="linha-item" style="cursor:pointer" onclick='abrirNegociacao(${JSON.stringify(o.p.id_proposta)})'>
-        <span style="font-size:12.5px"><b>${esc(o.p.cliente)}</b> · R$ ${esc(o.p.valor||"0")} · era de <b>${esc(o.resp||"—")}</b></span>
-        <b style="color:#7B0000">${o.d}d</b></div>`).join("")}
-      ${reservaVencida.length>15?`<div style="font-size:11px;color:var(--gray)">+${reservaVencida.length-15} proposta(s)</div>`:""}</div>`:""}
     <div class="painel">
       <div class="bloco-t">&#128222; Follow-up do meu dia — minhas propostas na rua (${minhasProps.length})
         <button class="btn btg btsm" style="margin-left:8px" onclick="iniciarFollowup()">&#128222; Medir follow-up (liga o relógio)</button></div>
@@ -4600,6 +4589,9 @@ async function telaFranqueados(){
   const eu=E.perfil.nome_sistema;
   let lista=(fr||[]).filter(x=>x.ativo!==false);
   if(escHead())lista=lista.filter(x=>String(x.responsavel||"").trim()===eu);
+  // filtro por responsável (pedido da Bruna, 20/09/2026)
+  const resps=[...new Set(lista.map(x=>String(x.responsavel||"").trim()).filter(Boolean))].sort();
+  if(E._franqResp&&resps.includes(E._franqResp))lista=lista.filter(x=>String(x.responsavel||"").trim()===E._franqResp);
   const diasSem=x=>x.ultimo_contato?(-diasAte(String(x.ultimo_contato).slice(0,10))):null;
   lista.sort((a,b)=>{const da=diasSem(a),db=diasSem(b);
     if(da===null&&db===null)return String(a.franqueado).localeCompare(String(b.franqueado));
@@ -4614,7 +4606,7 @@ async function telaFranqueados(){
       :`<span class="tag tek">contato há ${d}d</span>`;
     return `<div class="linha-item" style="align-items:flex-start">
       <span style="font-size:12.5px"><b>${esc(x.franqueado)}</b> ${badge}<br>
-        <span style="font-size:11px;color:var(--gray)">&#9742; ${esc(x.telefone||"—")} · ${esc(x.estado||"")}${x.fp&&x.fp!==x.franqueado?" · FP: "+esc(x.fp):""}${x.status_semana?" · <i>"+esc(x.status_semana)+"</i>":""}</span></span>
+        <span style="font-size:11px;color:var(--gray)">&#9742; ${esc(x.telefone||"—")} · ${esc(x.estado||"")}${x.fp&&x.fp!==x.franqueado?" · FP: "+esc(x.fp):""}${x.email?` · &#128273; <span style="font-family:'DM Mono'">${esc(String(x.email).replace("@franqueados.villela.com",""))}</span>`:""}${x.status_semana?" · <i>"+esc(x.status_semana)+"</i>":""}</span></span>
       <span style="white-space:nowrap"><button class="btn btg btsm" onclick="registrarContatoFranq(${x.id})">&#128222; registrei contato</button>
         <button class="btn bts btsm" onclick="trocarRespFranq(${x.id})" title="trocar responsável">&#128100;${esc(x.responsavel||"?")}</button>
         <button class="btn bts btsm" onclick="acessoFranq(${x.id})" title="${x.email?"portal: "+esc(x.email):"dar acesso ao portal (login e senha)"}">&#128273;${x.email?(x.senha_trocada?" portal ativo":x.acesso_criado?" senha padrão":""):" dar acesso"}</button>
@@ -4645,7 +4637,11 @@ async function telaFranqueados(){
           <div style="font-size:20px;font-weight:700;color:var(--red);font-family:'DM Mono'">${atrasadosN}</div><div style="font-size:11px;color:var(--gray)">7+ dias sem contato</div></div>
         <div style="background:var(--amber-lt);border:1.5px solid var(--amber);border-radius:11px;padding:8px 12px;flex:1;min-width:120px">
           <div style="font-size:20px;font-weight:700;color:var(--amber);font-family:'DM Mono'">${nuncaN}</div><div style="font-size:11px;color:var(--gray)">nunca contatados</div></div></div>
-      <div style="font-size:11px;color:var(--gray)">Contato semanal. Os mais tempo sem falar aparecem primeiro. Registre o contato para zerar o contador.</div></div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <select class="fi" style="max-width:200px;padding:6px 9px;font-size:12px" onchange="E._franqResp=this.value;telaFranqueados()">
+          <option value="">todos os responsáveis</option>
+          ${resps.map(r=>`<option${E._franqResp===r?" selected":""}>${esc(r)}</option>`).join("")}</select>
+        <div style="font-size:11px;color:var(--gray)">Contato semanal. Os mais tempo sem falar aparecem primeiro. Registre o contato para zerar o contador.</div></div></div>
     <div class="painel">${lista.map(linha).join("")||'<div class="vazio">Nenhum franqueado.</div>'}</div>`;
   E._franqNomes=nomes;
 }
@@ -4660,17 +4656,24 @@ async function trocarRespFranq(id){
   if(novo===null||!novo.trim())return;
   try{await DB.franqueadoResp(id,novo.trim());}catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Responsável atualizado.","ok");telaFranqueados();}
+function loginFranqSugerido(nome){
+  const p=String(nome||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase()
+    .replace(/-/g," ").split(/\s+/).filter(w=>/^[a-z]+$/.test(w)&&!["de","da","do","dos","das","e"].includes(w));
+  return p.length?(p.length===1?p[0]:p[0]+"."+p[p.length-1]):"";}
 async function acessoFranq(id){
   const x=(E._franqMap||{})[id];if(!x)return;
-  const em=prompt("Acesso ao Portal do Franqueado — "+x.franqueado+
+  const atual=x.email?String(x.email).replace("@franqueados.villela.com",""):loginFranqSugerido(x.franqueado);
+  let em=prompt("Acesso ao Portal do Franqueado — "+x.franqueado+
     "\n\nA conta nasce com a senha padrão "+FRANQ_SENHA_PADRAO+" e ele é obrigado a trocá-la no 1º acesso."+
-    "\n\nE-mail de login:",x.email||"");
+    "\n\nLogin (nome.sobrenome) ou e-mail:",atual);
   if(em===null||!em.trim())return;
+  em=em.trim().toLowerCase();if(!em.includes("@"))em+="@franqueados.villela.com";
   try{
-    await DB.franqAcesso(id,em.trim());
+    await DB.franqAcesso(id,em);
     const r=await DB.franqCriarConta(id);
-    toast(r==="CRIADA"?"Conta criada! Passe a ele: login "+em.trim().toLowerCase()+" · senha "+FRANQ_SENHA_PADRAO
-      :"E-mail salvo — a conta desse e-mail já existia.","ok");
+    const login=em.replace("@franqueados.villela.com","");
+    toast(r==="CRIADA"?"Conta criada! Passe a ele: login "+login+" · senha "+FRANQ_SENHA_PADRAO
+      :"Login salvo — a conta já existia.","ok");
   }catch(e){toast("Erro: "+e.message,"erro");return;}
   telaFranqueados();}
 async function resetSenhaFranq(id){
