@@ -2196,7 +2196,7 @@ function desenharCard(t,hist){
     ${t._emCorrecao?`<div style="background:#F3EEFB;border:1.5px solid #6B4FBF;border-radius:10px;padding:8px 12px;margin-top:8px;font-size:12.5px">
       &#9999;&#65039; <b style="color:#6B4FBF">Em correção com ${esc(t.correcao_head)}</b>
       ${t.correcao_data_dt?` · enviada ${brData(String(t.correcao_data_dt).slice(0,10))}`:""}${t.correcao_retorno_dt?` · devolver até <b>${brData(t.correcao_retorno_dt)}</b>`:""}
-      ${t.correcao_link?(urlPasta(t.correcao_link)?` · <a href="${esc(urlPasta(t.correcao_link))}" target="_blank" style="color:var(--dani);font-weight:700">&#128193; Abrir a pasta (SharePoint)</a>`:` · <span style="color:var(--gray)" title="${esc(t.correcao_link)}">&#128206; ${/anex/i.test(t.correcao_link)?"arquivo anexado nesta tarefa (veja em Documentos, abaixo)":"link enviado: "+esc(String(t.correcao_link).slice(0,60))}</span>`):' · <span style="color:var(--gray)">sem link/arquivo indicado no envio</span>'}
+      ${t.correcao_link?(urlPasta(t.correcao_link)?` · <a href="${esc(urlPasta(t.correcao_link))}" target="_blank" onclick="salvarPastaSeVazia('${esc(t.id_cliente||"")}','${esc(urlPasta(t.correcao_link))}')" style="color:var(--dani);font-weight:700">&#128193; Abrir a pasta (SharePoint)</a>`:` · <span style="color:var(--gray)" title="${esc(t.correcao_link)}">&#128206; ${/anex/i.test(t.correcao_link)?"arquivo anexado nesta tarefa (veja em Documentos, abaixo)":"link enviado: "+esc(String(t.correcao_link).slice(0,60))}</span>`):' · <span style="color:var(--gray)">sem link/arquivo indicado no envio</span>'}
       ${t.correcao_justif?`<br><span style="font-size:11.5px;color:var(--gray)">obs. do assessor: ${esc(t.correcao_justif)}</span>`:""}</div>`:""}
     <div id="cli-extra" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"></div>
     <div class="bloco" style="margin-top:10px"><div class="bloco-t">&#128206; Documentos</div>
@@ -2859,7 +2859,22 @@ async function enviarCorrecao(){
   const ret=somaDiasUteis(new Date(),dias).toISOString().slice(0,10);
   try{await DB.correcaoEnviar(t,{head,link,justificativa:justif,retorno:ret});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
+  // link de pasta válido alimenta a ficha do cliente (se ainda vazia) —
+  // assim o card SEMPRE mostra "📁 Pasta do cliente" dali em diante
+  if(t.id_cliente&&urlPasta(link))salvarPastaSeVazia(t.id_cliente,urlPasta(link));
   toast("Enviada para correção! Retorno "+brData(ret),"ok");fecharModal2();fecharModal();recarregar();}
+// grava a pasta do SharePoint na ficha do cliente quando ela está vazia
+// (chamada no envio da correção e no clique de "abrir a pasta")
+async function salvarPastaSeVazia(idCli,url){
+  if(!MODO_SUPABASE||!idCli||!url)return;
+  try{
+    const r=okS(await supa.from("clientes").select("pasta_sharepoint").eq("id_cliente",idCli));
+    if(!r||!r.length||String(r[0].pasta_sharepoint||"").trim())return;
+    await DB.clienteUpdate(idCli,{pasta_sharepoint:url});
+    if(E._cliCard&&E._cliCard.id_cliente===idCli)E._cliCard.pasta_sharepoint=url;
+    toast("📁 Link da pasta salvo na ficha do cliente — fica em todos os cards dele.","ok");
+  }catch(_e){}
+}
 function abrirEncerrar(){const t=E.atual;
   // o portão da proposta vale TAMBÉM no encerrar — sem isso, arquivar era
   // uma porta lateral para fechar parecer sem proposta (fechada em 11/09/2026)
@@ -3986,7 +4001,7 @@ function desenhaCorrCentral(ts){
       const pr=d===null?"":d===0?'<span class="tag ti">devolver HOJE</span>':d===1?'<span class="tag td2">devolver amanhã</span>':`<span class="tag tm">até ${brData(t.correcao_retorno_dt)}</span>`;
       return `<div class="linha-item"><span style="font-size:12.5px;cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')">
         ${chegouHj(t)?'<span class="tag tek">chegou hoje</span> ':""}<b>${esc(t.cliente)}</b> · ${esc(t.operacao||"")} · &#128100; ${esc(t.assessor||"")} ${pr}</span>
-        <span style="white-space:nowrap">${t.correcao_link&&urlPasta(t.correcao_link)?`<a href="${esc(urlPasta(t.correcao_link))}" target="_blank" class="btn bts btsm" style="text-decoration:none">&#128193; Pasta</a> `:t.correcao_link?'<span style="font-size:10.5px;color:var(--gray)">&#128206; anexo no card</span> ':""}
+        <span style="white-space:nowrap">${t.correcao_link&&urlPasta(t.correcao_link)?`<a href="${esc(urlPasta(t.correcao_link))}" target="_blank" onclick="salvarPastaSeVazia('${esc(t.id_cliente||"")}','${esc(urlPasta(t.correcao_link))}')" class="btn bts btsm" style="text-decoration:none">&#128193; Pasta</a> `:t.correcao_link?'<span style="font-size:10.5px;color:var(--gray)">&#128206; anexo no card</span> ':""}
         <button class="btn bts btsm" onclick="abrirTarefa('${esc(t.id_tarefa)}')">corrigir</button></span></div>`;}).join("")}
     <div style="font-size:10.5px;color:var(--gray);margin-top:4px">Passou do prazo de retorno, a correção sai daqui${eu==="Danielly"?" — menos as suas, Dani: as vencidas continuam à vista":` (${vencidas.length} já saíram hoje por prazo${vencidas.length?" — estão no painel Para Corrigir do Minhas Tarefas":""})`}.</div></div>`;
 }
