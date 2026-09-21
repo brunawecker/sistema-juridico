@@ -6720,6 +6720,17 @@ async function criarTarefaNova(){
   const flagNT=precisaPedidoHead(E.perfil.nome_sistema,ge("nt-ass").value);
   if(flagNT&&!(ge("nt-headflag")||{}).checked){toast("Para direcionar a "+ge("nt-ass").value+", marque que a tarefa é por pedido direto de uma das heads.","erro");return;}
   const op=ge("nt-op").value;if(!op){toast("Selecione a operação.","erro");return;}
+  // 🚫 anti-duplicata de TAREFA (Bruna, 21/09/2026): o cliente já tem tarefa
+  // ATIVA da mesma operação? (a trava antiga só evitava CLIENTE repetido).
+  if(!c.interna&&c.id_cliente){
+    let jaAtivas=[];
+    E._cacheT=null;   // dados frescos: pega até tarefa criada há segundos
+    try{jaAtivas=(await DB.tarefas()).filter(t=>t.id_tarefa&&t.id_cliente===c.id_cliente
+      &&String(t.operacao||"").trim()===String(op).trim());}catch(e){}
+    if(jaAtivas.length){
+      const l=jaAtivas.map(t=>`• ${t.id_tarefa} — ${t.operacao} (${t.check_||"?"}, ${t.assessor||"sem assessor"})`).join("\n");
+      if(!confirm(`⚠️ Este cliente já tem ${jaAtivas.length} tarefa(s) ATIVA(S) de "${op}":\n\n${l}\n\nQuase sempre isso é duplicidade — melhor abrir a tarefa que já existe. Criar assim mesmo uma nova?`))return;}
+  }
   // Prazo C3 = prazo processual: processo e prazo fatal são obrigatórios
   if(op==="Prazo C3"){
     if(!(ge("nt-proc").value||"").trim()){toast("Prazo C3 exige o Nº do processo — preencha o campo do processo.","erro");return;}
