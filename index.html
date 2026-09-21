@@ -3825,10 +3825,13 @@ async function telaCentral(){
     if(idc&&temTarefaAtiva[idc])return;                // já tem tarefa → ok
     semTarefa.push({cliente:x.cliente,cnpj:x.cnpj_cpf,valor:+x.valor_liquido||0,
       data:x.data_pgto,idc:idc||null});});
-  // ---- minha carteira hoje: por assessor
+  // ---- minha carteira hoje: por assessor — ENTRA HOJE × FILA (Bruna, 21/09/2026)
+  // mesma régua de todas as telas (motor único montarPlanoDia); o plano olha
+  // TUDO que o assessor tem, e aqui destacamos só o que é da MINHA carteira
+  const histHj=(tm||[]).filter(r=>String(r.data_dt||"").slice(0,10)===hojeISO());
   const minhasHoje=ts.filter(t=>t.id_tarefa&&String(t.advogada||"").trim()===eu
     &&!t._delegada&&!t._emCorrecao&&!t._concluida&&t._g>=1&&t._g<=3);
-  const porAss={};minhasHoje.forEach(t=>{(porAss[t.assessor||"(sem assessor)"]=porAss[t.assessor||"(sem assessor)"]||[]).push(t);});
+  const porAss={};minhasHoje.forEach(t=>{const a=loginDe(t.assessor||"")||"(sem assessor)";(porAss[a]=porAss[a]||[]).push(t);});
   // ---- follow-up da head: minhas propostas na rua, mais paradas primeiro
   const minhasProps=(props||[]).filter(p2=>propNaRua(p2)
     &&loginDe(String(p2.responsavel||p2.quem_pediu||p2.executor||""))===eu)
@@ -3870,11 +3873,26 @@ async function telaCentral(){
         </span></div>`).join("")}
       ${prePag.length>12?`<div style="font-size:11px;color:var(--gray)">+${prePag.length-12} boletos seus nos próximos 2 dias</div>`:""}</div>`:""}
     <div class="painel">
-      <div class="bloco-t">&#128203; Minha carteira HOJE — o que está na fila de cada assessor (${minhasHoje.length})</div>
+      <div class="bloco-t">&#128203; Minha carteira HOJE — o que ENTRA no dia de cada assessor × fila de espera (${minhasHoje.length})</div>
+      <div style="font-size:11px;color:var(--gray);margin-bottom:6px">Mesma régua da tela de cada um (capacidade − reuniões − trabalhado − prospecção − follow-up). Verde = o sistema está cobrando HOJE. Vermelho = não coube no dia — o ⚡ fura a fila.</div>
       ${Object.keys(porAss).length?Object.entries(porAss).sort((a2,b2)=>b2[1].length-a2[1].length).map(([ass2,lst])=>{
+        const atvA=ts.filter(t=>loginDe(t.assessor||"")===ass2&&t.id_tarefa&&!t._emCorrecao&&!t._delegada);
+        let pl=null;try{pl=montarPlanoDia(ass2,atvA,reuC,histHj,props);}catch(_e){}
+        const idsHoje=new Set((pl?pl.plano:[]).map(t=>t.id_tarefa));
+        const idsFila=new Set((pl?pl.fila:[]).map(t=>t.id_tarefa));
+        const hoje2=lst.filter(t=>idsHoje.has(t.id_tarefa));
+        const fila2=lst.filter(t=>idsFila.has(t.id_tarefa));
+        const fora2=lst.filter(t=>!idsHoje.has(t.id_tarefa)&&!idsFila.has(t.id_tarefa));
         const atr=lst.filter(t=>t._atrasada).length;
-        return `<details class="det"><summary><b>${esc(ass2)}</b> — ${lst.length} tarefa(s)${atr?` · <b style="color:var(--red)">${atr} atrasada(s)</b>`:""}</summary>
-          <div style="padding:4px 8px">${lst.map(t=>cardTarefa(t,false)).join("")}</div></details>`;}).join("")
+        return `<details class="det"><summary><b>${esc(ass2)}</b> — <b style="color:var(--green)">${hoje2.length} entram hoje</b> · <b style="color:${fila2.length?"var(--red)":"var(--gray)"}">${fila2.length} na fila</b>${fora2.length?` · ${fora2.length} fora do dia`:""}${atr?` · <b style="color:var(--red)">${atr} atrasada(s)</b>`:""}</summary>
+          <div style="padding:4px 8px">
+          ${hoje2.length?`<div style="font-size:11px;font-weight:700;color:var(--green);margin:3px 0">&#10004; ENTRAM NO DIA DELE HOJE (${hoje2.length}) — o sistema está cobrando</div>`+hoje2.map(t=>cardTarefa(t,false)).join("")
+            :'<div style="font-size:11px;color:var(--gray);margin:3px 0">Nenhuma da sua carteira entrou no plano de hoje dele.</div>'}
+          ${fila2.length?`<div style="font-size:11px;font-weight:700;color:var(--red);margin:6px 0 3px">&#9203; NA FILA DE ESPERA (${fila2.length}) — não coube no dia de hoje</div>`+
+            fila2.map(t=>`<div class="linha-item"><span style="cursor:pointer;font-size:12px" onclick="abrirTarefa('${esc(t.id_tarefa)}')">${esc(t.cliente)} · ${esc(t.operacao||"")}${atrasoDias(t)>0?` <span class="tag ti">${atrasoDias(t)}d vencida</span>`:""}</span>
+            <button class="btn bts btsm" title="Tornar IMEDIATA: entra no plano de hoje na frente" onclick='furarFila(${JSON.stringify(t.id_tarefa)},${t.linha},${JSON.stringify(t.id_cliente||"")})'>&#9889; p/ hoje</button></div>`).join(""):""}
+          ${fora2.length?`<details style="margin:4px 0"><summary style="cursor:pointer;font-size:11px;color:var(--gray)">fora do plano de hoje (${fora2.length}) — reprogramadas ou sem cobrança hoje</summary>${fora2.map(t=>cardTarefa(t,false)).join("")}</details>`:""}
+          </div></details>`;}).join("")
         :'<div class="vazio">Nada da sua carteira vencendo hoje. 🎉</div>'}</div>
     ${(()=>{
       const conduzo=(props||[]).filter(p2=>loginDe(String(p2.quem_pediu||p2.responsavel||""))===eu
