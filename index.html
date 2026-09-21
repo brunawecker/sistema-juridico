@@ -2193,6 +2193,11 @@ function desenharCard(t,hist){
     <div>Criada em:<br><b>${(()=>{if(t.data_inclusao_dt)return brData(String(t.data_inclusao_dt).slice(0,10));
       const v=String(t.data_inclusao||"").trim().split(" ")[0];
       return v.includes("-")?brData(v):esc(v)||"—";})()}</b></div></div>
+    ${t._emCorrecao?`<div style="background:#F3EEFB;border:1.5px solid #6B4FBF;border-radius:10px;padding:8px 12px;margin-top:8px;font-size:12.5px">
+      &#9999;&#65039; <b style="color:#6B4FBF">Em correção com ${esc(t.correcao_head)}</b>
+      ${t.correcao_data_dt?` · enviada ${brData(String(t.correcao_data_dt).slice(0,10))}`:""}${t.correcao_retorno_dt?` · devolver até <b>${brData(t.correcao_retorno_dt)}</b>`:""}
+      ${t.correcao_link?(urlPasta(t.correcao_link)?` · <a href="${esc(urlPasta(t.correcao_link))}" target="_blank" style="color:var(--dani);font-weight:700">&#128193; Abrir a pasta (SharePoint)</a>`:` · <span style="color:var(--gray)" title="${esc(t.correcao_link)}">&#128206; ${/anex/i.test(t.correcao_link)?"arquivo anexado nesta tarefa (veja em Documentos, abaixo)":"link enviado: "+esc(String(t.correcao_link).slice(0,60))}</span>`):' · <span style="color:var(--gray)">sem link/arquivo indicado no envio</span>'}
+      ${t.correcao_justif?`<br><span style="font-size:11.5px;color:var(--gray)">obs. do assessor: ${esc(t.correcao_justif)}</span>`:""}</div>`:""}
     <div id="cli-extra" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"></div>
     <div class="bloco" style="margin-top:10px"><div class="bloco-t">&#128206; Documentos</div>
       <div id="docs-box" style="font-size:12px;color:var(--gray)">carregando…</div>
@@ -3981,7 +3986,8 @@ function desenhaCorrCentral(ts){
       const pr=d===null?"":d===0?'<span class="tag ti">devolver HOJE</span>':d===1?'<span class="tag td2">devolver amanhã</span>':`<span class="tag tm">até ${brData(t.correcao_retorno_dt)}</span>`;
       return `<div class="linha-item"><span style="font-size:12.5px;cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')">
         ${chegouHj(t)?'<span class="tag tek">chegou hoje</span> ':""}<b>${esc(t.cliente)}</b> · ${esc(t.operacao||"")} · &#128100; ${esc(t.assessor||"")} ${pr}</span>
-        <button class="btn bts btsm" onclick="abrirTarefa('${esc(t.id_tarefa)}')">corrigir</button></div>`;}).join("")}
+        <span style="white-space:nowrap">${t.correcao_link&&urlPasta(t.correcao_link)?`<a href="${esc(urlPasta(t.correcao_link))}" target="_blank" class="btn bts btsm" style="text-decoration:none">&#128193; Pasta</a> `:t.correcao_link?'<span style="font-size:10.5px;color:var(--gray)">&#128206; anexo no card</span> ':""}
+        <button class="btn bts btsm" onclick="abrirTarefa('${esc(t.id_tarefa)}')">corrigir</button></span></div>`;}).join("")}
     <div style="font-size:10.5px;color:var(--gray);margin-top:4px">Passou do prazo de retorno, a correção sai daqui${eu==="Danielly"?" — menos as suas, Dani: as vencidas continuam à vista":` (${vencidas.length} já saíram hoje por prazo${vencidas.length?" — estão no painel Para Corrigir do Minhas Tarefas":""})`}.</div></div>`;
 }
 // 🔁 Central da head (Bruna, 19/09/2026): pedidos de redirecionamento para
