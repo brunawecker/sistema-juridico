@@ -3514,11 +3514,11 @@ async function telaDiario(dia){
     if(nomesStat.length||headRecNomes.length){
       h+=`<div class="painel" style="border-left:4px solid #1F4E79">
         <div class="bloco-t" style="color:#1F4E79">&#128222; Follow-up e carteira por assessor</div>
-        <div style="font-size:11px;color:var(--gray);margin-bottom:6px">Propostas na rua e follow-up <b>parado</b> (sem rodada há 3+ dias); <b>reserva de mercado vencida</b> (65 dias desde o lançamento → condução vai para as heads); <b>recorrências com 3+ parcelas vencidas</b> (negócio novo não conta → condução volta para a head). Quem está de 🌴 férias ou 🏠 home office aparece marcado — considere antes de cobrar.</div>`;
+        <div style="font-size:11px;color:var(--gray);margin-bottom:6px">Propostas na rua e follow-up <b>parado</b> (sem rodada há 3+ dias); <b>reserva de mercado vencida</b> (65 dias desde o lançamento → condução vai para as heads). Quem está de 🌴 férias ou 🏠 home office aparece marcado — considere antes de cobrar. Abaixo, <b>recorrências com 3+ parcelas vencidas</b> (só recorrência, nunca negócio novo) vendidas por não-heads → a head do cliente assume.</div>`;
       // detalhe de um cliente com 3+ parcelas vencidas: produto, CNPJ (id),
-      // nº de parcelas, valor, ex-vendedor e botão de abrir (Bruna, 20/09/2026)
+      // nº de parcelas, valor, vendedor (marca ex-membro) e botão de abrir
       const recItem=it=>`<div class="linha-item" style="padding:3px 0">
-        <span style="font-size:12px"><b>${esc(it.cli)}</b>${it.ex?` <span class="tag ta">ex: ${esc(it.ex)}</span>`:""}
+        <span style="font-size:12px"><b>${esc(it.cli)}</b>${it.vend?` <span class="tag ${it.ex?"ti":"tm"}">${it.ex?"ex":"vend"}: ${esc(it.vend)}</span>`:""}
         <br><span style="color:var(--gray);font-size:11px">${it.prod?esc(it.prod)+" · ":""}${it.cnpj?"CNPJ "+esc(it.cnpj)+" · ":""}<b style="color:#7B0000">${it.n} parcelas vencidas</b> · ${fmtR$(it.v)}</span></span>
         ${it.idc?`<button class="btn btp btsm" onclick="prepCliente('${esc(it.idc)}');telaClientes()">abrir</button>`:""}</div>`;
       nomesStat.forEach(n=>{const s=stat[n],c=corDe(n);
@@ -3529,11 +3529,9 @@ async function telaDiario(dia){
           +` · ${s.naRua} na rua`
           +(s.parada?` · <b style="color:${corAl}">${s.parada} parada(s) 3d+</b>`:(s.naRua?` · <span style="color:var(--green)">em dia</span>`:""))
           +(s.reserva?` · <b style="color:${fer?"var(--gray)":"#7B0000"}">&#9203; ${s.reserva} passou reserva</b>`:"")
-          +(s.rec?` · <b style="color:${fer?"var(--gray)":"#7B0000"}">&#128257; ${s.rec} recorrência 3+ venc. (${fmtR$(s.recV)})</b>`:"")
-          +`</span></div>`;
-        if(s.rec&&(s.recCli||[]).length)h+=`<details class="det" style="margin:0 0 4px 10px"><summary style="font-size:11px;color:#7B0000;cursor:pointer">ver ${s.recCli.length} recorrência(s) de ${esc(n)}</summary>${s.recCli.map(recItem).join("")}</details>`;});
+          +`</span></div>`;});
       if(headRecNomes.length){
-        h+=`<div style="font-size:11px;font-weight:700;color:#7B0000;margin:8px 0 3px">&#128257; Recorrências para a HEAD assumir — 3+ vencidas (venda direta da head ou de ex-membro) <span style="font-weight:400;color:var(--gray)">— ${_ehRec?"só as suas (interruptor “minha carteira” ligado)":"todas as heads · ligue “minha carteira” para ver só as suas"}</span></div>`;
+        h+=`<div style="font-size:11px;font-weight:700;color:#7B0000;margin:8px 0 3px">&#128257; Recorrências para a HEAD assumir — 3+ vencidas, vendidas por não-heads (assessor, estagiário, adv ou ex-membro) <span style="font-weight:400;color:var(--gray)">— ${_ehRec?"só as suas (interruptor “minha carteira” ligado)":"todas as heads · ligue “minha carteira” para ver só as suas"}</span></div>`;
         headRecNomes.forEach(hd=>{const b=headRec[hd];
           h+=`<details class="det"><summary style="cursor:pointer"><b>${esc(hd)}</b> · <b style="color:#7B0000">${b.n} cliente(s)</b> · ${fmtR$(b.v)}</summary>${b.itens.map(recItem).join("")}</details>`;});}
       h+=`</div>`;}
