@@ -1066,16 +1066,24 @@ function portalTrocaSenha(){
     <div style="font-size:12.5px;color:var(--gray);margin-bottom:10px">Por segurança, troque a senha padrão por uma só sua (mínimo 8 caracteres). É rapidinho e só nesta primeira vez.</div>
     <input class="fi" id="pf-s1" type="password" placeholder="Nova senha" autocomplete="new-password" style="margin-bottom:8px">
     <input class="fi" id="pf-s2" type="password" placeholder="Repita a nova senha" autocomplete="new-password" style="margin-bottom:10px">
+    <div style="font-size:12.5px;color:var(--gray);margin-bottom:6px">E aproveite: informe o seu e-mail (Gmail). Ele vira o seu login daqui para frente — dá até para entrar pelo botão do Google, sem senha. Se deixar em branco, você continua entrando com o login nome.sobrenome.</div>
+    <input class="fi" id="pf-em" type="email" placeholder="Seu e-mail (opcional, recomendado)" autocomplete="email" style="margin-bottom:10px">
     <button class="btn btp btw" onclick="portalSalvarSenha()">Salvar e entrar</button>
     <div id="pf-aviso"></div></div>`);
 }
 async function portalSalvarSenha(){
-  const a=ge("pf-s1").value,b=ge("pf-s2").value;
+  const a=ge("pf-s1").value,b=ge("pf-s2").value,emNovo=ge("pf-em").value.trim().toLowerCase();
   if(a.length<8)return pfAviso("A senha precisa ter ao menos 8 caracteres.");
   if(a!==b)return pfAviso("As duas senhas não conferem.");
   if(a===FRANQ_SENHA_PADRAO)return pfAviso("Escolha uma senha diferente da senha padrão.");
+  if(emNovo&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(emNovo))return pfAviso("Esse e-mail não parece completo — confira (ex.: nome@gmail.com).");
   const{error}=await supa.auth.updateUser({password:a});
   if(error)return pfAviso(error.message);
+  if(emNovo){
+    const r=await supa.rpc("franq_meu_email",{p_email:emNovo});
+    if(r.error)return pfAviso(r.error.message+" — a senha nova já valeu; corrija o e-mail ou deixe em branco.");
+    try{await supa.auth.refreshSession();}catch(_e){}
+  }
   try{await supa.rpc("franq_senha_trocada");}catch(_e){}
   E.franq.senha_trocada=true;portalFranqueado();
 }
