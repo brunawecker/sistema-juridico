@@ -45,18 +45,19 @@ def main():
 
     with psycopg.connect() as conn, conn.cursor() as cur:
         # 1) concluídas presas com data no passado: avança pela frequência
+        # rola_util: data que cairia em sáb/dom vai para segunda (Bruna, 20/09)
         cur.execute("""
           update juridico.operacional set
-            data_revisao_dt = %(hoje)s::date + case
+            data_revisao_dt = juridico.rola_util(%(hoje)s::date + case
               when upper(coalesce(check_,'')) like '%%DI_RIO%%' then 1
               when upper(coalesce(check_,'')) like '%%SEMANAL%%' then 7
               when upper(coalesce(check_,'')) like '%%MENSAL%%' then 30
-              else 0 end,
-            data_revisao = to_char(%(hoje)s::date + case
+              else 0 end),
+            data_revisao = to_char(juridico.rola_util(%(hoje)s::date + case
               when upper(coalesce(check_,'')) like '%%DI_RIO%%' then 1
               when upper(coalesce(check_,'')) like '%%SEMANAL%%' then 7
               when upper(coalesce(check_,'')) like '%%MENSAL%%' then 30
-              else 0 end, 'DD/MM/YYYY')
+              else 0 end), 'DD/MM/YYYY')
           where status_tarefa like '%%EM DIA%%'
             and data_revisao_dt is not null and data_revisao_dt < %(hoje)s::date""",
             {"hoje": hoje})
