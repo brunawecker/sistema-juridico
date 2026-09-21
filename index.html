@@ -4853,7 +4853,7 @@ async function telaFranqueados(){
           <input class="fi" id="nf-uf" placeholder="UF" maxlength="2" style="width:60px">
           <select class="fi" id="nf-resp" style="flex:1;min-width:110px">${nomes.map(n=>`<option${n===eu?" selected":""}>${esc(n)}</option>`).join("")}</select></div>
         <button class="btn btg btsm" onclick="salvarNovoFranq()">Cadastrar</button>
-        <span style="font-size:11px;color:var(--gray);margin-left:6px">Depois do cadastro, use o &#128273; na linha dele para criar o login do portal.</span></div>
+        <span style="font-size:11px;color:var(--gray);margin-left:6px">O login do portal (nome.sobrenome + senha padrão) já nasce junto, automático.</span></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">
         <div style="background:var(--red-lt);border:1.5px solid var(--red);border-radius:11px;padding:8px 12px;flex:1;min-width:120px">
           <div style="font-size:20px;font-weight:700;color:var(--red);font-family:'DM Mono'">${atrasadosN}</div><div style="font-size:11px;color:var(--gray)">7+ dias sem contato</div></div>
@@ -4870,9 +4870,19 @@ async function telaFranqueados(){
 async function salvarNovoFranq(){
   const nome=ge("nf-nome").value.trim();
   if(!nome){toast("Informe o nome do franqueado.","erro");return;}
-  try{await DB.franqNovo({nome,tel:ge("nf-tel").value.trim(),uf:ge("nf-uf").value.trim(),resp:ge("nf-resp").value});}
+  let nid;
+  try{nid=await DB.franqNovo({nome,tel:ge("nf-tel").value.trim(),uf:ge("nf-uf").value.trim(),resp:ge("nf-resp").value});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
-  toast("Franqueado cadastrado! Use o 🔑 na linha dele para criar o login do portal.","ok");
+  // pré-login automático: nasce com conta e senha padrão, sem clique extra
+  let login=loginFranqSugerido(nome);
+  try{
+    try{await DB.franqAcesso(nid,login+"@franqueados.villela.com");}
+    catch(e){ // login já usado por outro? tenta com sufixo 2
+      if(/outro franqueado|outra conta/i.test(e.message||"")){login+="2";await DB.franqAcesso(nid,login+"@franqueados.villela.com");}
+      else throw e;}
+    await DB.franqCriarConta(nid);
+    toast("Franqueado cadastrado com acesso pronto! Login: "+login+" · senha padrão.","ok");
+  }catch(e){toast("Cadastrado, mas o login automático falhou ("+e.message+") — use o 🔑 na linha dele.","erro");}
   telaFranqueados();}
 async function registrarContatoFranq(id){
   const st=prompt("Registrar contato de HOJE.\n\nComo foi? (opcional — vira o status da semana)\nEx: Atendeu, sem novidades · Sem retorno · Pediu proposta...");
