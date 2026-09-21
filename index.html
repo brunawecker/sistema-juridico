@@ -3849,6 +3849,7 @@ async function telaCentral(){
       :mHeads?tarjaMeta("Meta das HEADS — conjunta de vocês três",+mHeads.meta,pagoHeads)
       :tarjaMeta("MINHA meta",0,pagoMeu)}
     <div id="ct-redir"></div>
+    <div id="ct-corr"></div>
     ${conflitosNic.length?`<div class="painel" style="border-left:4px solid var(--red);background:#FDEDEC">
       <div class="bloco-t" style="color:var(--red)">&#9888; Conflito na agenda do Nicholas (${conflitosNic.length}) — reuniões sobrepostas</div>
       ${conflitosNic.slice(0,6).map(([a1,b1])=>`<div class="linha-item"><span style="font-size:12.5px">
@@ -3935,6 +3936,38 @@ async function telaCentral(){
     <div id="tric-box"></div>`;
   carregarTricount();
   painelRedirecionamentos("ct-redir",ts,cls);
+  desenhaCorrCentral(ts);
+  // ⏱ tempo real: enquanto a Central estiver aberta, o painel de correções
+  // se atualiza sozinho a cada 60s (some se a tela mudar)
+  if(E._corrInt)clearInterval(E._corrInt);
+  E._corrInt=setInterval(async()=>{
+    if(!ge("ct-corr")){clearInterval(E._corrInt);E._corrInt=null;return;}
+    try{const ops2=await DB.tarefas();desenhaCorrCentral((ops2||[]).map(classificar));}catch(_e){}
+  },60000);
+}
+// ✏️ Correções na mesa da head, em tempo real (Bruna, 21/09/2026):
+// mostra o que chegou no dia; passou do prazo de retorno, SAI da Central —
+// exceção: Danielly (as dela não saem por prazo)
+function desenhaCorrCentral(ts){
+  const box=ge("ct-corr");if(!box)return;
+  const eu=E.perfil.nome_sistema;
+  const dias=v=>v?diasAte(String(v).slice(0,10)):null;
+  let minhas=(ts||[]).filter(t=>t._emCorrecao
+    &&String(t.correcao_head||"").trim().toLowerCase()===eu.toLowerCase());
+  const vencidas=minhas.filter(t=>{const d=dias(t.correcao_retorno_dt);return d!==null&&d<0;});
+  if(eu!=="Danielly")minhas=minhas.filter(t=>{const d=dias(t.correcao_retorno_dt);return d===null||d>=0;});
+  if(!minhas.length){box.innerHTML="";return;}
+  const chegouHj=t=>String(t.correcao_data_dt||"").slice(0,10)===hojeISO();
+  minhas.sort((a,b)=>String(b.correcao_data_dt||"").localeCompare(String(a.correcao_data_dt||"")));
+  const nHoje=minhas.filter(chegouHj).length;
+  box.innerHTML=`<div class="painel" style="border-left:4px solid #6B4FBF">
+    <div class="bloco-t" style="color:#6B4FBF">&#9999;&#65039; Correções na minha mesa (${minhas.length}${nHoje?` · ${nHoje} chegou(aram) HOJE`:""}) <span style="font-weight:400;font-size:10px;color:var(--gray)">— atualiza sozinho a cada minuto</span></div>
+    ${minhas.map(t=>{const d=dias(t.correcao_retorno_dt);
+      const pr=d===null?"":d===0?'<span class="tag ti">devolver HOJE</span>':d===1?'<span class="tag td2">devolver amanhã</span>':`<span class="tag tm">até ${brData(t.correcao_retorno_dt)}</span>`;
+      return `<div class="linha-item"><span style="font-size:12.5px;cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')">
+        ${chegouHj(t)?'<span class="tag tek">chegou hoje</span> ':""}<b>${esc(t.cliente)}</b> · ${esc(t.operacao||"")} · &#128100; ${esc(t.assessor||"")} ${pr}</span>
+        <button class="btn bts btsm" onclick="abrirTarefa('${esc(t.id_tarefa)}')">corrigir</button></div>`;}).join("")}
+    <div style="font-size:10.5px;color:var(--gray);margin-top:4px">Passou do prazo de retorno, a correção sai daqui${eu==="Danielly"?" — menos as suas, Dani: as vencidas continuam à vista":` (${vencidas.length} já saíram hoje por prazo${vencidas.length?" — estão no painel Para Corrigir do Minhas Tarefas":""})`}.</div></div>`;
 }
 // 🔁 Central da head (Bruna, 19/09/2026): pedidos de redirecionamento para
 // decidir + prazos fatais que estão com quem NÃO é o responsável pelo cliente
