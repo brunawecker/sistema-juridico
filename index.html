@@ -6385,9 +6385,22 @@ function abrirReuniao(){
 async function salvarReuniao(){
   const t=(ge("re-tit").value||"").trim();if(!t){toast("Informe o título.","erro");return;}
   const escopo=ge("re-escopo")?ge("re-escopo").value:"mim";
+  const dur=parseInt(ge("re-dur").value)||30;
+  // triagem acima de 30 min (assessores — Bruna, 21/09/2026): agenda é para
+  // REUNIÃO; aviso curto é lembrete; trabalho é tarefa operacional
+  let obsExtra="";
+  if(dur>30&&!E.perfil.head_sim){
+    if(!confirm("Mais de 30 minutos na agenda — isso é uma REUNIÃO de verdade (hora marcada com outra pessoa)?\n\n"
+      +"• Só um aviso para não esquecer? → salve como lembrete de até 30 min.\n"
+      +"• É trabalho para executar? → lance como TAREFA (botão Nova tarefa), não na agenda.\n\n"
+      +"OK = é reunião mesmo · Cancelar = vou ajustar")){return;}
+    const j=(prompt("Reunião acima de 30 min pede justificativa (fica registrada para as heads):")||"").trim();
+    if(!j){toast("Sem justificativa, ajuste a duração para até 30 min.","erro");return;}
+    obsExtra=" ⏱ Mais de 30 min — justificativa: "+j;
+  }
   try{await DB.reuniaoAdd({titulo:t,data:ge("re-data").value||hojeISO(),
-    horario:ge("re-hora").value,duracao:parseInt(ge("re-dur").value)||30,
-    cliente:ge("re-cli").value,obs:ge("re-obs").value,escopo});}
+    horario:ge("re-hora").value,duracao:dur,
+    cliente:ge("re-cli").value,obs:(ge("re-obs").value||"")+obsExtra,escopo});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   toast(escopo==="3heads"?"Compromisso lançado para as 3 heads!":"Compromisso salvo!","ok");fecharModal2();recarregar();
 }
