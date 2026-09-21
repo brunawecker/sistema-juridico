@@ -4778,7 +4778,7 @@ async function telaFranqueados(){
     const badge=d===null?'<span class="tag ta">nunca contatado</span>'
       :d>=7?`<span class="tag ti">&#9888; ${d}d sem contato</span>`
       :`<span class="tag tek">contato há ${d}d</span>`;
-    return `<div class="linha-item" style="align-items:flex-start">
+    return `<div class="linha-item" data-fnome="${esc((String(x.franqueado||"")+" "+String(x.fp||"")+" "+String(x.email||"")).toLowerCase())}" data-fstat="${x.ultimo_contato?"contatado":"naocontatado"}" style="align-items:flex-start">
       <span style="font-size:12.5px"><b>${esc(x.franqueado)}</b> ${badge}<br>
         <span style="font-size:11px;color:var(--gray)">&#9742; ${esc(x.telefone||"—")} · ${esc(x.estado||"")}${x.fp&&x.fp!==x.franqueado?" · FP: "+esc(x.fp):""}${x.email?` · &#128273; <span style="font-family:'DM Mono'">${esc(String(x.email).replace("@franqueados.villela.com",""))}</span>`:""}${x.status_semana?" · <i>"+esc(x.status_semana)+"</i>":""}</span></span>
       <span style="white-space:nowrap"><button class="btn btg btsm" onclick="registrarContatoFranq(${x.id})">&#128222; registrei contato</button>
@@ -4914,13 +4914,31 @@ async function telaFranqueados(){
           <div style="font-size:20px;font-weight:700;color:var(--red);font-family:'DM Mono'">${atrasadosN}</div><div style="font-size:11px;color:var(--gray)">7+ dias sem contato</div></div>
         <div style="background:var(--amber-lt);border:1.5px solid var(--amber);border-radius:11px;padding:8px 12px;flex:1;min-width:120px">
           <div style="font-size:20px;font-weight:700;color:var(--amber);font-family:'DM Mono'">${nuncaN}</div><div style="font-size:11px;color:var(--gray)">nunca contatados</div></div></div>
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input class="fi" id="franq-busca" placeholder="&#128269; buscar por nome, FP ou login" value="${esc(E._franqBusca||"")}" oninput="E._franqBusca=this.value;filtrarFranqLista()" style="flex:1;min-width:180px;max-width:260px;padding:6px 9px;font-size:12px">
         <select class="fi" style="max-width:200px;padding:6px 9px;font-size:12px" onchange="E._franqResp=this.value;telaFranqueados()">
           <option value="">todos os responsáveis</option>
           ${resps.map(r=>`<option${E._franqResp===r?" selected":""}>${esc(r)}</option>`).join("")}</select>
-        <div style="font-size:11px;color:var(--gray)">Contato semanal. Os mais tempo sem falar aparecem primeiro. Registre o contato para zerar o contador.</div></div></div>
-    <div class="painel">${lista.map(linha).join("")||'<div class="vazio">Nenhum franqueado.</div>'}</div>`;
+        <select class="fi" id="franq-stat" style="max-width:180px;padding:6px 9px;font-size:12px" onchange="E._franqStat=this.value;filtrarFranqLista()">
+          <option value=""${E._franqStat?"":" selected"}>contato: todos</option>
+          <option value="contatado"${E._franqStat==="contatado"?" selected":""}>já contatados</option>
+          <option value="naocontatado"${E._franqStat==="naocontatado"?" selected":""}>não contatados</option></select></div>
+      <div style="font-size:11px;color:var(--gray);margin-top:4px">Contato semanal. Os mais tempo sem falar aparecem primeiro. Registre o contato para zerar o contador.</div></div>
+    <div class="painel" id="franq-lista">${lista.map(linha).join("")||'<div class="vazio">Nenhum franqueado.</div>'}</div>
+    <div id="franq-vazio" style="display:none;text-align:center;color:var(--gray);font-size:12px;margin-top:8px">Nenhum franqueado corresponde à busca.</div>`;
   E._franqNomes=nomes;
+  filtrarFranqLista();
+}
+// busca por nome/FP/login + filtro contatado/não contatado, sem recarregar
+function filtrarFranqLista(){
+  const box=ge("franq-lista");if(!box)return;
+  const q=(E._franqBusca||"").trim().toLowerCase(),st=E._franqStat||"";
+  const rows=box.querySelectorAll(".linha-item");let vis=0;
+  rows.forEach(el=>{
+    const n=el.getAttribute("data-fnome")||"",s=el.getAttribute("data-fstat")||"";
+    const ok=(!q||n.indexOf(q)>-1)&&(!st||s===st);
+    el.style.display=ok?"":"none";if(ok)vis++;});
+  const vz=ge("franq-vazio");if(vz)vz.style.display=(rows.length&&!vis)?"block":"none";
 }
 async function salvarNovoFranq(){
   const nome=ge("nf-nome").value.trim();
