@@ -3469,19 +3469,26 @@ async function telaDiario(dia){
     // recorrência: 3+ parcelas vencidas por cliente, SEM contar 'NEGÓCIO NOVO';
     // atribui ao ASSESSOR da venda direta (coluna W = ASS. JUR), que o robô já
     // importa como CRÉDITO em comercial_pagamentos (mesma aba, usado nas fichas
-    // dos prêmios). Crédito vazio/na head = venda direta da head → não entra.
+    // dos prêmios). Assessor ATIVO → conta na linha dele. Venda direta da head
+    // OU ex-membro (quem não está mais na equipe) → indica para a HEAD do cliente
+    // assumir a condução (pedido da Bruna, 20/09/2026).
     const _dig=s=>String(s||"").replace(/\D/g,"");
     const credPorDoc={};(pagD||[]).forEach(x=>{const d=_dig(x.cnpj_cpf);const cr=loginDe(String(x.credito||"").trim());
       if(d&&cr&&!credPorDoc[d])credPorDoc[d]=cr;});
     const vencCli={};(cobD||[]).filter(x=>["ATRASADO","VENCIDO","VENC. HOJE"].includes(String(x.status_pgto||"").trim())
         &&String(x.tipo_cobr||"").trim().toUpperCase()!=="NEGÓCIO NOVO")
-      .forEach(x=>{const k=String(x.cliente||"").trim();if(!k)return;const o=(vencCli[k]=vencCli[k]||{n:0,v:0,doc:_dig(x.cnpj_cpf)});
-        o.n++;o.v+=(+x.valor_bruto||0);if(!o.doc)o.doc=_dig(x.cnpj_cpf);});
+      .forEach(x=>{const k=String(x.cliente||"").trim();if(!k)return;const o=(vencCli[k]=vencCli[k]||{n:0,v:0,doc:_dig(x.cnpj_cpf),head:"",cli:x.cliente});
+        o.n++;o.v+=(+x.valor_bruto||0);if(!o.doc)o.doc=_dig(x.cnpj_cpf);if(!o.head)o.head=String(x.head||"").trim();});
+    const headRec={};   // recorrências que vão para a head do cliente assumir
     Object.values(vencCli).forEach(o=>{if(o.n<3)return;const n=credPorDoc[o.doc];  // assessor da venda direta (W)
-      if(!n||HEADS_FORA.includes(n))return;S(n).rec++;S(n).recV+=o.v;});
+      if(n&&OPERACIONAIS.includes(n)){S(n).rec++;S(n).recV+=o.v;return;}          // assessor ativo
+      const hd=o.head||(n&&HEADS_FORA.includes(n)?n:"")||"(sem head)";            // venda direta/ex-membro → head
+      const b=(headRec[hd]=headRec[hd]||{n:0,v:0,cli:[]});b.n++;b.v+=o.v;
+      if(b.cli.length<8)b.cli.push(o.cli+(n&&!HEADS_FORA.includes(n)?" (ex: "+n+")":""));});
     const nomesStat=Object.keys(stat).filter(n=>{const s=stat[n];return s.naRua||s.parada||s.reserva||s.rec;})
       .sort((a,b)=>(stat[b].parada-stat[a].parada)||(stat[b].reserva-stat[a].reserva)||(stat[b].rec-stat[a].rec));
-    if(nomesStat.length){
+    const headRecNomes=Object.keys(headRec).sort((a,b)=>headRec[b].n-headRec[a].n);
+    if(nomesStat.length||headRecNomes.length){
       h+=`<div class="painel" style="border-left:4px solid #1F4E79">
         <div class="bloco-t" style="color:#1F4E79">&#128222; Follow-up e carteira por assessor</div>
         <div style="font-size:11px;color:var(--gray);margin-bottom:6px">Propostas na rua e follow-up <b>parado</b> (sem rodada há 3+ dias); <b>reserva de mercado vencida</b> (65 dias desde o lançamento → condução vai para as heads); <b>recorrências com 3+ parcelas vencidas</b> (negócio novo não conta → condução volta para a head). Quem está de 🌴 férias ou 🏠 home office aparece marcado — considere antes de cobrar.</div>`;
@@ -3495,6 +3502,11 @@ async function telaDiario(dia){
           +(s.reserva?` · <b style="color:${fer?"var(--gray)":"#7B0000"}">&#9203; ${s.reserva} passou reserva</b>`:"")
           +(s.rec?` · <b style="color:${fer?"var(--gray)":"#7B0000"}">&#128257; ${s.rec} recorrência 3+ venc. (${fmtR$(s.recV)})</b>`:"")
           +`</span></div>`;});
+      if(headRecNomes.length){
+        h+=`<div style="font-size:11px;font-weight:700;color:#7B0000;margin:8px 0 3px">&#128257; Recorrências para a HEAD assumir — 3+ vencidas (venda direta da head ou de ex-membro)</div>`;
+        headRecNomes.forEach(hd=>{const b=headRec[hd];
+          h+=`<div class="linha-item"><span style="font-size:12.5px"><b>${esc(hd)}</b> · <b style="color:#7B0000">${b.n} cliente(s)</b> · ${fmtR$(b.v)}
+            <br><span style="font-size:11px;color:var(--gray)">${esc(b.cli.join(" · "))}</span></span></div>`;});}
       h+=`</div>`;}
     let hDia=`<div class="painel"><div class="bloco-t">&#129517; O dia de cada assessor — o que o sistema cobra HOJE × fila de espera</div>
       <div style="font-size:11px;color:var(--gray);margin-bottom:6px">Mesma régua da tela de cada um (capacidade − reuniões − trabalhado − prospecção − follow-up; imediata fura sempre). Na fila, ⚡ torna a tarefa imediata de hoje.</div>`;
