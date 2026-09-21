@@ -3487,7 +3487,11 @@ async function telaDiario(dia){
       if(b.cli.length<8)b.cli.push(o.cli+(n&&!HEADS_FORA.includes(n)?" (ex: "+n+")":""));});
     const nomesStat=Object.keys(stat).filter(n=>{const s=stat[n];return s.naRua||s.parada||s.reserva||s.rec;})
       .sort((a,b)=>(stat[b].parada-stat[a].parada)||(stat[b].reserva-stat[a].reserva)||(stat[b].rec-stat[a].rec));
-    const headRecNomes=Object.keys(headRec).sort((a,b)=>headRec[b].n-headRec[a].n);
+    // "Recorrências para a head": respeita o interruptor "minha carteira"
+    // (escHead) — ligado mostra só as da head; desligado mostra todas
+    const _ehRec=escHead();
+    let headRecNomes=Object.keys(headRec).sort((a,b)=>headRec[b].n-headRec[a].n);
+    if(_ehRec)headRecNomes=headRecNomes.filter(hd=>loginDe(hd)===_ehRec);
     if(nomesStat.length||headRecNomes.length){
       h+=`<div class="painel" style="border-left:4px solid #1F4E79">
         <div class="bloco-t" style="color:#1F4E79">&#128222; Follow-up e carteira por assessor</div>
@@ -3503,7 +3507,7 @@ async function telaDiario(dia){
           +(s.rec?` · <b style="color:${fer?"var(--gray)":"#7B0000"}">&#128257; ${s.rec} recorrência 3+ venc. (${fmtR$(s.recV)})</b>`:"")
           +`</span></div>`;});
       if(headRecNomes.length){
-        h+=`<div style="font-size:11px;font-weight:700;color:#7B0000;margin:8px 0 3px">&#128257; Recorrências para a HEAD assumir — 3+ vencidas (venda direta da head ou de ex-membro)</div>`;
+        h+=`<div style="font-size:11px;font-weight:700;color:#7B0000;margin:8px 0 3px">&#128257; Recorrências para a HEAD assumir — 3+ vencidas (venda direta da head ou de ex-membro) <span style="font-weight:400;color:var(--gray)">— ${_ehRec?"só as suas (interruptor “minha carteira” ligado)":"todas as heads · ligue “minha carteira” para ver só as suas"}</span></div>`;
         headRecNomes.forEach(hd=>{const b=headRec[hd];
           h+=`<div class="linha-item"><span style="font-size:12.5px"><b>${esc(hd)}</b> · <b style="color:#7B0000">${b.n} cliente(s)</b> · ${fmtR$(b.v)}
             <br><span style="font-size:11px;color:var(--gray)">${esc(b.cli.join(" · "))}</span></span></div>`;});}
