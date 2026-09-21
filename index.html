@@ -2220,7 +2220,9 @@ async function salvarProxFreq(){
   if(f==="IMEDIATO"){fecharModal2();toast("Segue imediata para hoje.","ok");abrirTarefa(t.id_tarefa);return;}
   let prox;
   if(f==="AGUARDANDO"){prox=ge("pf-data").value;if(!prox){toast("Escolha a data de retorno.","erro");return;}}
-  else{const d=new Date();d.setDate(d.getDate()+(f==="SEMANAL"?7:f==="MENSAL"?30:1));prox=d.toISOString().slice(0,10);}
+  else{const d=new Date();d.setDate(d.getDate()+(f==="SEMANAL"?7:f==="MENSAL"?30:1));
+    while(d.getDay()===0||d.getDay()===6)d.setDate(d.getDate()+1);   // fim de semana → segunda
+    prox=d.toISOString().slice(0,10);}
   try{await DB.tarefaUpdate(t,{campos:{check_:f},data_revisao:prox,
     hist_texto:`⏳ Saiu de IMEDIATO após andamento — nova frequência ${f}, retorno ${brData(prox)}.`,hist_tipo:"HISTORICO"});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
@@ -2334,7 +2336,9 @@ async function concluirTarefa(){
     E._gateDepois="concluir";abrirGateProposta();return;}
   // laudo: concluir exige confirmar/atualizar a FASE (Bruna, 17/09/2026)
   if(t._laudo&&!E._laudoGateOk){E._laudoDepois="concluir";abrirGateLaudo();return;}
-  let prox;if(dm)prox=dm;else{const d=new Date();d.setDate(d.getDate()+(/SEMANAL/.test(check)?7:/MENSAL/.test(check)?30:1));prox=d.toISOString().slice(0,10);}
+  let prox;if(dm)prox=dm;else{const d=new Date();d.setDate(d.getDate()+(/SEMANAL/.test(check)?7:/MENSAL/.test(check)?30:1));
+    while(d.getDay()===0||d.getDay()===6)d.setDate(d.getDate()+1);   // fim de semana não conta: rola p/ segunda
+    prox=d.toISOString().slice(0,10);}
   if(!confirm(dm?`Concluir? A tarefa volta em ${brData(dm)}.`:`Concluir? Volta sozinha pela frequência (${check}).`))return;
   try{const contaC=minutosDaSessao(t);await DB.concluir(t,{check,proximo:prox});await DB.sessaoConcluir(contaC.min);
     if(contaC.nota)await DB.nota({id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,tipo:"HISTORICO",texto:contaC.nota});
