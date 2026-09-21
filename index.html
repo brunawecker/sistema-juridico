@@ -1052,14 +1052,27 @@ function portalWrap(inner){
   let pf=ge("portal-franq");
   if(!pf){pf=document.createElement("div");pf.id="portal-franq";document.body.appendChild(pf);}
   pf.style.cssText="min-height:100vh;background:var(--bg);padding:24px 14px;display:flex;justify-content:center";
+  const prev=!!E.franq._preview;
   pf.innerHTML=`<div style="width:100%;max-width:640px">
+    ${prev?`<div style="background:var(--roxo);color:white;border-radius:12px;padding:8px 14px;margin-bottom:10px;font-size:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <b>Visualização (admin):</b> é assim que o franqueado vê.
+      <button class="btn btsm" style="background:white;color:var(--roxo)" onclick="portalTrocaSenha()">tela do 1º acesso</button>
+      <button class="btn btsm" style="background:white;color:var(--roxo)" onclick="portalFranqueado()">portal</button>
+      <button class="btn btsm" style="background:white;color:var(--roxo)" onclick="portalPreviewSair()">&#8617; voltar ao sistema</button></div>`:""}
     <div style="background:linear-gradient(135deg,var(--dani),var(--navy-lt));color:white;border-radius:var(--r);padding:16px 20px;margin-bottom:14px;box-shadow:var(--sh)">
       <div style="font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;opacity:.75">Grupo Villela · Jurídico</div>
       <div style="font-size:20px;font-weight:700;margin-top:2px">Portal do Franqueado</div>
       <div style="font-size:13px;opacity:.9;margin-top:2px">${esc(E.franq.franqueado)}${E.franq.responsavel?` · seu contato no jurídico: <b>${esc(E.franq.responsavel)}</b>`:""}</div></div>
     ${inner}
-    <div style="text-align:center;margin-top:14px"><button class="btn bts" onclick="sair()">Sair</button></div></div>`;
+    ${prev?"":`<div style="text-align:center;margin-top:14px"><button class="btn bts" onclick="sair()">Sair</button></div>`}</div>`;
 }
+// "Ver como franqueado" (só admin): visual idêntico, dados de exemplo, nada é gravado
+function portalPreviewFranq(){
+  E.franq={id:0,franqueado:"NOME DO FRANQUEADO",responsavel:E.perfil.nome_sistema,senha_trocada:true,_preview:true};
+  ge("app").style.display="none";portalFranqueado();
+}
+function portalPreviewSair(){const pf=ge("portal-franq");if(pf)pf.remove();E.franq=null;
+  ge("app").style.display="block";}
 function pfAviso(m,t){const el=ge("pf-aviso");if(el)el.innerHTML=`<div class="aviso ${t||"erro"}" style="margin-top:8px">${esc(m)}</div>`;}
 function portalTrocaSenha(){
   portalWrap(`<div class="painel"><div class="bloco-t">&#128274; Primeiro acesso — crie a sua senha</div>
@@ -1072,6 +1085,7 @@ function portalTrocaSenha(){
     <div id="pf-aviso"></div></div>`);
 }
 async function portalSalvarSenha(){
+  if(E.franq&&E.franq._preview)return pfAviso("Visualização: aqui o franqueado salvaria a senha nova (e o e-mail dele, se informar).","info");
   const a=ge("pf-s1").value,b=ge("pf-s2").value,emNovo=ge("pf-em").value.trim().toLowerCase();
   if(a.length<8)return pfAviso("A senha precisa ter ao menos 8 caracteres.");
   if(a!==b)return pfAviso("As duas senhas não conferem.");
@@ -1105,6 +1119,7 @@ async function portalFranqueado(){
   portalLista();
 }
 async function portalSolicitar(){
+  if(E.franq&&E.franq._preview)return pfAviso("Visualização: aqui o pedido iria para o jurídico e apareceria na lista embaixo.","info");
   const{error}=await supa.rpc("franq_solicitar",{p_tipo:ge("pf-tipo").value,
     p_empresa:ge("pf-emp").value.trim(),p_cnpj:ge("pf-cnpj").value.trim(),p_descricao:ge("pf-desc").value.trim()});
   if(error)return pfAviso(error.message);
@@ -1114,7 +1129,13 @@ async function portalSolicitar(){
 }
 async function portalLista(){
   const el=ge("pf-lista");if(!el)return;
-  const{data,error}=await supa.rpc("franq_minhas");
+  let data,error;
+  if(E.franq&&E.franq._preview){const hj=new Date().toISOString();
+    data=[{status:"NOVA",tipo:"PARECER",empresa:"PADARIA EXEMPLO LTDA",cnpj:"12345678000199",criado:hj,descricao:"Cliente quer saber se consegue recuperar créditos dos últimos 5 anos.",resposta:null},
+      {status:"EM_ANALISE",tipo:"PROPOSTA",empresa:"MERCADO MODELO ME",cnpj:null,criado:hj,descricao:"Interessado na tese do PIS/COFINS — pediu proposta.",resposta:null},
+      {status:"RESPONDIDA",tipo:"PARECER",empresa:"AUTO PEÇAS FICTÍCIA",cnpj:null,criado:hj,descricao:"Dúvida sobre mudança de regime tributário.",resposta:"Parecer favorável — os detalhes foram ao seu contato no jurídico."},
+      {status:"RECUSADA",tipo:"PROPOSTA",empresa:"EXEMPLO RECUSADO SA",cnpj:null,criado:hj,descricao:"Pedido fora do escopo tributário.",resposta:"Fora do escopo do jurídico — encaminhar ao comercial."}];}
+  else{const r=await supa.rpc("franq_minhas");data=r.data;error=r.error;}
   if(error){el.innerHTML=`<div class="vazio">${esc(error.message)}</div>`;return;}
   if(!data||!data.length){el.innerHTML='<div class="vazio">Nenhuma solicitação ainda — a primeira é ali em cima.</div>';return;}
   el.innerHTML=data.map(s=>{const st=PF_ST[s.status]||["tm",s.status];
