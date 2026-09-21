@@ -1114,6 +1114,10 @@ async function portalFranqueado(){
       <input class="fi" id="pf-emp" placeholder="Nome da empresa (vem do CNPJ)" style="margin-bottom:4px">
       <div id="pf-cnpj-info" style="font-size:11px;color:var(--green);margin-bottom:8px"></div>
       <textarea class="fi" id="pf-desc" rows="3" placeholder="Conte a situação: o que o cliente precisa, dívidas, o que ele pediu…" style="margin-bottom:8px;resize:vertical"></textarea>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+        <span style="font-size:12px;color:var(--gray)">&#128197; Reunião de devolução já marcada com o cliente?</span>
+        <input class="fi" id="pf-reuniao" type="date" style="max-width:160px;padding:6px 9px" min="${new Date().toISOString().slice(0,10)}">
+        <span style="font-size:10.5px;color:var(--gray)">(se sim, informe — o jurídico mira essa data)</span></div>
       <div style="background:var(--amber-lt);border-radius:9px;padding:8px 10px;margin-bottom:10px">
         <div style="font-size:11px;font-weight:700;color:#7F6000;margin-bottom:5px">&#128273; Acesso aos dados da Receita *</div>
         <select class="fi" id="pf-ec" style="margin-bottom:6px" onchange="ge('pf-ec-qual').style.display=this.value==='LIB'?'block':'none'">
@@ -1176,10 +1180,11 @@ async function portalSolicitar(){
   const{data,error}=await supa.rpc("franq_solicitar",{p_head:ge("pf-head").value,
     p_cnpj:dig,p_empresa:ge("pf-emp").value.trim(),p_descricao:ge("pf-desc").value.trim(),
     p_municipio:(E._pfCnpj||{}).municipio||"",p_uf:(E._pfCnpj||{}).uf||"",p_ecac:ec,
-    p_anexo_caminho:anexo,p_anexo_nome:anexoNome,p_anexo_tamanho:anexoTam});
+    p_anexo_caminho:anexo,p_anexo_nome:anexoNome,p_anexo_tamanho:anexoTam,
+    p_reuniao:ge("pf-reuniao").value||null});
   fim();
   if(error)return pfAviso(error.message);
-  ["pf-cnpj","pf-emp","pf-desc","pf-ec-qual"].forEach(i=>ge(i).value="");
+  ["pf-cnpj","pf-emp","pf-desc","pf-ec-qual","pf-reuniao"].forEach(i=>ge(i).value="");
   ge("pf-ec").value="";ge("pf-ec-qual").style.display="none";ge("pf-cert").value="";
   ge("pf-cnpj-info").innerHTML="";E._pfCnpj=null;
   pfAviso("Enviado! Seu pedido já virou tarefa imediata no jurídico"+(data&&data.novo?" e o cliente foi cadastrado":"")+". Acompanhe aqui embaixo.","info");
@@ -1199,7 +1204,7 @@ async function portalLista(){
   el.innerHTML=data.map(s=>{const st=PF_ST[s.status]||["tm",s.status];
     return `<div class="linha-item" style="flex-direction:column;align-items:flex-start;gap:4px">
       <div><span class="tag ${st[0]}">${st[1]}</span> <b style="font-size:12.5px">${esc(s.empresa)}</b>
-        <span style="font-size:11px;color:var(--gray)">· ${s.tipo==="PARECER"?"parecer":"proposta"} · ${new Date(s.criado).toLocaleDateString("pt-BR")}${s.cnpj?` · <span style="font-family:'DM Mono'">${esc(s.cnpj)}</span>`:""}</span></div>
+        <span style="font-size:11px;color:var(--gray)">· ${s.tipo==="PARECER"?"parecer":"proposta"} · ${new Date(s.criado).toLocaleDateString("pt-BR")}${s.cnpj?` · <span style="font-family:'DM Mono'">${esc(s.cnpj)}</span>`:""}${s.data_reuniao?` · &#128197; devolução ${new Date(s.data_reuniao+"T12:00:00").toLocaleDateString("pt-BR")}`:""}</span></div>
       <div style="font-size:12px;color:var(--gray)">${esc(s.descricao)}</div>
       ${s.resposta?`<div style="font-size:12px;background:var(--dani-lt);border-radius:8px;padding:6px 9px"><b>Resposta do jurídico:</b> ${esc(s.resposta)}</div>`:""}
       ${s.resp_anexo_caminho?`<button class="btn btp btsm" onclick='pfAbrirAnexo(${JSON.stringify(s.resp_anexo_caminho)})'>&#128206; Baixar ${esc(s.resp_anexo_nome||"o parecer")}</button>`:""}</div>`;}).join("");
@@ -3476,12 +3481,13 @@ async function telaDiario(dia){
       if(reservaVenc(p)){S(n).reserva++;return;}          // saiu do assessor → heads
       S(n).naRua++;const dp=_paradaDe(p);if(dp!==null&&dp>=3)S(n).parada++;});
     // recorrência: 3+ parcelas vencidas por cliente, SEM contar 'NEGÓCIO NOVO';
-    // atribui ao ASSESSOR da venda direta (coluna W = ASS. JUR), que o robô já
-    // importa como CRÉDITO em comercial_pagamentos (mesma aba, usado nas fichas
-    // dos prêmios). Assessor ATIVO → conta na linha dele. Venda direta da head
-    // OU ex-membro (quem não está mais na equipe) → indica para a HEAD do cliente
-    // assumir a condução (pedido da Bruna, 20/09/2026).
+    // vendedor = CRÉDITO (coluna W = ASS. JUR, o mesmo das fichas dos prêmios).
+    // Venda direta da HEAD → NÃO entra (não há o que reassumir, já era dela).
+    // Vendida por assessor/estagiário/adv (não-head) ou EX-MEMBRO → indica para
+    // a HEAD do cliente assumir a condução (pedido da Bruna, 21/09/2026).
     const _dig=s=>String(s||"").replace(/\D/g,"");
+    const ativos=new Set((E.equipe||[]).filter(m=>String(m.status||"").toUpperCase()==="ATIVO")
+      .map(m=>loginDe(String(m.nome_sistema||"").trim())).filter(Boolean));
     const credPorDoc={};(pagD||[]).forEach(x=>{const d=_dig(x.cnpj_cpf);const cr=loginDe(String(x.credito||"").trim());
       if(d&&cr&&!credPorDoc[d])credPorDoc[d]=cr;});
     const idcPorDoc={},docFmt={};(clsD||[]).forEach(c=>{const d=_dig(c.cnpj_cpf);if(d&&c.id_cliente&&!idcPorDoc[d]){idcPorDoc[d]=c.id_cliente;docFmt[d]=c.cnpj_cpf;}});
@@ -3492,13 +3498,14 @@ async function telaDiario(dia){
         o.n++;o.v+=(+x.valor_bruto||0);if(!o.doc){o.doc=_dig(x.cnpj_cpf);o.cnpj=x.cnpj_cpf;}if(!o.head)o.head=String(x.head||"").trim();
         const pr=String(x.produto||"").trim();if(pr)o.prods.add(pr);});
     const headRec={};   // recorrências que vão para a head do cliente assumir
-    Object.values(vencCli).forEach(o=>{if(o.n<3)return;const n=credPorDoc[o.doc];  // assessor da venda direta (W)
-      const item={cli:o.cli,n:o.n,v:o.v,prod:[...o.prods].join(", "),cnpj:docFmt[o.doc]||o.cnpj||"",idc:idcPorDoc[o.doc]||null,ex:(n&&!HEADS_FORA.includes(n)&&!OPERACIONAIS.includes(n))?n:""};
-      if(n&&OPERACIONAIS.includes(n)){S(n).rec++;S(n).recV+=o.v;(S(n).recCli=S(n).recCli||[]).push(item);return;}  // assessor ativo
-      const hd=o.head||(n&&HEADS_FORA.includes(n)?n:"")||"(sem head)";            // venda direta/ex-membro → head
+    Object.values(vencCli).forEach(o=>{if(o.n<3)return;const n=credPorDoc[o.doc];  // vendedor (coluna W)
+      if(n&&HEADS_FORA.includes(n))return;                    // venda direta da head → não reassume
+      const exMembro=!!(n&&!ativos.has(n));                    // vendedor que não está mais na equipe
+      const item={cli:o.cli,n:o.n,v:o.v,prod:[...o.prods].join(", "),cnpj:docFmt[o.doc]||o.cnpj||"",idc:idcPorDoc[o.doc]||null,vend:n||"",ex:exMembro};
+      const hd=o.head||"(sem head)";                           // a HEAD do cliente assume
       const b=(headRec[hd]=headRec[hd]||{n:0,v:0,itens:[]});b.n++;b.v+=o.v;b.itens.push(item);});
-    const nomesStat=Object.keys(stat).filter(n=>{const s=stat[n];return s.naRua||s.parada||s.reserva||s.rec;})
-      .sort((a,b)=>(stat[b].parada-stat[a].parada)||(stat[b].reserva-stat[a].reserva)||(stat[b].rec-stat[a].rec));
+    const nomesStat=Object.keys(stat).filter(n=>{const s=stat[n];return s.naRua||s.parada||s.reserva;})
+      .sort((a,b)=>(stat[b].parada-stat[a].parada)||(stat[b].reserva-stat[a].reserva));
     // "Recorrências para a head": respeita o interruptor "minha carteira"
     // (escHead) — ligado mostra só as da head; desligado mostra todas
     const _ehRec=escHead();
@@ -4752,6 +4759,7 @@ async function telaFranqueados(){
         <span style="font-size:10.5px;color:var(--gray)">· ${new Date(s.criado).toLocaleDateString("pt-BR")}</span>
         <br><span style="font-size:11.5px;color:var(--gray)">${esc(s.descricao)}</span>
         ${s.tarefa_id?`<br><span style="font-size:11px;color:var(--navy)">&#9889; tarefa <b style="cursor:pointer;text-decoration:underline" onclick="abrirTarefa('${esc(s.tarefa_id)}')">${esc(s.tarefa_id)}</b> (imediata) · head ${esc(s.head||"—")}${s.assessor?` · assessor <b>${esc(s.assessor)}</b>`:""}${s.ecac?` · e-CAC: ${esc(s.ecac)}`:""}</span>`:""}
+        ${s.data_reuniao?`<br><span class="tag ti">&#128197; devolução marcada: ${new Date(s.data_reuniao+"T12:00:00").toLocaleDateString("pt-BR")}</span>`:""}
         ${s.anexo_caminho?`<br><a style="font-size:11px;color:var(--dani);cursor:pointer;text-decoration:underline" onclick='abrirDoc(${JSON.stringify(s.anexo_caminho)})'>&#128206; ${esc(s.anexo_nome||"certificado digital")}</a>`:""}
         ${s.resposta?`<br><span style="font-size:11px;color:var(--green)">resposta: ${esc(s.resposta)}${s.respondido_por?" — "+esc(s.respondido_por):""}</span>`:""}
         ${s.resp_anexo_caminho?`<br><a style="font-size:11px;color:var(--green);cursor:pointer;text-decoration:underline" onclick='abrirDoc(${JSON.stringify(s.resp_anexo_caminho)})'>&#128206; parecer enviado: ${esc(s.resp_anexo_nome||"anexo")}</a>`:""}</span>
