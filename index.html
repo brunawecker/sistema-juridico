@@ -5174,6 +5174,50 @@ async function fazerReabrir(id,linha){
   toast("Caso reaberto!","ok");fecharModal2();fecharModal();telaCasos();}
 
 // =================================================== TELA: CLIENTES (completa)
+// ⬇️ planilha clientes × tarefas (heads) — mesmo recorte do relatório:
+// tarefa ativa = cartão no quadro, fora as fixas internas 📌
+function exportarClientesPlanilha(){
+  modal2("&#11015;&#65039; Exportar planilha de clientes","Escolha o recorte — os mesmos filtros do relatório",`
+    <div class="linha-acao"><label style="font-size:11px">Situação:</label>
+      <select class="fsel" id="exp-sit" style="flex:1">
+        <option value="TODOS">Todas</option><option value="OFICIAL">Só clientes OFICIAIS</option>
+        <option value="PROSPECCAO">Só PROSPECÇÕES</option></select></div>
+    <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px">Tarefas:</label>
+      <select class="fsel" id="exp-tar" style="flex:1">
+        <option value="TODOS">Com e sem tarefa</option><option value="COM">Só COM tarefa ativa</option>
+        <option value="SEM">Só SEM nenhuma tarefa</option></select></div>
+    <button class="btn btp btw" style="margin-top:10px" onclick="exportarClientesPlanilhaGo()">&#11015;&#65039; Baixar planilha</button>`);
+}
+async function exportarClientesPlanilhaGo(){
+  const fSit=ge("exp-sit").value,fTar=ge("exp-tar").value;
+  let cs,ops;try{[cs,ops]=await Promise.all([DB.clientes(""),DB.tarefas()]);}
+  catch(e){toast("Erro ao montar a planilha: "+e.message,"erro");return;}
+  const qtd={};(ops||[]).forEach(t=>{
+    if(!t.id_cliente||!t.id_tarefa)return;
+    if(String(t.cliente||"").startsWith("📌")||String(t.status_tarefa||"")==="TAREFA FIXA")return;
+    qtd[t.id_cliente]=(qtd[t.id_cliente]||0)+1;});
+  const cel=v=>{const s=String(v==null?"":v).replace(/"/g,'""');return /[";\n]/.test(s)?'"'+s+'"':s;};
+  const linhas=[["ID","Cliente","CNPJ/CPF","Situação","Head","Franqueado","Tarefas ativas","Grupo"].join(";")];
+  let total=0;
+  (cs||[]).slice().sort((a,b)=>String(a.nome||"").localeCompare(String(b.nome||""))).forEach(c=>{
+    const n=qtd[c.id_cliente]||0;
+    const sitRaw=String(c.situacao||"")==="PROSPECCAO"?"PROSPECCAO":"OFICIAL";
+    if(fSit!=="TODOS"&&sitRaw!==fSit)return;
+    if(fTar==="COM"&&n===0)return;
+    if(fTar==="SEM"&&n>0)return;
+    total++;
+    const sit=sitRaw==="PROSPECCAO"?"PROSPECÇÃO":"OFICIAL";
+    linhas.push([cel(c.id_cliente),cel(c.nome),cel(c.cnpj_cpf),sit,cel(c.head),
+      cel(c.franqueado||""),n,sit+(n>0?" com tarefa":" sem tarefa")].join(";"));});
+  if(!total){toast("Nenhum cliente nesse recorte.","erro");return;}
+  const blob=new Blob(["﻿"+linhas.join("\r\n")],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);
+  const rotArq=(fSit==="TODOS"?"todos":fSit.toLowerCase())+"_"+(fTar==="TODOS"?"com_e_sem":fTar==="COM"?"com_tarefa":"sem_tarefa");
+  a.download="clientes_"+rotArq+"_"+hojeISO()+".csv";a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+  fecharModal2();
+  toast("Planilha baixada ("+total+" clientes) — abre direto no Excel.","ok");
+}
 async function telaClientes(){
   setNav("cli",E.perfil.head_sim?"Gestão de Clientes":"Buscar Clientes"); carregando();
   E._fSit="TODOS";E._fReg="TODOS";E._fAtivo="TODOS";E._clPag=0;
@@ -5195,7 +5239,8 @@ async function telaClientes(){
       <div class="linha-acao" id="cl-pills"></div></div>
     <div class="linha-acao" style="margin-bottom:10px">
       <button class="btn btp btsm" id="tabcli" onclick="modoClientes('cli')">&#128101; Por Cliente</button>
-      <button class="btn bts btsm" id="tabop" onclick="modoClientes('op')">&#128203; Por Tipo de Operação</button></div>
+      <button class="btn bts btsm" id="tabop" onclick="modoClientes('op')">&#128203; Por Tipo de Operação</button>
+      ${E.perfil.head_sim?`<button class="btn bts btsm" onclick="exportarClientesPlanilha()" title="Baixa a planilha de todos os clientes com situação, head, franqueado e nº de tarefas ativas — abre no Excel">&#11015;&#65039; Exportar planilha</button>`:""}</div>
     <div id="cl-oparea" style="display:none" class="painel">
       <div style="font-size:12px;color:var(--gray);margin-bottom:6px">Todas as tarefas <b>em andamento</b> de um tipo:</div>
       <div class="linha-acao"><select class="fsel" id="cl-opsel" style="flex:1" onchange="buscaPorOperacao()">
