@@ -4841,8 +4841,8 @@ async function telaFranqueados(){
     <div style="max-height:320px;overflow:auto">${todosFr.map(x=>`<div style="${gridLog};font-size:11.5px;padding:4px 8px;border-bottom:1px solid var(--border);align-items:center">
       <span><b>${esc(x.franqueado)}</b></span><span>${esc(x.responsavel||"—")}</span>
       <span style="font-family:'DM Mono'">${esc(logDe(x)||"—")}</span>
-      <span>${x.email?(x.senha_trocada?'<span class="tag tek">portal ativo</span>':'<span class="tag td2">senha padrão</span>'):'<span class="tag tm">sem acesso</span>'}</span></div>`).join("")}</div>
-    <div style="font-size:10.5px;color:var(--gray);margin-top:5px">Senha inicial é a padrão combinada — passe por WhatsApp/telefone. No 1º acesso ele cria a própria; se registrar o Gmail, o login vira o Gmail (aparece aqui).</div></details></div>`;
+      <span>${x.email?(x.senha_trocada?'<span class="tag tek" title="a senha agora é só dele — esqueceu? o ↺ volta à padrão">portal ativo · senha só dele</span>':'<span class="tag td2" title="a senha atual é a padrão combinada">senha atual: a padrão</span>'):'<span class="tag tm">sem acesso</span>'}</span></div>`).join("")}</div>
+    <div style="font-size:10.5px;color:var(--gray);margin-top:5px"><b>Senha atual de cada um:</b> "senha atual: a padrão" = a combinada, que vocês sabem (passem por WhatsApp/telefone). "portal ativo" = ele criou a própria — ninguém vê a senha de ninguém (segurança dele); esqueceu, o <b>↺</b> na linha volta à padrão na hora.</div></details></div>`;
   ge("conteudo").innerHTML=solPainel+levPainel+loginsPainel+`
     <div class="painel"><div class="bloco-t" style="display:flex;justify-content:space-between;align-items:center">&#129309; Franqueados${escHead()?" — meus":" — todos"} (${lista.length})
       <button class="btn btp btsm" onclick="ge('nf-w').style.display=ge('nf-w').style.display==='none'?'block':'none'">+ novo franqueado</button></div>
