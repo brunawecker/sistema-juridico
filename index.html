@@ -1137,6 +1137,12 @@ async function pfCarregaHeads(){
   else{const r=await supa.rpc("franq_heads");hs=r.data||[];}
   sel.innerHTML='<option value="">Head responsável *</option>'+hs.map(h=>`<option>${esc(h)}</option>`).join("");
 }
+async function pfAbrirAnexo(caminho){
+  if(E.franq&&E.franq._preview)return pfAviso("Visualização: aqui o franqueado baixa o arquivo do parecer que a head anexou.","info");
+  const r=await supa.storage.from("documentos").createSignedUrl(caminho,3600);
+  if(r.error)return pfAviso("Não consegui abrir o arquivo: "+r.error.message);
+  window.open(r.data.signedUrl,"_blank");
+}
 async function pfBuscaCNPJ(){
   const dig=String((ge("pf-cnpj")||{}).value||"").replace(/\D/g,"");
   E._pfCnpj=null;if(dig.length!==14)return;
@@ -1185,7 +1191,7 @@ async function portalLista(){
   if(E.franq&&E.franq._preview){const hj=new Date().toISOString();
     data=[{status:"NOVA",tipo:"PARECER",empresa:"PADARIA EXEMPLO LTDA",cnpj:"12345678000199",criado:hj,descricao:"Cliente quer saber se consegue recuperar créditos dos últimos 5 anos.",resposta:null},
       {status:"EM_ANALISE",tipo:"PROPOSTA",empresa:"MERCADO MODELO ME",cnpj:null,criado:hj,descricao:"Interessado na tese do PIS/COFINS — pediu proposta.",resposta:null},
-      {status:"RESPONDIDA",tipo:"PARECER",empresa:"AUTO PEÇAS FICTÍCIA",cnpj:null,criado:hj,descricao:"Dúvida sobre mudança de regime tributário.",resposta:"Parecer favorável — os detalhes foram ao seu contato no jurídico."},
+      {status:"RESPONDIDA",tipo:"PARECER",empresa:"AUTO PEÇAS FICTÍCIA",cnpj:null,criado:hj,descricao:"Dúvida sobre mudança de regime tributário.",resposta:"Parecer favorável — os detalhes foram ao seu contato no jurídico.",resp_anexo_caminho:"__exemplo__",resp_anexo_nome:"parecer_final.pdf"},
       {status:"RECUSADA",tipo:"PROPOSTA",empresa:"EXEMPLO RECUSADO SA",cnpj:null,criado:hj,descricao:"Pedido fora do escopo tributário.",resposta:"Fora do escopo do jurídico — encaminhar ao comercial."}];}
   else{const r=await supa.rpc("franq_minhas");data=r.data;error=r.error;}
   if(error){el.innerHTML=`<div class="vazio">${esc(error.message)}</div>`;return;}
@@ -1195,7 +1201,8 @@ async function portalLista(){
       <div><span class="tag ${st[0]}">${st[1]}</span> <b style="font-size:12.5px">${esc(s.empresa)}</b>
         <span style="font-size:11px;color:var(--gray)">· ${s.tipo==="PARECER"?"parecer":"proposta"} · ${new Date(s.criado).toLocaleDateString("pt-BR")}${s.cnpj?` · <span style="font-family:'DM Mono'">${esc(s.cnpj)}</span>`:""}</span></div>
       <div style="font-size:12px;color:var(--gray)">${esc(s.descricao)}</div>
-      ${s.resposta?`<div style="font-size:12px;background:var(--dani-lt);border-radius:8px;padding:6px 9px"><b>Resposta do jurídico:</b> ${esc(s.resposta)}</div>`:""}</div>`;}).join("");
+      ${s.resposta?`<div style="font-size:12px;background:var(--dani-lt);border-radius:8px;padding:6px 9px"><b>Resposta do jurídico:</b> ${esc(s.resposta)}</div>`:""}
+      ${s.resp_anexo_caminho?`<button class="btn btp btsm" onclick='pfAbrirAnexo(${JSON.stringify(s.resp_anexo_caminho)})'>&#128206; Baixar ${esc(s.resp_anexo_nome||"o parecer")}</button>`:""}</div>`;}).join("");
 }
 
 // ============================================================= IDENTIDADE
@@ -3440,13 +3447,14 @@ async function telaDiario(dia){
   // pessoa (montarPlanoDia) — heads entendem o que o sistema cobra hoje e
   // podem furar a fila (pedido da Bruna, 16/09/2026)
   if(ehHoje&&E.perfil.head_sim){
-    let reunD=[],propsD=[],cobD=[],premD=[],pagD=[];
+    let reunD=[],propsD=[],cobD=[],premD=[],pagD=[],clsD=[];
     const _mesISO=hoje.slice(0,7)+"-01";
     try{reunD=await DB.reunioes();}catch(e){}
     try{propsD=await DB.propostas();}catch(e){}
     try{cobD=await DB.cobranca();}catch(e){}
     try{premD=await DB.premios();}catch(e){}
     try{pagD=await DB.comercialPagamentos(_mesISO);}catch(e){}
+    try{clsD=await DB.clientes("");}catch(e){}
     await carregarTemposReais(ts);
     // 📞 Follow-up e carteira por assessor (Bruna, 20/09/2026): na rua, follow-up
     // parado 3d+, reserva de mercado vencida (65d → vai p/ heads) e recorrências
