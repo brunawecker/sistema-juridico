@@ -4788,17 +4788,42 @@ async function telaFranqueados(){
     <span>${esc(s.head||"—")}</span>
     <span><b>${esc(s.assessor||"—")}</b></span>
     <span>${tagParecer(s)} ${tagPedido(s)}</span></div>`;
-  const porOrdem=[...sols].sort((a,b)=>new Date(b.criado)-new Date(a.criado));
+  // 🔎 filtros do levantamento (pedido da Bruna, 21/09/2026) — ficam em E._levF
+  const LF=E._levF=E._levF||{fr:"",hd:"",as:"",st:"",mes:""};
+  const mesDe=s=>{const d=new Date(s.criado);return String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear();};
+  const situa=s=>["NOVA","EM_ANALISE"].includes(s.status)?"ABERTO"
+    :s.status==="RECUSADA"?"REC"
+    :/EM DIA/i.test(s.tarefa_status||"")?"FEITO"
+    :s.status==="RESPONDIDA"?"RESP":"AND";
+  const opcoes=(arr,sel)=>[...new Set(arr.filter(Boolean))].sort().map(v=>`<option${v===sel?" selected":""}>${esc(v)}</option>`).join("");
+  const filtrados=[...sols].filter(s=>
+      (!LF.fr||s.franqueado===LF.fr)&&(!LF.hd||s.head===LF.hd)&&(!LF.as||s.assessor===LF.as)
+      &&(!LF.mes||mesDe(s)===LF.mes)&&(!LF.st||situa(s)===LF.st))
+    .sort((a,b)=>new Date(b.criado)-new Date(a.criado));
+  const levSel=(id,rot,html)=>`<select class="fi" style="max-width:170px;padding:5px 8px;font-size:11.5px"
+    onchange="E._levF.${id}=this.value==='${rot}'?'':this.value;telaFranqueados()"><option>${rot}</option>${html}</select>`;
+  const ST_ROT={ABERTO:"aguardando resposta",AND:"parecer em andamento",FEITO:"parecer feito",RESP:"respondido",REC:"recusado"};
+  const temFiltro=LF.fr||LF.hd||LF.as||LF.st||LF.mes;
   const levPainel=sols.length?`<div class="painel">
-    <div class="bloco-t">&#128202; Levantamento de dados — pedidos do portal (${sols.length})</div>
+    <div class="bloco-t">&#128202; Levantamento de dados — pedidos do portal (${temFiltro?filtrados.length+" de "+sols.length:sols.length})</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
       ${levCard("pedidos no total",sols.length,"var(--navy)")}
       ${levCard("neste mês",noMes,"var(--dani)")}
       ${levCard("pareceres feitos",prontos,"var(--green)")}
       ${levCard("aguardando resposta",solAb.length,"var(--amber)")}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;align-items:center">
+      ${levSel("fr","quem pediu: todos",opcoes(sols.map(s=>s.franqueado),LF.fr))}
+      ${levSel("hd","head: todas",opcoes(sols.map(s=>s.head),LF.hd))}
+      ${levSel("as","assessor: todos",opcoes(sols.map(s=>s.assessor),LF.as))}
+      <select class="fi" style="max-width:190px;padding:5px 8px;font-size:11.5px"
+        onchange="E._levF.st=this.value;telaFranqueados()">
+        <option value="">situação: todas</option>
+        ${Object.entries(ST_ROT).map(([k,v])=>`<option value="${k}"${LF.st===k?" selected":""}>${v}</option>`).join("")}</select>
+      ${levSel("mes","mês: todos",opcoes(sols.map(mesDe),LF.mes))}
+      ${temFiltro?`<button class="btn bts btsm" onclick="E._levF={fr:'',hd:'',as:'',st:'',mes:''};telaFranqueados()">&#10005; limpar filtros</button>`:""}</div>
     <div style="display:grid;grid-template-columns:72px 1.1fr 1.4fr 74px 80px 150px;gap:6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray);padding:4px 8px;border-bottom:1.5px solid var(--border)">
       <span>Data</span><span>Quem pediu</span><span>Empresa</span><span>Head</span><span>Assessor</span><span>Situação</span></div>
-    <div style="max-height:340px;overflow:auto">${porOrdem.map(levLinha).join("")}</div></div>`:"";
+    <div style="max-height:340px;overflow:auto">${filtrados.map(levLinha).join("")||'<div class="vazio">Nenhum pedido com esses filtros.</div>'}</div></div>`:"";
   ge("conteudo").innerHTML=solPainel+levPainel+`
     <div class="painel"><div class="bloco-t" style="display:flex;justify-content:space-between;align-items:center">&#129309; Franqueados${escHead()?" — meus":" — todos"} (${lista.length})
       <button class="btn btp btsm" onclick="ge('nf-w').style.display=ge('nf-w').style.display==='none'?'block':'none'">+ novo franqueado</button></div>
