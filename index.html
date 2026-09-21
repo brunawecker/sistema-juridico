@@ -3388,12 +3388,13 @@ async function telaDiario(dia){
   // pessoa (montarPlanoDia) — heads entendem o que o sistema cobra hoje e
   // podem furar a fila (pedido da Bruna, 16/09/2026)
   if(ehHoje&&E.perfil.head_sim){
-    let reunD=[],propsD=[],cobD=[],premD=[],clsD=[];
+    let reunD=[],propsD=[],cobD=[],premD=[],pagD=[];
+    const _mesISO=hoje.slice(0,7)+"-01";
     try{reunD=await DB.reunioes();}catch(e){}
     try{propsD=await DB.propostas();}catch(e){}
     try{cobD=await DB.cobranca();}catch(e){}
     try{premD=await DB.premios();}catch(e){}
-    try{clsD=await DB.clientes("");}catch(e){}
+    try{pagD=await DB.comercialPagamentos(_mesISO);}catch(e){}
     await carregarTemposReais(ts);
     // 📞 Follow-up e carteira por assessor (Bruna, 20/09/2026): na rua, follow-up
     // parado 3d+, reserva de mercado vencida (65d → vai p/ heads) e recorrências
@@ -3415,18 +3416,17 @@ async function telaDiario(dia){
       if(reservaVenc(p)){S(n).reserva++;return;}          // saiu do assessor → heads
       S(n).naRua++;const dp=_paradaDe(p);if(dp!==null&&dp>=3)S(n).parada++;});
     // recorrência: 3+ parcelas vencidas por cliente, SEM contar 'NEGÓCIO NOVO';
-    // atribui ao ASSESSOR da venda direta (coluna "ASS. JUR"/W da planilha).
-    // Linha sem assessor = venda direta da head → não entra (heads fora).
-    // Enquanto a coluna W ainda não foi populada pelo robô, cai no casamento
-    // por NOME do cadastro (fallback, sem regressão); vira autoritativa sozinha.
-    const temColW=(cobD||[]).some(x=>String(x.assessor||"").trim());
-    const assDeCli={};(clsD||[]).forEach(c=>{if(c.nome)assDeCli[String(c.nome).trim().toUpperCase()]=loginDe(String(c.assessor_responsavel||"").trim());});
+    // atribui ao ASSESSOR da venda direta (coluna W = ASS. JUR), que o robô já
+    // importa como CRÉDITO em comercial_pagamentos (mesma aba, usado nas fichas
+    // dos prêmios). Crédito vazio/na head = venda direta da head → não entra.
+    const _dig=s=>String(s||"").replace(/\D/g,"");
+    const credPorDoc={};(pagD||[]).forEach(x=>{const d=_dig(x.cnpj_cpf);const cr=loginDe(String(x.credito||"").trim());
+      if(d&&cr&&!credPorDoc[d])credPorDoc[d]=cr;});
     const vencCli={};(cobD||[]).filter(x=>["ATRASADO","VENCIDO","VENC. HOJE"].includes(String(x.status_pgto||"").trim())
         &&String(x.tipo_cobr||"").trim().toUpperCase()!=="NEGÓCIO NOVO")
-      .forEach(x=>{const k=String(x.cliente||"").trim();if(!k)return;const o=(vencCli[k]=vencCli[k]||{n:0,v:0,ass:""});
-        o.n++;o.v+=(+x.valor_bruto||0);const a=loginDe(String(x.assessor||"").trim());if(a)o.ass=a;});
-    Object.entries(vencCli).forEach(([cli,o])=>{if(o.n<3)return;
-      const n=temColW?o.ass:(o.ass||assDeCli[cli.toUpperCase()]);   // W autoritativa; senão fallback nome
+      .forEach(x=>{const k=String(x.cliente||"").trim();if(!k)return;const o=(vencCli[k]=vencCli[k]||{n:0,v:0,doc:_dig(x.cnpj_cpf)});
+        o.n++;o.v+=(+x.valor_bruto||0);if(!o.doc)o.doc=_dig(x.cnpj_cpf);});
+    Object.values(vencCli).forEach(o=>{if(o.n<3)return;const n=credPorDoc[o.doc];  // assessor da venda direta (W)
       if(!n||HEADS_FORA.includes(n))return;S(n).rec++;S(n).recV+=o.v;});
     const nomesStat=Object.keys(stat).filter(n=>{const s=stat[n];return s.naRua||s.parada||s.reserva||s.rec;})
       .sort((a,b)=>(stat[b].parada-stat[a].parada)||(stat[b].reserva-stat[a].reserva)||(stat[b].rec-stat[a].rec));
