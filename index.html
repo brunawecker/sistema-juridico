@@ -6643,7 +6643,9 @@ async function criarTarefaNova(){
     if(!(ge("nt-proc").value||"").trim()){toast("Prazo C3 exige o Nº do processo — preencha o campo do processo.","erro");return;}
     if(!ge("nt-pf").value){toast("Prazo C3 exige o prazo fatal — é ele que coloca a tarefa na parte de prazos.","erro");return;}}
   const ecacNT=ecacValor();if(ecacNT===null)return;
-  const chk=ge("nt-chk").value;
+  // Prazo C3 nunca entra como imediata: vive no balde ⚠️ Prazo fatal
+  // (AGUARDANDO + prazo fatal fica no topo até o prazo ser cumprido)
+  const chk=op==="Prazo C3"?"AGUARDANDO":ge("nt-chk").value;
   const rev=new Date();if(!["IMEDIATO","DIÁRIO"].includes(chk))rev.setDate(rev.getDate()+7);
   let revISO=rev.toISOString().slice(0,10);
   if(chk==="IMEDIATO"&&ge("nt-ass").value!==E.perfil.nome_sistema){
