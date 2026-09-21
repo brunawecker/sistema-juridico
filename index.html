@@ -5176,43 +5176,78 @@ async function fazerReabrir(id,linha){
 // =================================================== TELA: CLIENTES (completa)
 // ⬇️ planilha clientes × tarefas (heads) — mesmo recorte do relatório:
 // tarefa ativa = cartão no quadro, fora as fixas internas 📌
+// regime de um cliente bate com o filtro? (mesma régua da tela de clientes)
+function regMatchExp(rg,f){rg=String(rg||"").toUpperCase();
+  if(f==="TODOS")return true;
+  if(f==="CONFIRMAR")return rg.includes("CONFIRMAR")||rg.includes("⚠");
+  if(f==="SIMPLES")return rg==="SIMPLES NACIONAL"||rg==="MEI";
+  if(f==="PR")return (rg.includes("PRESUMIDO")||rg.includes("REAL"))&&!rg.includes("⚠");
+  if(f==="SEM")return rg==="";
+  return true;}
+function expTiposTodos(on){document.querySelectorAll(".exp-op").forEach(c=>c.checked=on);}
 function exportarClientesPlanilha(){
-  modal2("&#11015;&#65039; Exportar planilha de clientes","Escolha o recorte — os mesmos filtros do relatório",`
-    <div class="linha-acao"><label style="font-size:11px">Situação:</label>
+  const heads=[...new Set((E._clsTodos||[]).map(c=>String(c.head||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  modal2("&#11015;&#65039; Exportar planilha de clientes","Escolha os filtros — pode marcar vários tipos de tarefa",`
+    <div class="linha-acao"><label style="font-size:11px;width:64px">Situação:</label>
       <select class="fsel" id="exp-sit" style="flex:1">
         <option value="TODOS">Todas</option><option value="OFICIAL">Só clientes OFICIAIS</option>
         <option value="PROSPECCAO">Só PROSPECÇÕES</option></select></div>
-    <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px">Tarefas:</label>
+    <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px;width:64px">Head:</label>
+      <select class="fsel" id="exp-head" style="flex:1"><option value="TODOS">Todas</option>
+        ${heads.map(h=>`<option>${esc(h)}</option>`).join("")}<option value="SEMHEAD">&#9888; Sem head definida</option></select></div>
+    <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px;width:64px">Regime:</label>
+      <select class="fsel" id="exp-reg" style="flex:1">
+        <option value="TODOS">Todos</option><option value="CONFIRMAR">&#9888; Para confirmar</option>
+        <option value="SIMPLES">Simples/MEI</option><option value="PR">Presumido/Real</option><option value="SEM">Sem regime</option></select></div>
+    <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px;width:64px">Tarefas:</label>
       <select class="fsel" id="exp-tar" style="flex:1">
         <option value="TODOS">Com e sem tarefa</option><option value="COM">Só COM tarefa ativa</option>
         <option value="SEM">Só SEM nenhuma tarefa</option></select></div>
+    <div style="margin-top:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <label style="font-size:11px;font-weight:700">Tipos de tarefa (marque um ou mais):</label>
+        <span style="font-size:11px"><a href="javascript:void(0)" onclick="expTiposTodos(true)">todos</a> · <a href="javascript:void(0)" onclick="expTiposTodos(false)">limpar</a></span></div>
+      <div style="max-height:150px;overflow:auto;border:1px solid var(--border);border-radius:9px;padding:8px;margin-top:4px;display:grid;grid-template-columns:1fr 1fr;gap:2px 10px">
+        ${OPERACOES.map(o=>`<label style="font-size:12px;display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" class="exp-op" value="${esc(o)}"> ${esc(o)}</label>`).join("")}</div>
+      <div style="font-size:10px;color:var(--gray);margin-top:3px">Nada marcado = todos os tipos. Marcado = só clientes com tarefa ATIVA de algum dos tipos escolhidos.</div></div>
     <button class="btn btp btw" style="margin-top:10px" onclick="exportarClientesPlanilhaGo()">&#11015;&#65039; Baixar planilha</button>`);
 }
 async function exportarClientesPlanilhaGo(){
-  const fSit=ge("exp-sit").value,fTar=ge("exp-tar").value;
+  const fSit=ge("exp-sit").value,fTar=ge("exp-tar").value,fHead=ge("exp-head").value,fReg=ge("exp-reg").value;
+  const tipos=[...document.querySelectorAll(".exp-op:checked")].map(c=>c.value);
+  const tiposSet=new Set(tipos.map(t=>t.toLowerCase()));
   let cs,ops;try{[cs,ops]=await Promise.all([DB.clientes(""),DB.tarefas()]);}
   catch(e){toast("Erro ao montar a planilha: "+e.message,"erro");return;}
-  const qtd={};(ops||[]).forEach(t=>{
+  const qtd={},tiposPorCli={};(ops||[]).forEach(t=>{
     if(!t.id_cliente||!t.id_tarefa)return;
     if(String(t.cliente||"").startsWith("📌")||String(t.status_tarefa||"")==="TAREFA FIXA")return;
-    qtd[t.id_cliente]=(qtd[t.id_cliente]||0)+1;});
+    qtd[t.id_cliente]=(qtd[t.id_cliente]||0)+1;
+    const op=String(t.operacao||"").trim();if(op)(tiposPorCli[t.id_cliente]=tiposPorCli[t.id_cliente]||new Set()).add(op);});
   const cel=v=>{const s=String(v==null?"":v).replace(/"/g,'""');return /[";\n]/.test(s)?'"'+s+'"':s;};
-  const linhas=[["ID","Cliente","CNPJ/CPF","Situação","Head","Franqueado","Tarefas ativas","Grupo"].join(";")];
+  const linhas=[["ID","Cliente","CNPJ/CPF","Situação","Head","Franqueado","Regime","Tarefas ativas","Tipos de tarefa ativas"].join(";")];
   let total=0;
   (cs||[]).slice().sort((a,b)=>String(a.nome||"").localeCompare(String(b.nome||""))).forEach(c=>{
     const n=qtd[c.id_cliente]||0;
     const sitRaw=String(c.situacao||"")==="PROSPECCAO"?"PROSPECCAO":"OFICIAL";
     if(fSit!=="TODOS"&&sitRaw!==fSit)return;
-    if(fTar==="COM"&&n===0)return;
-    if(fTar==="SEM"&&n>0)return;
+    // head
+    const h=String(c.head||"").trim();
+    if(fHead==="SEMHEAD"){if(h)return;}else if(fHead!=="TODOS"&&h!==fHead)return;
+    if(!regMatchExp(c.regime,fReg))return;
+    const meusTipos=[...(tiposPorCli[c.id_cliente]||[])];
+    if(tipos.length){                              // filtro por tipos (multi)
+      if(!meusTipos.some(t=>tiposSet.has(String(t).toLowerCase())))return;
+    }else{
+      if(fTar==="COM"&&n===0)return;
+      if(fTar==="SEM"&&n>0)return;}
     total++;
     const sit=sitRaw==="PROSPECCAO"?"PROSPECÇÃO":"OFICIAL";
     linhas.push([cel(c.id_cliente),cel(c.nome),cel(c.cnpj_cpf),sit,cel(c.head),
-      cel(c.franqueado||""),n,sit+(n>0?" com tarefa":" sem tarefa")].join(";"));});
+      cel(c.franqueado||""),cel(c.regime||""),n,cel(meusTipos.sort().join(" | "))].join(";"));});
   if(!total){toast("Nenhum cliente nesse recorte.","erro");return;}
   const blob=new Blob(["﻿"+linhas.join("\r\n")],{type:"text/csv;charset=utf-8"});
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);
-  const rotArq=(fSit==="TODOS"?"todos":fSit.toLowerCase())+"_"+(fTar==="TODOS"?"com_e_sem":fTar==="COM"?"com_tarefa":"sem_tarefa");
+  const rotArq=tipos.length?"tipos_"+tipos.length:((fSit==="TODOS"?"todos":fSit.toLowerCase())+"_"+(fTar==="TODOS"?"com_e_sem":fTar==="COM"?"com_tarefa":"sem_tarefa"));
   a.download="clientes_"+rotArq+"_"+hojeISO()+".csv";a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),4000);
   fecharModal2();
