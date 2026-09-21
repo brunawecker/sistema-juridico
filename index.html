@@ -751,6 +751,12 @@ const S = {
   async lembreteApagar(id){return rpcS("lembrete_apagar",{p_id:id});},
   async sinalAgendar(idp){try{return await rpcS("sinal_agendar_apresentacao",{p_id_proposta:idp});}catch(e){return false;}},
   async franqueados(){return okS(await supa.from("franqueados").select("*").order("franqueado"))||[];},
+  // portal do franqueado — lado do TIME (as funções do lado do franqueado usam supa.rpc direto)
+  async franqSolicListar(){return okS(await supa.rpc("franq_solic_listar"))||[];},
+  async franqResponder(id,st,resp){okS(await supa.rpc("franq_responder",{p_id:id,p_status:st,p_resposta:resp||""}));return{ok:true};},
+  async franqAcesso(id,em){okS(await supa.rpc("franqueado_acesso",{p_id:id,p_email:em}));return{ok:true};},
+  async franqCriarConta(id){return okS(await supa.rpc("franqueado_criar_conta",{p_id:id}));},
+  async franqResetSenha(id){okS(await supa.rpc("franqueado_resetar_senha",{p_id:id}));return{ok:true};},
   async franqueadoContato(id,status){return rpcS("franqueado_contato",{p_id:id,p_status:status||""});},
   async franqueadoResp(id,resp){return rpcS("franqueado_resp",{p_id:id,p_resp:resp});},
   async fichaExtraDar(p,q,m){return rpcS("ficha_extra_dar",{p_pessoa:p,p_qtd:q,p_motivo:m});},
@@ -1013,6 +1019,7 @@ async function iniciar(){
   const{data}=await supa.auth.getSession(); if(data.session&&!_sessaoAtiva){_sessaoAtiva=true;entrou();}
 }
 function sessaoExpirou(){
+  const _pf=ge("portal-franq");if(_pf)_pf.remove();
   ge("app").style.display="none"; ge("tela-login").style.display="";
   ge("login-corpo").style.display="";
   avisoLogin("info","Sua sessão expirou por segurança. Entre de novo para continuar — nada do que foi salvo se perdeu.");
@@ -1034,9 +1041,86 @@ async function criarSenha(){const em=ge("li-email").value.trim(),s=ge("li-senha"
 function avisoLogin(t,m){ge("login-aviso").innerHTML=`<div class="aviso ${t}">${esc(m)}</div>`;}
 async function sair(){if(MODO_SUPABASE){_sessaoAtiva=false;await supa.auth.signOut();}location.reload();}
 
+// ======================================================= PORTAL DO FRANQUEADO
+// Tela própria, fora do #app: o franqueado NUNCA vê o sistema interno.
+// Conta criada pela head com a senha padrão; aqui ele é obrigado a trocá-la.
+const FRANQ_SENHA_PADRAO="Villela2026";
+function portalWrap(inner){
+  ge("tela-login").style.display="none";ge("app").style.display="none";
+  let pf=ge("portal-franq");
+  if(!pf){pf=document.createElement("div");pf.id="portal-franq";document.body.appendChild(pf);}
+  pf.style.cssText="min-height:100vh;background:var(--bg);padding:24px 14px;display:flex;justify-content:center";
+  pf.innerHTML=`<div style="width:100%;max-width:640px">
+    <div style="background:linear-gradient(135deg,var(--dani),var(--navy-lt));color:white;border-radius:var(--r);padding:16px 20px;margin-bottom:14px;box-shadow:var(--sh)">
+      <div style="font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;opacity:.75">Grupo Villela · Jurídico</div>
+      <div style="font-size:20px;font-weight:700;margin-top:2px">Portal do Franqueado</div>
+      <div style="font-size:13px;opacity:.9;margin-top:2px">${esc(E.franq.franqueado)}${E.franq.responsavel?` · seu contato no jurídico: <b>${esc(E.franq.responsavel)}</b>`:""}</div></div>
+    ${inner}
+    <div style="text-align:center;margin-top:14px"><button class="btn bts" onclick="sair()">Sair</button></div></div>`;
+}
+function pfAviso(m,t){const el=ge("pf-aviso");if(el)el.innerHTML=`<div class="aviso ${t||"erro"}" style="margin-top:8px">${esc(m)}</div>`;}
+function portalTrocaSenha(){
+  portalWrap(`<div class="painel"><div class="bloco-t">&#128274; Primeiro acesso — crie a sua senha</div>
+    <div style="font-size:12.5px;color:var(--gray);margin-bottom:10px">Por segurança, troque a senha padrão por uma só sua (mínimo 8 caracteres). É rapidinho e só nesta primeira vez.</div>
+    <input class="fi" id="pf-s1" type="password" placeholder="Nova senha" autocomplete="new-password" style="margin-bottom:8px">
+    <input class="fi" id="pf-s2" type="password" placeholder="Repita a nova senha" autocomplete="new-password" style="margin-bottom:10px">
+    <button class="btn btp btw" onclick="portalSalvarSenha()">Salvar e entrar</button>
+    <div id="pf-aviso"></div></div>`);
+}
+async function portalSalvarSenha(){
+  const a=ge("pf-s1").value,b=ge("pf-s2").value;
+  if(a.length<8)return pfAviso("A senha precisa ter ao menos 8 caracteres.");
+  if(a!==b)return pfAviso("As duas senhas não conferem.");
+  if(a===FRANQ_SENHA_PADRAO)return pfAviso("Escolha uma senha diferente da senha padrão.");
+  const{error}=await supa.auth.updateUser({password:a});
+  if(error)return pfAviso(error.message);
+  try{await supa.rpc("franq_senha_trocada");}catch(_e){}
+  E.franq.senha_trocada=true;portalFranqueado();
+}
+const PF_ST={NOVA:["tda","recebida"],EM_ANALISE:["td2","em análise"],RESPONDIDA:["tek","respondida"],RECUSADA:["ti","recusada"]};
+async function portalFranqueado(){
+  if(!E.franq.senha_trocada)return portalTrocaSenha();
+  portalWrap(`
+    <div class="painel"><div class="bloco-t">&#128232; Pedir parecer ou proposta ao jurídico</div>
+      <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+        <select class="fi" id="pf-tipo" style="flex:1;min-width:130px">
+          <option value="PARECER">Parecer</option><option value="PROPOSTA">Proposta</option></select>
+        <input class="fi" id="pf-cnpj" placeholder="CNPJ/CPF do cliente (opcional)" style="flex:1.4;min-width:180px"></div>
+      <input class="fi" id="pf-emp" placeholder="Empresa / cliente" style="margin-bottom:8px">
+      <textarea class="fi" id="pf-desc" rows="4" placeholder="Conte o que você precisa: a situação, a dúvida, o que o cliente pediu…" style="margin-bottom:10px;resize:vertical"></textarea>
+      <button class="btn btp btw" onclick="portalSolicitar()">Enviar para o jurídico</button>
+      <div id="pf-aviso"></div></div>
+    <div class="painel"><div class="bloco-t">&#128203; Minhas solicitações</div>
+      <div id="pf-lista"><div class="vazio">Carregando…</div></div></div>`);
+  portalLista();
+}
+async function portalSolicitar(){
+  const{error}=await supa.rpc("franq_solicitar",{p_tipo:ge("pf-tipo").value,
+    p_empresa:ge("pf-emp").value.trim(),p_cnpj:ge("pf-cnpj").value.trim(),p_descricao:ge("pf-desc").value.trim()});
+  if(error)return pfAviso(error.message);
+  ge("pf-emp").value="";ge("pf-cnpj").value="";ge("pf-desc").value="";
+  pfAviso("Enviado! O jurídico já consegue ver o seu pedido — acompanhe o andamento aqui embaixo.","info");
+  portalLista();
+}
+async function portalLista(){
+  const el=ge("pf-lista");if(!el)return;
+  const{data,error}=await supa.rpc("franq_minhas");
+  if(error){el.innerHTML=`<div class="vazio">${esc(error.message)}</div>`;return;}
+  if(!data||!data.length){el.innerHTML='<div class="vazio">Nenhuma solicitação ainda — a primeira é ali em cima.</div>';return;}
+  el.innerHTML=data.map(s=>{const st=PF_ST[s.status]||["tm",s.status];
+    return `<div class="linha-item" style="flex-direction:column;align-items:flex-start;gap:4px">
+      <div><span class="tag ${st[0]}">${st[1]}</span> <b style="font-size:12.5px">${esc(s.empresa)}</b>
+        <span style="font-size:11px;color:var(--gray)">· ${s.tipo==="PARECER"?"parecer":"proposta"} · ${new Date(s.criado).toLocaleDateString("pt-BR")}${s.cnpj?` · <span style="font-family:'DM Mono'">${esc(s.cnpj)}</span>`:""}</span></div>
+      <div style="font-size:12px;color:var(--gray)">${esc(s.descricao)}</div>
+      ${s.resposta?`<div style="font-size:12px;background:var(--dani-lt);border-radius:8px;padding:6px 9px"><b>Resposta do jurídico:</b> ${esc(s.resposta)}</div>`:""}</div>`;}).join("");
+}
+
 // ============================================================= IDENTIDADE
 async function entrou(){
   let p; try{p=await DB.perfil();}catch(e){avisoLogin("erro","Erro ao carregar perfil: "+e.message);return;}
+  if(!p&&MODO_SUPABASE){ // não é do time — pode ser FRANQUEADO com acesso ao portal
+    let fq=null;try{const r=await supa.rpc("franq_portal");if(!r.error)fq=r.data;}catch(_e){}
+    if(fq&&fq.id){E.franq=fq;portalFranqueado();return;}}
   if(!p){avisoLogin("info","Você entrou, mas este e-mail não está vinculado a nenhum membro ATIVO da equipe. Fale com a administração.");if(MODO_SUPABASE)await supa.auth.signOut();return;}
   E.perfil=p;
   try{E.equipe=await DB.equipe();}catch(e){E.equipe=[];}
@@ -3316,6 +3400,14 @@ async function telaDiario(dia){
           <span><button class="btn btg btsm" onclick="decidirDobro(${d.id},true)">&#10003; validar (2 fichas)</button>
           <button class="btn bts btsm" style="color:var(--red);border-color:var(--red)" onclick="decidirDobro(${d.id},false)">negar</button></span></div>`).join("")+
         `<div style="font-size:10px;color:var(--gray);margin-top:4px">Validada, a ficha extra entra sozinha no Placar do ciclo. Contador novo aprovado fica registrado na ficha do cliente ("contador parceiro").</div></div>`;}
+    // 📨 solicitações de franqueados aguardando resposta (Portal do Franqueado)
+    let solF=[];try{solF=(await DB.franqSolicListar()).filter(s=>["NOVA","EM_ANALISE"].includes(s.status));}catch(e){}
+    if(solF.length){
+      h+=`<div class="painel" style="background:#F0F7FB;border-color:#B9D8E1">
+        <div class="bloco-t" style="color:var(--dani)">&#128233; Franqueados aguardando resposta no portal (${solF.length})</div>`+
+        solF.slice(0,6).map(s=>`<div class="linha-item"><span style="font-size:12.5px"><b>${esc(s.franqueado)}</b> pede <b>${s.tipo==="PARECER"?"parecer":"proposta"}</b> · ${esc(s.empresa)}</span>
+          <span style="font-size:11px;color:var(--gray)">${new Date(s.criado).toLocaleDateString("pt-BR")}</span></div>`).join("")+
+        `<button class="btn bts btsm" style="margin-top:4px" onclick="telaFranqueados()">abrir Franqueados para responder</button></div>`;}
   }
   const por={};
   (hist||[]).forEach(r=>{const a=loginDe(r.autor);if(!a||a==="Sistema"||a==="Migração")return;
@@ -4504,6 +4596,7 @@ async function telaFranqueados(){
   setNav("franq","Franqueados"); carregando();
   if(!E.perfil.head_sim){erro("Esta tela é só para heads.");return;}
   let fr;try{fr=await DB.franqueados();}catch(e){return erro(e.message);}
+  let sols=[];try{sols=await DB.franqSolicListar();}catch(e){}
   const eu=E.perfil.nome_sistema;
   let lista=(fr||[]).filter(x=>x.ativo!==false);
   if(escHead())lista=lista.filter(x=>String(x.responsavel||"").trim()===eu);
@@ -4523,8 +4616,29 @@ async function telaFranqueados(){
       <span style="font-size:12.5px"><b>${esc(x.franqueado)}</b> ${badge}<br>
         <span style="font-size:11px;color:var(--gray)">&#9742; ${esc(x.telefone||"—")} · ${esc(x.estado||"")}${x.fp&&x.fp!==x.franqueado?" · FP: "+esc(x.fp):""}${x.status_semana?" · <i>"+esc(x.status_semana)+"</i>":""}</span></span>
       <span style="white-space:nowrap"><button class="btn btg btsm" onclick="registrarContatoFranq(${x.id})">&#128222; registrei contato</button>
-        <button class="btn bts btsm" onclick="trocarRespFranq(${x.id})" title="trocar responsável">&#128100;${esc(x.responsavel||"?")}</button></span></div>`;};
-  ge("conteudo").innerHTML=`
+        <button class="btn bts btsm" onclick="trocarRespFranq(${x.id})" title="trocar responsável">&#128100;${esc(x.responsavel||"?")}</button>
+        <button class="btn bts btsm" onclick="acessoFranq(${x.id})" title="${x.email?"portal: "+esc(x.email):"dar acesso ao portal (login e senha)"}">&#128273;${x.email?(x.senha_trocada?" portal ativo":x.acesso_criado?" senha padrão":""):" dar acesso"}</button>
+        ${x.acesso_criado?`<button class="btn bts btsm" style="color:var(--amber);border-color:var(--amber)" onclick="resetSenhaFranq(${x.id})" title="esqueceu a senha? volta para a padrão">&#8634;</button>`:""}</span></div>`;};
+  // 📨 solicitações vindas do portal (parecer/proposta)
+  const solRot={NOVA:["tda","nova"],EM_ANALISE:["td2","em análise"],RESPONDIDA:["tek","respondida"],RECUSADA:["ti","recusada"]};
+  const solHtml=s=>{const st=solRot[s.status]||["tm",s.status];
+    return `<div class="linha-item" style="align-items:flex-start">
+      <span style="font-size:12.5px"><span class="tag ${st[0]}">${st[1]}</span>
+        <b>${esc(s.franqueado)}</b> pede <b>${s.tipo==="PARECER"?"parecer":"proposta"}</b> · ${esc(s.empresa)}${s.cnpj?` · <span style="font-family:'DM Mono'">${esc(s.cnpj)}</span>`:""}
+        <span style="font-size:10.5px;color:var(--gray)">· ${new Date(s.criado).toLocaleDateString("pt-BR")}</span>
+        <br><span style="font-size:11.5px;color:var(--gray)">${esc(s.descricao)}</span>
+        ${s.resposta?`<br><span style="font-size:11px;color:var(--green)">resposta: ${esc(s.resposta)}${s.respondido_por?" — "+esc(s.respondido_por):""}</span>`:""}</span>
+      ${["NOVA","EM_ANALISE"].includes(s.status)?`<span style="white-space:nowrap">
+        <button class="btn btg btsm" onclick="responderSolicFranq(${s.id},'RESPONDIDA')">responder</button>
+        ${s.status==="NOVA"?`<button class="btn bts btsm" onclick="responderSolicFranq(${s.id},'EM_ANALISE')">em análise</button>`:""}
+        <button class="btn bts btsm" style="color:var(--red);border-color:var(--red)" onclick="responderSolicFranq(${s.id},'RECUSADA')">recusar</button></span>`:""}</div>`;};
+  const solAb=sols.filter(s=>["NOVA","EM_ANALISE"].includes(s.status));
+  const solFech=sols.filter(s=>!["NOVA","EM_ANALISE"].includes(s.status));
+  const solPainel=(solAb.length||solFech.length)?`<div class="painel"${solAb.length?' style="border-left:4px solid var(--navy)"':""}>
+    <div class="bloco-t">&#128233; Solicitações do portal — parecer/proposta (${solAb.length} aguardando)</div>
+    ${solAb.map(solHtml).join("")||'<div class="vazio">Nenhuma aguardando resposta.</div>'}
+    ${solFech.length?`<details style="margin-top:6px"><summary style="cursor:pointer;font-size:11px;color:var(--gray)">já finalizadas (${solFech.length})</summary>${solFech.map(solHtml).join("")}</details>`:""}</div>`:"";
+  ge("conteudo").innerHTML=solPainel+`
     <div class="painel"><div class="bloco-t">&#129309; Franqueados${escHead()?" — meus":" — todos"} (${lista.length})</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">
         <div style="background:var(--red-lt);border:1.5px solid var(--red);border-radius:11px;padding:8px 12px;flex:1;min-width:120px">
@@ -4546,6 +4660,30 @@ async function trocarRespFranq(id){
   if(novo===null||!novo.trim())return;
   try{await DB.franqueadoResp(id,novo.trim());}catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Responsável atualizado.","ok");telaFranqueados();}
+async function acessoFranq(id){
+  const x=(E._franqMap||{})[id];if(!x)return;
+  const em=prompt("Acesso ao Portal do Franqueado — "+x.franqueado+
+    "\n\nA conta nasce com a senha padrão "+FRANQ_SENHA_PADRAO+" e ele é obrigado a trocá-la no 1º acesso."+
+    "\n\nE-mail de login:",x.email||"");
+  if(em===null||!em.trim())return;
+  try{
+    await DB.franqAcesso(id,em.trim());
+    const r=await DB.franqCriarConta(id);
+    toast(r==="CRIADA"?"Conta criada! Passe a ele: login "+em.trim().toLowerCase()+" · senha "+FRANQ_SENHA_PADRAO
+      :"E-mail salvo — a conta desse e-mail já existia.","ok");
+  }catch(e){toast("Erro: "+e.message,"erro");return;}
+  telaFranqueados();}
+async function resetSenhaFranq(id){
+  const x=(E._franqMap||{})[id];if(!x)return;
+  if(!confirm("Voltar a senha de "+x.franqueado+" para a padrão ("+FRANQ_SENHA_PADRAO+")?\nEle vai criar uma nova no próximo acesso."))return;
+  try{await DB.franqResetSenha(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Senha voltou ao padrão: "+FRANQ_SENHA_PADRAO,"ok");telaFranqueados();}
+async function responderSolicFranq(id,st){
+  let resp="";
+  if(st==="RESPONDIDA"){resp=prompt("Resposta ao franqueado (aparece para ele no portal):");if(resp===null||!resp.trim())return;}
+  if(st==="RECUSADA"){resp=prompt("Motivo da recusa (aparece para ele no portal):");if(resp===null)return;}
+  try{await DB.franqResponder(id,st,resp?resp.trim():"");}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast(st==="EM_ANALISE"?"Marcada como em análise.":"Enviado ao portal do franqueado.","ok");telaFranqueados();}
 async function telaLaudos(){
   setNav("laudos","Laudos em Andamento"); carregando();
   if(!E.perfil.head_sim){erro("Esta tela é só para heads.");return;}
