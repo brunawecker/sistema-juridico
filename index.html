@@ -4000,16 +4000,17 @@ async function carregarTricount(){
       ${heads.map(h=>`<label style="font-size:12px"><input type="checkbox" class="tg-part" value="${esc(h)}" checked> ${esc(h)}</label>`).join("")}
       <button class="btn btp btsm" onclick="tricAdd()">+ Lançar</button></div>
     ${abertos.length?`
-    <div style="font-size:11px;font-weight:700;color:var(--gray);margin-bottom:3px">Em aberto (${abertos.length} · ${fmtR$(totAb)}${totJogos?` · &#127918; jogos: ${fmtR$(totJogos)}`:""})</div>
+    <div style="font-size:12.5px;margin-bottom:4px">Em aberto: <b>${fmtR$(totAb)}</b> (${abertos.length} lançamento(s))${totJogos?` · &#127918; jogos: <b>${fmtR$(totJogos)}</b>`:""}</div>
+    <div style="background:#E9F7EF;border-radius:9px;padding:7px 11px;font-size:12.5px">
+      <b style="color:#1E8449">Acerto sugerido:</b> ${transf.length?transf.join(" &nbsp;·&nbsp; "):"tudo equilibrado &#127881;"}
+      ${transf.length?`<button class="btn btg btsm" style="margin-left:8px" onclick="tricAcertar()">&#10003; Acertamos — zerar</button>`:""}</div>
+    <details style="margin-top:5px"><summary style="cursor:pointer;font-size:11px;color:var(--gray)">ver/editar os ${abertos.length} lançamento(s) em aberto</summary>
     ${abertos.map(g=>`<div class="linha-item"><span style="font-size:12px">${/jogo/i.test(g.categoria)?"&#127918; ":""}<b>${brData(g.data_gasto)}</b> · ${esc(g.descricao)} · <b>${fmtR$(+g.valor)}</b> — ${/ratead/i.test(g.pago_por||"")?"<b>rateado</b> entre as heads":`pagou <b>${esc(g.pago_por)}</b>, divide: ${esc(g.participantes)}`}</span>
       ${g.fonte==="premio"?'<span class="tag ts" title="veio do controle de prêmios — edite lá">&#127873; prêmio</span>'
         :g.criado_por===eu?`<span><button class="btn bts btsm" title="editar" onclick="tricEditar(${g.id})">&#9998;</button>
-        <button class="btn bts btsm" title="apagar (só quem lançou)" onclick="tricApagar(${g.id})">&#10005;</button></span>`:""}</div>`).join("")}
-    <div style="background:#E9F7EF;border-radius:9px;padding:7px 11px;margin-top:6px;font-size:12.5px">
-      <b style="color:#1E8449">Acerto sugerido:</b> ${transf.length?transf.join(" &nbsp;·&nbsp; "):"tudo equilibrado &#127881;"}
-      ${transf.length?`<button class="btn btg btsm" style="margin-left:8px" onclick="tricAcertar()">&#10003; Acertamos — zerar</button>`:""}</div>`
+        <button class="btn bts btsm" title="apagar (só quem lançou)" onclick="tricApagar(${g.id})">&#10005;</button></span>`:""}</div>`).join("")}</details>`
     :'<div style="font-size:12px;color:var(--gray)">Nenhum gasto em aberto. Lance o primeiro acima.</div>'}
-    <div style="font-size:10px;color:var(--gray);margin-top:5px">&#128218; O histórico completo (incluindo acertados) fica em <b>Configurações</b> — aqui só o que está em aberto. Prêmios com valor e pagadora preenchidos no controle da roleta entram sozinhos como &#127918; Jogos.</div>
+    <div style="font-size:10px;color:var(--gray);margin-top:5px">&#128218; O histórico completo (lançamento por lançamento, incluindo acertados) fica em <b>Configurações</b>. Prêmios com valor e pagadora preenchidos no controle da roleta entram sozinhos como &#127918; Jogos.</div>
   </div>`;
 }
 async function tricAdd(){
@@ -4734,6 +4735,7 @@ async function telaFranqueados(){
   let sols=[];try{sols=await DB.franqSolicListar();}catch(e){}
   let propsAll=[];try{propsAll=await DB.propostas();}catch(e){}
   E._solMap={};sols.forEach(s=>E._solMap[s.id]=s);
+  E._franqTelMap={};(fr||[]).forEach(x=>E._franqTelMap[x.id]=x.telefone||"");
   const eu=E.perfil.nome_sistema;
   let lista=(fr||[]).filter(x=>x.ativo!==false);
   if(escHead())lista=lista.filter(x=>String(x.responsavel||"").trim()===eu);
@@ -4967,18 +4969,21 @@ async function enviarRespFranq(id,fid){
   }
   try{await DB.franqResponder(id,"RESPONDIDA",txt,cam,nom);}catch(e){toast("Erro: "+e.message,"erro");return;}
   // aviso de WhatsApp já copiado — a head só cola na conversa do franqueado
-  try{await navigator.clipboard.writeText(avisoFranqTexto((E._solMap||{})[id]||{}));
-    toast("Resposta enviada"+(nom?" com o anexo":"")+" + aviso de WhatsApp copiado — é só colar.","ok");}
-  catch(_e){toast("Resposta enviada ao portal do franqueado"+(nom?" com o anexo":"")+".","ok");}
+  const _s=(E._solMap||{})[id]||{};
+  try{await navigator.clipboard.writeText(avisoFranqTexto(_s));
+    toast("Resposta enviada"+(nom?" com o anexo":"")+" + aviso copiado — mande no WhatsApp"+telFranqDe(_s)+".","ok");}
+  catch(_e){toast("Resposta enviada ao portal"+(nom?" com o anexo":"")+" — WhatsApp"+telFranqDe(_s)+".","ok");}
   telaFranqueados();}
+function telFranqDe(s){const t=(E._franqTelMap||{})[s.franq_id]||"";
+  return t?" de "+(s.franqueado||"")+" 📞 "+t:(s.franqueado?" de "+s.franqueado:"");}
 function avisoFranqTexto(s){
   return "Oi! O parecer"+(s.empresa?" da "+s.empresa:"")+" já está no seu Portal do Franqueado 🎉\n"
     +"Entre em brunawecker.github.io/sistema-juridico com o seu login e baixe o arquivo na lista de solicitações.\n"
     +"Qualquer dúvida me chama!";}
 async function copiarAvisoFranq(id){
   const s=(E._solMap||{})[id];if(!s)return;
-  try{await navigator.clipboard.writeText(avisoFranqTexto(s));toast("Aviso copiado — cole no WhatsApp do franqueado.","ok");}
-  catch(_e){prompt("Copie o aviso (Ctrl/Cmd+C):",avisoFranqTexto(s));}}
+  try{await navigator.clipboard.writeText(avisoFranqTexto(s));toast("Aviso copiado — cole no WhatsApp"+telFranqDe(s)+".","ok");}
+  catch(_e){prompt("Copie o aviso e mande no WhatsApp"+telFranqDe(s)+":",avisoFranqTexto(s));}}
 async function telaLaudos(){
   setNav("laudos","Laudos em Andamento"); carregando();
   if(!E.perfil.head_sim){erro("Esta tela é só para heads.");return;}
