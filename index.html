@@ -314,7 +314,7 @@ const LAUDO_DEPENDE={
 function laudoDepende(e){return LAUDO_DEPENDE[e]||"nos";}
 function laudoCor(e){return /Deferido/.test(e||"")?"var(--green)":/Indeferido/.test(e||"")?"var(--red)"
   :laudoDepende(e)==="procuradoria"?"var(--amber)":laudoDepende(e)==="setor"?"var(--dani)":"var(--navy)";}
-const OPERACOES=["Audiência","Análise Prescricional","Cancelar transação","Cancelar negociação","Execução Fiscal","Estadual","Emissão CPEN","Embargos à Execução","ExcPreEx - Prescrição","E-Processo","FGTS","Laudo OPF","Laudo CAPAG","Levantamento - Cliente Villela","MS","MS Migração","MS Impedimento","MS laudo CAPAG","MS CND","Monitoramento","NJP","Negociação Estadual","Outros","Petição","Parcelar","Proposta Comercial - Parecer Tributário","Protesto","PRDI","Renegociação","Risco de bloqueio","Restituição SN","Revenda","Recurso","Simulação","TAX","TI - Transação Individual","Transacionar","TIS","Parecer de Novo Cliente","Contabilize","Contrato/Aditivo"];
+const OPERACOES=["Audiência","Análise Prescricional","Cancelar transação","Cancelar negociação","Execução Fiscal","Estadual","Emissão CPEN","Embargos à Execução","ExcPreEx - Prescrição","E-Processo","FGTS","Laudo OPF","Laudo CAPAG","Levantamento - Cliente Villela","MS","MS Migração","MS Impedimento","MS laudo CAPAG","MS CND","Monitoramento","NJP","Negociação Estadual","Outros","Petição","Parcelar","Prazo C3","Proposta Comercial - Parecer Tributário","Protesto","PRDI","Renegociação","Risco de bloqueio","Restituição SN","Revenda","Recurso","Simulação","TAX","TI - Transação Individual","Transacionar","TIS","Parecer de Novo Cliente","Contabilize","Contrato/Aditivo"];
 const TEMPOS_PADRAO={"Fechamento Mensal (heads)":240,"Execução Fiscal":15,"Proposta Comercial - Parecer Tributário":25,"MS":35,"MS Migração":35,"MS Impedimento":35,"MS laudo CAPAG":35,"MS CND":35,"Transacionar":20,"Laudo CAPAG":25,"Laudo OPF":25,"Monitoramento":10,"Audiência":60,"NJP":20,"Renegociação":20,"Recurso":30,"Embargos à Execução":30,"Emissão CPEN":15,"PRDI":20,"Protesto":15,"Estadual":20,"E-Processo":15,"FGTS":20,"Petição":30,"Parcelar":15,"Simulação":20,"TAX":25,"TIS":20,"Contabilize":20,"Restituição SN":20,"Risco de bloqueio":15,"Revenda":15,"Cancelar transação":15,"Levantamento - Cliente Villela":30,"Parecer de Novo Cliente":30,"Outros":20,"Análise Prescricional":30,"ExcPreEx - Prescrição":25,"Negociação Estadual":20,_default:20};
 const tempoDe=op=>TEMPOS_PADRAO[op]||TEMPOS_PADRAO._default;
 // documento sempre num formato só (evita duplicar cliente por grafia):
@@ -6638,6 +6638,10 @@ async function criarTarefaNova(){
   const flagNT=precisaPedidoHead(E.perfil.nome_sistema,ge("nt-ass").value);
   if(flagNT&&!(ge("nt-headflag")||{}).checked){toast("Para direcionar a "+ge("nt-ass").value+", marque que a tarefa é por pedido direto de uma das heads.","erro");return;}
   const op=ge("nt-op").value;if(!op){toast("Selecione a operação.","erro");return;}
+  // Prazo C3 = prazo processual: processo e prazo fatal são obrigatórios
+  if(op==="Prazo C3"){
+    if(!(ge("nt-proc").value||"").trim()){toast("Prazo C3 exige o Nº do processo — preencha o campo do processo.","erro");return;}
+    if(!ge("nt-pf").value){toast("Prazo C3 exige o prazo fatal — é ele que coloca a tarefa na parte de prazos.","erro");return;}}
   const ecacNT=ecacValor();if(ecacNT===null)return;
   const chk=ge("nt-chk").value;
   const rev=new Date();if(!["IMEDIATO","DIÁRIO"].includes(chk))rev.setDate(rev.getDate()+7);
@@ -6699,6 +6703,7 @@ async function criarTarefaParaExistente(cli){
   const flagNC=precisaPedidoHead(E.perfil.nome_sistema,ge("nc-ass").value);
   if(flagNC&&!(ge("nc-headflag")||{}).checked){toast("Para direcionar a "+ge("nc-ass").value+", marque que a tarefa é por pedido direto de uma das heads.","erro");return;}
   const op=ge("nc-op").value;if(!op){toast("Selecione a operação da primeira tarefa.","erro");return;}
+  if(op==="Prazo C3"){toast("Prazo C3 pede Nº do processo e prazo fatal: cadastre o cliente com outra operação (ou nenhuma) e crie o Prazo C3 pela Nova tarefa.","erro");return;}
   const ecacEx=ecacValor();if(ecacEx===null)return;
   const chk=ge("nc-chk").value;
   const rev=new Date();if(!["IMEDIATO","DIÁRIO"].includes(chk))rev.setDate(rev.getDate()+7);
@@ -6747,6 +6752,7 @@ async function criarClienteTarefa(){
     catch(e){toast("Erro: "+e.message,"erro");return;}
     fecharModal2();recarregar();return;}
   const op=ge("nc-op").value;if(!op){toast("Selecione a operação da primeira tarefa.","erro");return;}
+  if(op==="Prazo C3"){toast("Prazo C3 pede Nº do processo e prazo fatal: cadastre o cliente com outra operação (ou nenhuma) e crie o Prazo C3 pela Nova tarefa.","erro");return;}
   const ecacNC=ecacValor();if(ecacNC===null)return;
   if(!alvosCriacao().includes(ge("nc-ass").value)){toast("Você direciona tarefas só para: "+alvosCriacao().join(", ")+".","erro");return;}
   const flagNC2=precisaPedidoHead(E.perfil.nome_sistema,ge("nc-ass").value);
