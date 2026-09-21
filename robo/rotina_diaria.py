@@ -195,7 +195,9 @@ def main():
             elif freq == "MENSAL_1DIA_UTIL" and prim_util and mes_key not in ult:
                 deve, check, oper = True, "IMEDIATO", "Fechamento Mensal"
             elif freq in DIAS_SEMANA and hoje.weekday() == DIAS_SEMANA[freq] and not ja_hoje:
-                deve, oper = True, "Tarefa Semanal"
+                # fixa semanal nasce SEMANAL (antes ia DIÁRIO e confundia —
+                # caso Marcio Motos/João, Bruna 21/09/2026)
+                deve, check, oper = True, "SEMANAL", "Tarefa Semanal"
             elif freq == "JANELA_FIM_MES" and not ja_hoje:
                 # um cartão por dia útil, da penúltima semana até a metade da
                 # última: do dia (último-13) ao dia (último-4) de cada mês
