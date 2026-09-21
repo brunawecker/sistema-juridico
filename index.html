@@ -6625,6 +6625,19 @@ async function abrirNovaTarefa(){
     <div id="nt-int-w" style="display:none"><input class="fi" id="nt-int" placeholder="Título da tarefa interna * (ex.: Analisar e-mail da Receita)"></div>
     <div id="nt-form"></div>`);
   if(!E._clsTodos||!E._clsTodos.length){try{E._clsTodos=await DB.clientes("");E._cli={};E._clsTodos.forEach(c=>E._cli[c.id_cliente]=c);}catch(e){}}
+  // 🚦 imediatas ativas por assessor — só heads veem, para não sobrecarregar
+  // quem já está cheio de imediata (Bruna, 21/09/2026)
+  E._imedPorAss={};
+  if(E.perfil.head_sim){try{(await DB.tarefas()).map(classificar).forEach(t=>{
+    if(t.id_tarefa&&String(t.check_||"").toUpperCase()==="IMEDIATO"&&!t._delegada&&!t._emCorrecao&&!t._concluida){
+      const a=loginDe(t.assessor);if(a)E._imedPorAss[a]=(E._imedPorAss[a]||0)+1;}});}catch(e){}}
+}
+// atualiza o selo de imediatas do assessor escolhido no formulário de nova tarefa
+function atualizarImedNT(){
+  const sel=ge("nt-ass"),box=ge("nt-imed");if(!sel||!box)return;
+  const n=loginDe(sel.value),q=(E._imedPorAss||{})[n]||0;
+  box.innerHTML=q?`<span class="tag ${q>=5?"ti":"td2"}" title="tarefas IMEDIATAS ativas de ${esc(n)}">&#9889; ${esc(n)} já tem ${q} imediata${q>1?"s":""}${q>=5?" — cuidado, dia apertado":""}</span>`
+    :`<span class="tag tek">&#9889; ${esc(n)}: sem imediatas pendentes</span>`;
 }
 function buscaNT(){
   const q=(ge("nt-q").value||"").trim();const box=ge("nt-res");
@@ -6722,8 +6735,9 @@ function formNTCorpo(resp,interna){
     <div class="linha-acao" style="margin-top:6px">
       <select class="fsel" id="nt-op" onchange="ecacToggle('nt-op')"><option value="">Tipo de operação *</option>${OPERACOES.map(o=>`<option>${esc(o)}</option>`).join("")}</select>
       <select class="fsel" id="nt-chk">${["IMEDIATO","DIÁRIO","SEMANAL","MENSAL"].map(x=>`<option>${x}</option>`).join("")}</select></div>
-    <div class="linha-acao"><select class="fsel" id="nt-ass">${alvosNT.map(a=>`<option ${a===resp?"selected":""}>${a}</option>`).join("")}</select>
+    <div class="linha-acao"><select class="fsel" id="nt-ass" onchange="atualizarImedNT()">${alvosNT.map(a=>`<option ${a===resp?"selected":""}>${a}</option>`).join("")}</select>
       <label style="font-size:11px">Prazo fatal:</label><input type="date" class="fsel" id="nt-pf"></div>
+    ${E.perfil.head_sim?`<div id="nt-imed" style="margin:2px 0 4px"></div>`:""}
     <div class="linha-acao"><input class="fsel" id="nt-proc" placeholder="Nº processual (opcional)" style="flex:1">
       <input class="fsel" id="nt-uf" placeholder="UF" style="width:64px"></div>
     <textarea class="fta" id="nt-sup" style="margin-top:6px" placeholder="Orientação inicial para o assessor (opcional)"></textarea>
@@ -6733,6 +6747,7 @@ function formNTCorpo(resp,interna){
       <input type="file" id="nt-doc" class="fsel" multiple style="max-width:240px"></div>
     <button class="btn btp btw" style="margin-top:8px" onclick="criarTarefaNova()">&#10003; Criar tarefa</button>`;
   if(!interna)ordenarReceptores("nt-ass");
+  if(E.perfil.head_sim)atualizarImedNT();
 }
 // envia os anexos escolhidos na criação (um a um; avisa o que subiu e o que não)
 async function enviarDocsCriacao(inputId,idCli,idTar){
