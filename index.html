@@ -1199,8 +1199,10 @@ async function montarVerComo(){
   if(!E.perfil.admin_sim||E.perfil.vendo_como_outro){ge("area-vercomo").innerHTML="";return;}
   const ops=E.equipe.filter(m=>String(m.status).toUpperCase()==="ATIVO"&&m.nome_sistema!==E.perfil.nome_sistema)
     .map(m=>`<option value="${esc(m.nome_sistema)}">${esc(m.nome_sistema)}</option>`).join("");
-  ge("area-vercomo").innerHTML=`<select class="fsel" id="sel-vc"><option value="">Ver como…</option>${ops}</select>`;
-  ge("sel-vc").onchange=async function(){if(!this.value)return;try{await DB.verComo(this.value);}catch(e){toast("Não deu: "+e.message,"erro");return;}location.reload();};
+  ge("area-vercomo").innerHTML=`<select class="fsel" id="sel-vc"><option value="">Ver como…</option>${ops}<option value="__franq__">&#127978; Franqueado (portal)</option></select>`;
+  ge("sel-vc").onchange=async function(){if(!this.value)return;
+    if(this.value==="__franq__"){this.value="";portalPreviewFranq();return;}
+    try{await DB.verComo(this.value);}catch(e){toast("Não deu: "+e.message,"erro");return;}location.reload();};
 }
 function faixaVerComo(){
   if(!E.perfil.vendo_como_outro){ge("faixa-vercomo").innerHTML="";return;}
@@ -1245,7 +1247,6 @@ function montarMenu(){
     ["com","&#128188;","Comercial",telaComercial],
     ["diario","&#9200;","Acompanhamento Diário",telaDiario],
     ["minhas","&#128203;","Minhas Tarefas",telaMinhas],
-    ["deleg","&#129309;","Tarefas Delegadas",telaDelegadas],
     ["assessor","&#128101;","Por Assessor",telaPorAssessor],
     ["cap","&#127919;","Capacidade da Equipe",telaCapacidade],
     ["agora","&#128994;","Em Andamento Agora",telaAgora],
@@ -3366,10 +3367,11 @@ async function telaDiario(dia){
   // pessoa (montarPlanoDia) — heads entendem o que o sistema cobra hoje e
   // podem furar a fila (pedido da Bruna, 16/09/2026)
   if(ehHoje&&E.perfil.head_sim){
-    let reunD=[],propsD=[],cobD=[],clsD=[];
+    let reunD=[],propsD=[],cobD=[],premD=[],clsD=[];
     try{reunD=await DB.reunioes();}catch(e){}
     try{propsD=await DB.propostas();}catch(e){}
     try{cobD=await DB.cobranca();}catch(e){}
+    try{premD=await DB.premios();}catch(e){}
     try{clsD=await DB.clientes("");}catch(e){}
     await carregarTemposReais(ts);
     // 📞 Follow-up e carteira por assessor (Bruna, 20/09/2026): na rua, follow-up
@@ -3380,30 +3382,46 @@ async function telaDiario(dia){
     const _hj0=new Date();_hj0.setHours(12,0,0,0);
     const _paradaDe=p=>{const u=ultMovProp(p);return u?Math.round((_hj0-u)/86400000):null;};
     const _respDe=p=>loginDe(String(p.responsavel||p.quem_pediu||p.executor||"").trim());
+    // férias (equipe.ausente_ate >= hoje) e home office hoje (prêmio/folga com
+    // data de uso hoje) — para não cobrar quem está ausente
+    const feriasAte={};(E.equipe||[]).forEach(m=>{const n=loginDe(String(m.nome_sistema||"").trim());
+      if(n&&m.ausente_ate&&String(m.ausente_ate).slice(0,10)>=hoje)feriasAte[n]=String(m.ausente_ate).slice(0,10);});
+    const homeHoje={};(premD||[]).forEach(x=>{if(EH_FOLGA.test(String(x.premio||""))
+      &&String(x.data_uso||"").slice(0,10)===hoje)homeHoje[loginDe(String(x.pessoa||"").trim())]=true;});
     const stat={},S=n=>stat[n]=stat[n]||{naRua:0,parada:0,reserva:0,rec:0,recV:0};
     (propsD||[]).filter(propNaRua).forEach(p=>{const n=_respDe(p);
       if(!n||HEADS_FORA.includes(n))return;
       if(reservaVenc(p)){S(n).reserva++;return;}          // saiu do assessor → heads
       S(n).naRua++;const dp=_paradaDe(p);if(dp!==null&&dp>=3)S(n).parada++;});
     // recorrência: 3+ parcelas vencidas por cliente, SEM contar 'NEGÓCIO NOVO';
-    // atribui ao assessor responsável do cadastro do cliente
+    // atribui ao ASSESSOR da venda direta (coluna "ASS. JUR"/W da planilha).
+    // Linha sem assessor = venda direta da head → não entra (heads fora).
+    // Enquanto a coluna W ainda não foi populada pelo robô, cai no casamento
+    // por NOME do cadastro (fallback, sem regressão); vira autoritativa sozinha.
+    const temColW=(cobD||[]).some(x=>String(x.assessor||"").trim());
     const assDeCli={};(clsD||[]).forEach(c=>{if(c.nome)assDeCli[String(c.nome).trim().toUpperCase()]=loginDe(String(c.assessor_responsavel||"").trim());});
     const vencCli={};(cobD||[]).filter(x=>["ATRASADO","VENCIDO","VENC. HOJE"].includes(String(x.status_pgto||"").trim())
         &&String(x.tipo_cobr||"").trim().toUpperCase()!=="NEGÓCIO NOVO")
-      .forEach(x=>{const k=String(x.cliente||"").trim();if(!k)return;const o=(vencCli[k]=vencCli[k]||{n:0,v:0});o.n++;o.v+=(+x.valor_bruto||0);});
-    Object.entries(vencCli).forEach(([cli,o])=>{if(o.n<3)return;const n=assDeCli[cli.toUpperCase()];
+      .forEach(x=>{const k=String(x.cliente||"").trim();if(!k)return;const o=(vencCli[k]=vencCli[k]||{n:0,v:0,ass:""});
+        o.n++;o.v+=(+x.valor_bruto||0);const a=loginDe(String(x.assessor||"").trim());if(a)o.ass=a;});
+    Object.entries(vencCli).forEach(([cli,o])=>{if(o.n<3)return;
+      const n=temColW?o.ass:(o.ass||assDeCli[cli.toUpperCase()]);   // W autoritativa; senão fallback nome
       if(!n||HEADS_FORA.includes(n))return;S(n).rec++;S(n).recV+=o.v;});
     const nomesStat=Object.keys(stat).filter(n=>{const s=stat[n];return s.naRua||s.parada||s.reserva||s.rec;})
       .sort((a,b)=>(stat[b].parada-stat[a].parada)||(stat[b].reserva-stat[a].reserva)||(stat[b].rec-stat[a].rec));
     if(nomesStat.length){
       h+=`<div class="painel" style="border-left:4px solid #1F4E79">
         <div class="bloco-t" style="color:#1F4E79">&#128222; Follow-up e carteira por assessor</div>
-        <div style="font-size:11px;color:var(--gray);margin-bottom:6px">Propostas na rua e follow-up <b>parado</b> (sem rodada há 3+ dias); <b>reserva de mercado vencida</b> (65 dias desde o lançamento → condução vai para as heads); <b>recorrências com 3+ parcelas vencidas</b> (negócio novo não conta → condução volta para a head).</div>`;
+        <div style="font-size:11px;color:var(--gray);margin-bottom:6px">Propostas na rua e follow-up <b>parado</b> (sem rodada há 3+ dias); <b>reserva de mercado vencida</b> (65 dias desde o lançamento → condução vai para as heads); <b>recorrências com 3+ parcelas vencidas</b> (negócio novo não conta → condução volta para a head). Quem está de 🌴 férias ou 🏠 home office aparece marcado — considere antes de cobrar.</div>`;
       nomesStat.forEach(n=>{const s=stat[n],c=corDe(n);
-        h+=`<div class="linha-item"><span style="font-size:12.5px"><b style="color:${c.text}">${esc(n)}</b> · ${s.naRua} na rua`
-          +(s.parada?` · <b style="color:var(--red)">${s.parada} parada(s) 3d+</b>`:(s.naRua?` · <span style="color:var(--green)">em dia</span>`:""))
-          +(s.reserva?` · <b style="color:#7B0000">&#9203; ${s.reserva} passou reserva</b>`:"")
-          +(s.rec?` · <b style="color:#7B0000">&#128257; ${s.rec} recorrência 3+ venc. (${fmtR$(s.recV)})</b>`:"")
+        const fer=feriasAte[n],ho=homeHoje[n];const corAl=fer?"var(--gray)":"var(--red)";
+        h+=`<div class="linha-item"${fer?' style="opacity:.7"':""}><span style="font-size:12.5px"><b style="color:${c.text}">${esc(n)}</b>`
+          +(fer?` <span class="tag" style="background:#EAF2FB;color:#1F4E79">&#127796; férias até ${brData(fer)}</span>`:"")
+          +(ho?` <span class="tag" style="background:#FBF3E4;color:#7F6000">&#127968; home office hoje</span>`:"")
+          +` · ${s.naRua} na rua`
+          +(s.parada?` · <b style="color:${corAl}">${s.parada} parada(s) 3d+</b>`:(s.naRua?` · <span style="color:var(--green)">em dia</span>`:""))
+          +(s.reserva?` · <b style="color:${fer?"var(--gray)":"#7B0000"}">&#9203; ${s.reserva} passou reserva</b>`:"")
+          +(s.rec?` · <b style="color:${fer?"var(--gray)":"#7B0000"}">&#128257; ${s.rec} recorrência 3+ venc. (${fmtR$(s.recV)})</b>`:"")
           +`</span></div>`;});
       h+=`</div>`;}
     let hDia=`<div class="painel"><div class="bloco-t">&#129517; O dia de cada assessor — o que o sistema cobra HOJE × fila de espera</div>
