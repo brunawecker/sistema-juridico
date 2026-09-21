@@ -2445,7 +2445,8 @@ async function salvarFreqData(){
   try{await DB.tarefaUpdate(t,{campos:{check_:check},...(dm?{data_revisao:dm}:{})});
     if(notaImp)await DB.nota({id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,tipo:"ASSESSOR",texto:notaImp});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
-  t.check_=check;if(dm)t.data_revisao_dt=dm;toast("Salvo!","ok");}
+  t.check_=check;if(dm)t.data_revisao_dt=dm;
+  toast(dm?"Salvo! Volta em "+brData(dm)+".":"Frequência salva — a tarefa CONTINUA no dia de hoje (a data de revisão não mudou).","ok");}
 // ===== Vigia de inatividade (assessores): aviso após 30 min sem sessão =====
 // Silêncio: fins de semana, fora de 9h–19h e almoço 12h–14h (descontado da conta).
 function marcarAtividade(){E._ultAtiv=Date.now();
