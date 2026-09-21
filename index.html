@@ -3578,10 +3578,19 @@ async function telaDiario(dia){
     // 📨 solicitações de franqueados aguardando resposta (Portal do Franqueado)
     let solF=[];try{solF=(await DB.franqSolicListar()).filter(s=>["NOVA","EM_ANALISE"].includes(s.status));}catch(e){}
     if(solF.length){
-      h+=`<div class="painel" style="background:#F0F7FB;border-color:#B9D8E1">
+      // parecer FEITO sem resposta = gargalo das heads; reunião a ≤2 dias grita
+      const prontasF=solF.filter(s=>/EM DIA/i.test(s.tarefa_status||""));
+      const emProd=solF.filter(s=>!/EM DIA/i.test(s.tarefa_status||""));
+      const urgReun=s=>{if(!s.data_reuniao)return false;const d=new Date(s.data_reuniao+"T12:00:00"),h0=new Date();h0.setHours(12,0,0,0);return (d-h0)/86400000<=2;};
+      const brR=s=>new Date(s.data_reuniao+"T12:00:00").toLocaleDateString("pt-BR");
+      h+=`<div class="painel" style="background:#F0F7FB;border-color:#B9D8E1${prontasF.length?";border-left:4px solid var(--red)":""}">
         <div class="bloco-t" style="color:var(--dani)">&#128233; Franqueados aguardando resposta no portal (${solF.length})</div>`+
-        solF.slice(0,6).map(s=>`<div class="linha-item"><span style="font-size:12.5px"><b>${esc(s.franqueado)}</b> pede <b>${s.tipo==="PARECER"?"parecer":"proposta"}</b> · ${esc(s.empresa)}</span>
-          <span style="font-size:11px;color:var(--gray)">${new Date(s.criado).toLocaleDateString("pt-BR")}</span></div>`).join("")+
+        (prontasF.length?`<div style="font-size:12px;font-weight:700;color:var(--red);margin:2px 0 4px">&#9989; ${prontasF.length} com parecer PRONTO — só falta vocês enviarem:</div>`+
+          prontasF.map(s=>`<div class="linha-item"><span style="font-size:12.5px"><b>${esc(s.franqueado)}</b> · ${esc(s.empresa)}
+            ${urgReun(s)?`<span class="tag ti">&#128197; reunião ${brR(s)} — enviar JÁ</span>`:s.data_reuniao?`<span class="tag td2">reunião ${brR(s)}</span>`:""}</span>
+            <span style="font-size:11px;color:var(--gray)">assessor ${esc(s.assessor||"—")}</span></div>`).join(""):"")+
+        emProd.slice(0,6).map(s=>`<div class="linha-item"><span style="font-size:12.5px"><b>${esc(s.franqueado)}</b> pede <b>parecer</b> · ${esc(s.empresa)}</span>
+          <span style="font-size:11px;color:var(--gray)">${new Date(s.criado).toLocaleDateString("pt-BR")} · em produção${s.assessor?" com "+esc(s.assessor):""}</span></div>`).join("")+
         `<button class="btn bts btsm" style="margin-top:4px" onclick="telaFranqueados()">abrir Franqueados para responder</button></div>`;}
   }
   const por={};
@@ -4723,6 +4732,8 @@ async function telaFranqueados(){
   if(!E.perfil.head_sim){erro("Esta tela é só para heads.");return;}
   let fr;try{fr=await DB.franqueados();}catch(e){return erro(e.message);}
   let sols=[];try{sols=await DB.franqSolicListar();}catch(e){}
+  let propsAll=[];try{propsAll=await DB.propostas();}catch(e){}
+  E._solMap={};sols.forEach(s=>E._solMap[s.id]=s);
   const eu=E.perfil.nome_sistema;
   let lista=(fr||[]).filter(x=>x.ativo!==false);
   if(escHead())lista=lista.filter(x=>String(x.responsavel||"").trim()===eu);
@@ -4758,13 +4769,15 @@ async function telaFranqueados(){
         <br><span style="font-size:11.5px;color:var(--gray)">${esc(s.descricao)}</span>
         ${s.tarefa_id?`<br><span style="font-size:11px;color:var(--navy)">&#9889; tarefa <b style="cursor:pointer;text-decoration:underline" onclick="abrirTarefa('${esc(s.tarefa_id)}')">${esc(s.tarefa_id)}</b> (imediata) · head ${esc(s.head||"—")}${s.assessor?` · assessor <b>${esc(s.assessor)}</b>`:""}${s.ecac?` · e-CAC: ${esc(s.ecac)}`:""}</span>`:""}
         ${s.data_reuniao?`<br><span class="tag ti">&#128197; devolução marcada: ${new Date(s.data_reuniao+"T12:00:00").toLocaleDateString("pt-BR")}</span>`:""}
+        ${["NOVA","EM_ANALISE"].includes(s.status)&&/EM DIA/i.test(s.tarefa_status||"")?'<br><span class="tag tek">&#9989; parecer FEITO — só falta responder ao franqueado</span>':""}
         ${s.anexo_caminho?`<br><a style="font-size:11px;color:var(--dani);cursor:pointer;text-decoration:underline" onclick='abrirDoc(${JSON.stringify(s.anexo_caminho)})'>&#128206; ${esc(s.anexo_nome||"certificado digital")}</a>`:""}
         ${s.resposta?`<br><span style="font-size:11px;color:var(--green)">resposta: ${esc(s.resposta)}${s.respondido_por?" — "+esc(s.respondido_por):""}</span>`:""}
         ${s.resp_anexo_caminho?`<br><a style="font-size:11px;color:var(--green);cursor:pointer;text-decoration:underline" onclick='abrirDoc(${JSON.stringify(s.resp_anexo_caminho)})'>&#128206; parecer enviado: ${esc(s.resp_anexo_nome||"anexo")}</a>`:""}</span>
       ${["NOVA","EM_ANALISE"].includes(s.status)?`<span style="white-space:nowrap">
         <button class="btn btg btsm" onclick="ge('rw-${s.id}').style.display=ge('rw-${s.id}').style.display==='none'?'block':'none'">responder</button>
         ${s.status==="NOVA"?`<button class="btn bts btsm" onclick="responderSolicFranq(${s.id},'EM_ANALISE')">em análise</button>`:""}
-        <button class="btn bts btsm" style="color:var(--red);border-color:var(--red)" onclick="responderSolicFranq(${s.id},'RECUSADA')">recusar</button></span>`:""}</div>`
+        <button class="btn bts btsm" style="color:var(--red);border-color:var(--red)" onclick="responderSolicFranq(${s.id},'RECUSADA')">recusar</button></span>`
+      :s.status==="RESPONDIDA"?`<span><button class="btn bts btsm" onclick="copiarAvisoFranq(${s.id})" title="copiar aviso de WhatsApp para o franqueado">&#128203; aviso</button></span>`:""}</div>`
     +(["NOVA","EM_ANALISE"].includes(s.status)?`<div id="rw-${s.id}" style="display:none;background:var(--gray-lt);border-radius:9px;padding:8px 10px;margin:2px 0 8px">
       <textarea class="fi" id="rt-${s.id}" rows="2" placeholder="Resposta ao franqueado (ele lê no portal)"></textarea>
       <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
@@ -4781,19 +4794,32 @@ async function telaFranqueados(){
   const mesAtu=new Date().getMonth(),anoAtu=new Date().getFullYear();
   const noMes=sols.filter(s=>{const d=new Date(s.criado);return d.getMonth()===mesAtu&&d.getFullYear()===anoAtu;}).length;
   const prontos=sols.filter(s=>/EM DIA/i.test(s.tarefa_status||"")).length;
+  // ⏱ tempo (só heads veem esta tela): dias do pedido à resposta, e média do mês
+  const diasSol=s=>{const fim=s.resp_em?new Date(s.resp_em):new Date();
+    return Math.max(0,Math.round((fim-new Date(s.criado))/86400000));};
+  const respMes=sols.filter(s=>s.resp_em&&new Date(s.resp_em).getMonth()===mesAtu&&new Date(s.resp_em).getFullYear()===anoAtu);
+  const mediaMes=respMes.length?(respMes.reduce((a,s)=>a+diasSol(s),0)/respMes.length):null;
+  // 🔗 conversão: proposta lançada p/ o mesmo cliente DEPOIS do pedido; contrato = fechada SIM
+  const propDe=s=>s.cliente_id?(propsAll||[]).filter(p=>String(p.id_cliente||"")===String(s.cliente_id)
+    &&String(p.data_lancamento_dt||"").slice(0,10)>=String(s.criado).slice(0,10)):[];
+  const solProp=s=>{const ps=propDe(s);return ps.length?(ps.some(p=>String(p.fechada||"")==="SIM")?"CONTRATO":"PROPOSTA"):null;};
+  const virProp=sols.filter(s=>solProp(s)).length,virContr=sols.filter(s=>solProp(s)==="CONTRATO").length;
   const levCard=(rot,val,c)=>`<div style="background:${c}14;border:1.5px solid ${c};border-radius:11px;padding:8px 12px;flex:1;min-width:105px">
     <div style="font-size:20px;font-weight:700;color:${c};font-family:'DM Mono'">${val}</div><div style="font-size:11px;color:var(--gray)">${rot}</div></div>`;
   const tagParecer=s=>!s.tarefa_id?'<span class="tag tm">—</span>'
     :/EM DIA/i.test(s.tarefa_status||"")?'<span class="tag tek">parecer feito</span>'
     :'<span class="tag td2">em andamento</span>';
   const tagPedido=s=>{const t=solRot[s.status]||["tm",s.status];return `<span class="tag ${t[0]}">${t[1]}</span>`;};
-  const levLinha=s=>`<div style="display:grid;grid-template-columns:72px 1.1fr 1.4fr 74px 80px 150px;gap:6px;font-size:11.5px;padding:5px 8px;border-bottom:1px solid var(--border);align-items:center">
+  const tagConv=s=>{const c=solProp(s);return c==="CONTRATO"?' <span class="tag ts">&#127942; contrato</span>'
+    :c==="PROPOSTA"?' <span class="tag tda">&#8594; proposta</span>':"";};
+  const levLinha=s=>`<div style="display:grid;grid-template-columns:70px 42px 1.1fr 1.3fr 70px 78px 165px;gap:6px;font-size:11.5px;padding:5px 8px;border-bottom:1px solid var(--border);align-items:center">
     <span style="font-family:'DM Mono'">${new Date(s.criado).toLocaleDateString("pt-BR")}</span>
+    <span style="font-family:'DM Mono';${s.resp_em?"color:var(--green)":diasSol(s)>=3?"color:var(--red);font-weight:700":"color:var(--gray)"}" title="${s.resp_em?"respondido em "+diasSol(s)+" dia(s)":"aberto há "+diasSol(s)+" dia(s)"}">${diasSol(s)}d</span>
     <span><b>${esc(s.franqueado)}</b></span>
     <span>${s.tarefa_id?`<span style="cursor:pointer;text-decoration:underline;color:var(--navy)" onclick="abrirTarefa('${esc(s.tarefa_id)}')">${esc(s.empresa)}</span>`:esc(s.empresa)}${s.cnpj?`<br><span style="font-family:'DM Mono';font-size:10px;color:var(--gray)">${esc(s.cnpj)}</span>`:""}</span>
     <span>${esc(s.head||"—")}</span>
     <span><b>${esc(s.assessor||"—")}</b></span>
-    <span>${tagParecer(s)} ${tagPedido(s)}</span></div>`;
+    <span>${tagParecer(s)} ${tagPedido(s)}${tagConv(s)}</span></div>`;
   // 🔎 filtros do levantamento (pedido da Bruna, 21/09/2026) — ficam em E._levF
   const LF=E._levF=E._levF||{fr:"",hd:"",as:"",st:"",mes:""};
   const mesDe=s=>{const d=new Date(s.criado);return String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear();};
@@ -4816,7 +4842,10 @@ async function telaFranqueados(){
       ${levCard("pedidos no total",sols.length,"var(--navy)")}
       ${levCard("neste mês",noMes,"var(--dani)")}
       ${levCard("pareceres feitos",prontos,"var(--green)")}
-      ${levCard("aguardando resposta",solAb.length,"var(--amber)")}</div>
+      ${levCard("aguardando resposta",solAb.length,"var(--amber)")}
+      ${levCard("tempo médio de resposta",mediaMes===null?"—":mediaMes.toFixed(1).replace(".",",")+"d","var(--roxo)")}
+      ${levCard("viraram proposta",virProp+(sols.length?" ("+Math.round(virProp/sols.length*100)+"%)":""),"var(--dani)")}
+      ${levCard("contratos fechados",virContr,"var(--green)")}</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;align-items:center">
       ${levSel("fr","quem pediu: todos",opcoes(sols.map(s=>s.franqueado),LF.fr))}
       ${levSel("hd","head: todas",opcoes(sols.map(s=>s.head),LF.hd))}
@@ -4827,8 +4856,8 @@ async function telaFranqueados(){
         ${Object.entries(ST_ROT).map(([k,v])=>`<option value="${k}"${LF.st===k?" selected":""}>${v}</option>`).join("")}</select>
       ${levSel("mes","mês: todos",opcoes(sols.map(mesDe),LF.mes))}
       ${temFiltro?`<button class="btn bts btsm" onclick="E._levF={fr:'',hd:'',as:'',st:'',mes:''};telaFranqueados()">&#10005; limpar filtros</button>`:""}</div>
-    <div style="display:grid;grid-template-columns:72px 1.1fr 1.4fr 74px 80px 150px;gap:6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray);padding:4px 8px;border-bottom:1.5px solid var(--border)">
-      <span>Data</span><span>Quem pediu</span><span>Empresa</span><span>Head</span><span>Assessor</span><span>Situação</span></div>
+    <div style="display:grid;grid-template-columns:70px 42px 1.1fr 1.3fr 70px 78px 165px;gap:6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray);padding:4px 8px;border-bottom:1.5px solid var(--border)">
+      <span>Data</span><span title="dias do pedido à resposta (verde) ou em aberto (vermelho a partir de 3d)">Dias</span><span>Quem pediu</span><span>Empresa</span><span>Head</span><span>Assessor</span><span>Situação</span></div>
     <div style="max-height:340px;overflow:auto">${filtrados.map(levLinha).join("")||'<div class="vazio">Nenhum pedido com esses filtros.</div>'}</div></div>`:"";
   // 🔑 lista de logins minimizada (pedido da Bruna, 21/09/2026 — substitui o PDF)
   const logDe=x=>x.email?String(x.email).replace("@franqueados.villela.com",""):null;
@@ -4937,7 +4966,19 @@ async function enviarRespFranq(id,fid){
     cam=caminho;nom=f.name;
   }
   try{await DB.franqResponder(id,"RESPONDIDA",txt,cam,nom);}catch(e){toast("Erro: "+e.message,"erro");return;}
-  toast("Resposta enviada ao portal do franqueado"+(nom?" com o anexo":"")+".","ok");telaFranqueados();}
+  // aviso de WhatsApp já copiado — a head só cola na conversa do franqueado
+  try{await navigator.clipboard.writeText(avisoFranqTexto((E._solMap||{})[id]||{}));
+    toast("Resposta enviada"+(nom?" com o anexo":"")+" + aviso de WhatsApp copiado — é só colar.","ok");}
+  catch(_e){toast("Resposta enviada ao portal do franqueado"+(nom?" com o anexo":"")+".","ok");}
+  telaFranqueados();}
+function avisoFranqTexto(s){
+  return "Oi! O parecer"+(s.empresa?" da "+s.empresa:"")+" já está no seu Portal do Franqueado 🎉\n"
+    +"Entre em brunawecker.github.io/sistema-juridico com o seu login e baixe o arquivo na lista de solicitações.\n"
+    +"Qualquer dúvida me chama!";}
+async function copiarAvisoFranq(id){
+  const s=(E._solMap||{})[id];if(!s)return;
+  try{await navigator.clipboard.writeText(avisoFranqTexto(s));toast("Aviso copiado — cole no WhatsApp do franqueado.","ok");}
+  catch(_e){prompt("Copie o aviso (Ctrl/Cmd+C):",avisoFranqTexto(s));}}
 async function telaLaudos(){
   setNav("laudos","Laudos em Andamento"); carregando();
   if(!E.perfil.head_sim){erro("Esta tela é só para heads.");return;}
