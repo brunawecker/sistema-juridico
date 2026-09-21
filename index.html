@@ -753,10 +753,11 @@ const S = {
   async franqueados(){return okS(await supa.from("franqueados").select("*").order("franqueado"))||[];},
   // portal do franqueado — lado do TIME (as funções do lado do franqueado usam supa.rpc direto)
   async franqSolicListar(){return okS(await supa.rpc("franq_solic_listar"))||[];},
-  async franqResponder(id,st,resp){okS(await supa.rpc("franq_responder",{p_id:id,p_status:st,p_resposta:resp||""}));return{ok:true};},
+  async franqResponder(id,st,resp,anexoCam,anexoNome){okS(await supa.rpc("franq_responder",{p_id:id,p_status:st,p_resposta:resp||"",p_anexo_caminho:anexoCam||null,p_anexo_nome:anexoNome||null}));return{ok:true};},
   async franqAcesso(id,em){okS(await supa.rpc("franqueado_acesso",{p_id:id,p_email:em}));return{ok:true};},
   async franqCriarConta(id){return okS(await supa.rpc("franqueado_criar_conta",{p_id:id}));},
   async franqResetSenha(id){okS(await supa.rpc("franqueado_resetar_senha",{p_id:id}));return{ok:true};},
+  async franqNovo(d){return okS(await supa.rpc("franqueado_novo",{p_nome:d.nome,p_telefone:d.tel||"",p_estado:d.uf||"",p_responsavel:d.resp||""}));},
   async franqueadoContato(id,status){return rpcS("franqueado_contato",{p_id:id,p_status:status||""});},
   async franqueadoResp(id,resp){return rpcS("franqueado_resp",{p_id:id,p_resp:resp});},
   async fichaExtraDar(p,q,m){return rpcS("ficha_extra_dar",{p_pessoa:p,p_qtd:q,p_motivo:m});},
@@ -3418,8 +3419,8 @@ async function telaDiario(dia){
     // impulso vencido foi para a FILA do plano (caso UNITRONIC/Laura, 16/09)
     let cargaDeleg={};
     if(delegAtivas.length){try{(await DB.cargaEquipe()).forEach(r=>{cargaDeleg[loginDe(r.nome)]=r;});}catch(e){}}
-    h+=`<div class="painel" style="background:#EEF3F9;border-color:#C9D8EA">
-      <div class="bloco-t" style="color:#1F4E79">&#129309; Delegações de impulso</div>`;
+    h+=`<details class="painel" style="background:#EEF3F9;border-color:#C9D8EA">
+      <summary class="bloco-t" style="cursor:pointer;list-style:none;color:#1F4E79">&#129309; Delegações de impulso <span style="font-weight:400;font-size:11px;color:var(--gray)">(${delegAtivas.length} prevista(s)${movDia.length?` · ${movDia.length} movimentação(ões)`:""} — toque para abrir)</span></summary>`;
     if(delegAtivas.length){h+=`<div style="font-size:12px;font-weight:700;margin-bottom:4px">Previstas para hoje (${delegAtivas.length}) <span style="font-weight:400;color:var(--gray);font-size:10px">— em correção, re-delegadas e agendadas para o futuro ficam de fora</span></div>`;
       delegAtivas.forEach(a=>{const de=(String(a.supervisao||"").match(/IMPULSO de\s*([^|]+)\|/)||[])[1]||"?";
         const ped=(String(a.supervisao||"").match(/Pedido:\s*([\s\S]+)$/)||[])[1]||"";
@@ -3434,7 +3435,7 @@ async function telaDiario(dia){
       if(sobrecD.length)h+=`<div style="font-size:11px;color:var(--gray);margin-top:6px">&#9888; <b>Dia lotado:</b> ${sobrecD.map(o=>`<b>${esc(o.n)}</b> (${fmtMin(o.dev)} devidos para ${fmtMin(o.disp)} livres)`).join(" · ")} — o plano do dia corta pelo excesso, então impulso vencido pode estar na <b>fila</b> da pessoa, não nas tarefas de hoje dela.</div>`;}
     if(movDia.length){h+=`<div style="font-size:12px;font-weight:700;margin:8px 0 4px">Movimentações ${ehHoje?"de hoje":"de "+brData(d)} (${movDia.length})</div>`;
       movDia.forEach(m=>{h+=`<div style="font-size:12px;padding:2px 0">${esc(m.autor)}: ${esc(String(m.texto||"").slice(0,130))}</div>`;});}
-    h+=`</div>`;}
+    h+=`</details>`;}
   // 🧭 O DIA DE CADA UM: plano real × fila, pela MESMA régua da tela da
   // pessoa (montarPlanoDia) — heads entendem o que o sistema cobra hoje e
   // podem furar a fila (pedido da Bruna, 16/09/2026)
@@ -4735,19 +4736,63 @@ async function telaFranqueados(){
         <br><span style="font-size:11.5px;color:var(--gray)">${esc(s.descricao)}</span>
         ${s.tarefa_id?`<br><span style="font-size:11px;color:var(--navy)">&#9889; tarefa <b style="cursor:pointer;text-decoration:underline" onclick="abrirTarefa('${esc(s.tarefa_id)}')">${esc(s.tarefa_id)}</b> (imediata) · head ${esc(s.head||"—")}${s.assessor?` · assessor <b>${esc(s.assessor)}</b>`:""}${s.ecac?` · e-CAC: ${esc(s.ecac)}`:""}</span>`:""}
         ${s.anexo_caminho?`<br><a style="font-size:11px;color:var(--dani);cursor:pointer;text-decoration:underline" onclick='abrirDoc(${JSON.stringify(s.anexo_caminho)})'>&#128206; ${esc(s.anexo_nome||"certificado digital")}</a>`:""}
-        ${s.resposta?`<br><span style="font-size:11px;color:var(--green)">resposta: ${esc(s.resposta)}${s.respondido_por?" — "+esc(s.respondido_por):""}</span>`:""}</span>
+        ${s.resposta?`<br><span style="font-size:11px;color:var(--green)">resposta: ${esc(s.resposta)}${s.respondido_por?" — "+esc(s.respondido_por):""}</span>`:""}
+        ${s.resp_anexo_caminho?`<br><a style="font-size:11px;color:var(--green);cursor:pointer;text-decoration:underline" onclick='abrirDoc(${JSON.stringify(s.resp_anexo_caminho)})'>&#128206; parecer enviado: ${esc(s.resp_anexo_nome||"anexo")}</a>`:""}</span>
       ${["NOVA","EM_ANALISE"].includes(s.status)?`<span style="white-space:nowrap">
-        <button class="btn btg btsm" onclick="responderSolicFranq(${s.id},'RESPONDIDA')">responder</button>
+        <button class="btn btg btsm" onclick="ge('rw-${s.id}').style.display=ge('rw-${s.id}').style.display==='none'?'block':'none'">responder</button>
         ${s.status==="NOVA"?`<button class="btn bts btsm" onclick="responderSolicFranq(${s.id},'EM_ANALISE')">em análise</button>`:""}
-        <button class="btn bts btsm" style="color:var(--red);border-color:var(--red)" onclick="responderSolicFranq(${s.id},'RECUSADA')">recusar</button></span>`:""}</div>`;};
+        <button class="btn bts btsm" style="color:var(--red);border-color:var(--red)" onclick="responderSolicFranq(${s.id},'RECUSADA')">recusar</button></span>`:""}</div>`
+    +(["NOVA","EM_ANALISE"].includes(s.status)?`<div id="rw-${s.id}" style="display:none;background:var(--gray-lt);border-radius:9px;padding:8px 10px;margin:2px 0 8px">
+      <textarea class="fi" id="rt-${s.id}" rows="2" placeholder="Resposta ao franqueado (ele lê no portal)"></textarea>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
+        <input type="file" id="rf-${s.id}" style="font-size:11px;flex:1;min-width:180px">
+        <button class="btn btg btsm" onclick="enviarRespFranq(${s.id},${s.franq_id})">&#128228; enviar resposta</button></div>
+      <div style="font-size:10px;color:var(--gray);margin-top:3px">Anexe o parecer/proposta final — o franqueado baixa no portal. Nada sai automático quando o assessor conclui: o retorno é sempre daqui.</div></div>`:"");};
   const solAb=sols.filter(s=>["NOVA","EM_ANALISE"].includes(s.status));
   const solFech=sols.filter(s=>!["NOVA","EM_ANALISE"].includes(s.status));
   const solPainel=(solAb.length||solFech.length)?`<div class="painel"${solAb.length?' style="border-left:4px solid var(--navy)"':""}>
     <div class="bloco-t">&#128233; Solicitações do portal — parecer/proposta (${solAb.length} aguardando)</div>
     ${solAb.map(solHtml).join("")||'<div class="vazio">Nenhuma aguardando resposta.</div>'}
     ${solFech.length?`<details style="margin-top:6px"><summary style="cursor:pointer;font-size:11px;color:var(--gray)">já finalizadas (${solFech.length})</summary>${solFech.map(solHtml).join("")}</details>`:""}</div>`:"";
-  ge("conteudo").innerHTML=solPainel+`
-    <div class="painel"><div class="bloco-t">&#129309; Franqueados${escHead()?" — meus":" — todos"} (${lista.length})</div>
+  // 📊 levantamento de dados: TODOS os pedidos do portal, com data/quem/assessor
+  const mesAtu=new Date().getMonth(),anoAtu=new Date().getFullYear();
+  const noMes=sols.filter(s=>{const d=new Date(s.criado);return d.getMonth()===mesAtu&&d.getFullYear()===anoAtu;}).length;
+  const prontos=sols.filter(s=>/EM DIA/i.test(s.tarefa_status||"")).length;
+  const levCard=(rot,val,c)=>`<div style="background:${c}14;border:1.5px solid ${c};border-radius:11px;padding:8px 12px;flex:1;min-width:105px">
+    <div style="font-size:20px;font-weight:700;color:${c};font-family:'DM Mono'">${val}</div><div style="font-size:11px;color:var(--gray)">${rot}</div></div>`;
+  const tagParecer=s=>!s.tarefa_id?'<span class="tag tm">—</span>'
+    :/EM DIA/i.test(s.tarefa_status||"")?'<span class="tag tek">parecer feito</span>'
+    :'<span class="tag td2">em andamento</span>';
+  const tagPedido=s=>{const t=solRot[s.status]||["tm",s.status];return `<span class="tag ${t[0]}">${t[1]}</span>`;};
+  const levLinha=s=>`<div style="display:grid;grid-template-columns:72px 1.1fr 1.4fr 74px 80px 150px;gap:6px;font-size:11.5px;padding:5px 8px;border-bottom:1px solid var(--border);align-items:center">
+    <span style="font-family:'DM Mono'">${new Date(s.criado).toLocaleDateString("pt-BR")}</span>
+    <span><b>${esc(s.franqueado)}</b></span>
+    <span>${s.tarefa_id?`<span style="cursor:pointer;text-decoration:underline;color:var(--navy)" onclick="abrirTarefa('${esc(s.tarefa_id)}')">${esc(s.empresa)}</span>`:esc(s.empresa)}${s.cnpj?`<br><span style="font-family:'DM Mono';font-size:10px;color:var(--gray)">${esc(s.cnpj)}</span>`:""}</span>
+    <span>${esc(s.head||"—")}</span>
+    <span><b>${esc(s.assessor||"—")}</b></span>
+    <span>${tagParecer(s)} ${tagPedido(s)}</span></div>`;
+  const porOrdem=[...sols].sort((a,b)=>new Date(b.criado)-new Date(a.criado));
+  const levPainel=sols.length?`<div class="painel">
+    <div class="bloco-t">&#128202; Levantamento de dados — pedidos do portal (${sols.length})</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+      ${levCard("pedidos no total",sols.length,"var(--navy)")}
+      ${levCard("neste mês",noMes,"var(--dani)")}
+      ${levCard("pareceres feitos",prontos,"var(--green)")}
+      ${levCard("aguardando resposta",solAb.length,"var(--amber)")}</div>
+    <div style="display:grid;grid-template-columns:72px 1.1fr 1.4fr 74px 80px 150px;gap:6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--gray);padding:4px 8px;border-bottom:1.5px solid var(--border)">
+      <span>Data</span><span>Quem pediu</span><span>Empresa</span><span>Head</span><span>Assessor</span><span>Situação</span></div>
+    <div style="max-height:340px;overflow:auto">${porOrdem.map(levLinha).join("")}</div></div>`:"";
+  ge("conteudo").innerHTML=solPainel+levPainel+`
+    <div class="painel"><div class="bloco-t" style="display:flex;justify-content:space-between;align-items:center">&#129309; Franqueados${escHead()?" — meus":" — todos"} (${lista.length})
+      <button class="btn btp btsm" onclick="ge('nf-w').style.display=ge('nf-w').style.display==='none'?'block':'none'">+ novo franqueado</button></div>
+      <div id="nf-w" style="display:none;background:var(--gray-lt);border-radius:10px;padding:10px;margin-bottom:8px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+          <input class="fi" id="nf-nome" placeholder="Nome do franqueado *" style="flex:2;min-width:180px">
+          <input class="fi" id="nf-tel" placeholder="Telefone" style="flex:1;min-width:120px">
+          <input class="fi" id="nf-uf" placeholder="UF" maxlength="2" style="width:60px">
+          <select class="fi" id="nf-resp" style="flex:1;min-width:110px">${nomes.map(n=>`<option${n===eu?" selected":""}>${esc(n)}</option>`).join("")}</select></div>
+        <button class="btn btg btsm" onclick="salvarNovoFranq()">Cadastrar</button>
+        <span style="font-size:11px;color:var(--gray);margin-left:6px">Depois do cadastro, use o &#128273; na linha dele para criar o login do portal.</span></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">
         <div style="background:var(--red-lt);border:1.5px solid var(--red);border-radius:11px;padding:8px 12px;flex:1;min-width:120px">
           <div style="font-size:20px;font-weight:700;color:var(--red);font-family:'DM Mono'">${atrasadosN}</div><div style="font-size:11px;color:var(--gray)">7+ dias sem contato</div></div>
@@ -4761,6 +4806,13 @@ async function telaFranqueados(){
     <div class="painel">${lista.map(linha).join("")||'<div class="vazio">Nenhum franqueado.</div>'}</div>`;
   E._franqNomes=nomes;
 }
+async function salvarNovoFranq(){
+  const nome=ge("nf-nome").value.trim();
+  if(!nome){toast("Informe o nome do franqueado.","erro");return;}
+  try{await DB.franqNovo({nome,tel:ge("nf-tel").value.trim(),uf:ge("nf-uf").value.trim(),resp:ge("nf-resp").value});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Franqueado cadastrado! Use o 🔑 na linha dele para criar o login do portal.","ok");
+  telaFranqueados();}
 async function registrarContatoFranq(id){
   const st=prompt("Registrar contato de HOJE.\n\nComo foi? (opcional — vira o status da semana)\nEx: Atendeu, sem novidades · Sem retorno · Pediu proposta...");
   if(st===null)return;
@@ -4799,10 +4851,22 @@ async function resetSenhaFranq(id){
   toast("Senha voltou ao padrão: "+FRANQ_SENHA_PADRAO,"ok");telaFranqueados();}
 async function responderSolicFranq(id,st){
   let resp="";
-  if(st==="RESPONDIDA"){resp=prompt("Resposta ao franqueado (aparece para ele no portal):");if(resp===null||!resp.trim())return;}
   if(st==="RECUSADA"){resp=prompt("Motivo da recusa (aparece para ele no portal):");if(resp===null)return;}
   try{await DB.franqResponder(id,st,resp?resp.trim():"");}catch(e){toast("Erro: "+e.message,"erro");return;}
   toast(st==="EM_ANALISE"?"Marcada como em análise.":"Enviado ao portal do franqueado.","ok");telaFranqueados();}
+async function enviarRespFranq(id,fid){
+  const txt=(ge("rt-"+id).value||"").trim();
+  const f=(ge("rf-"+id).files||[])[0];
+  if(!txt&&!f){toast("Escreva a resposta ou anexe o parecer (ou os dois).","erro");return;}
+  let cam=null,nom=null;
+  if(f){
+    const caminho="franq/"+fid+"/resp/"+Date.now()+"_"+String(f.name).replace(/[^\w.\-]+/g,"_").slice(0,120);
+    const up=await supa.storage.from("documentos").upload(caminho,f);
+    if(up.error){toast("O anexo não subiu: "+up.error.message,"erro");return;}
+    cam=caminho;nom=f.name;
+  }
+  try{await DB.franqResponder(id,"RESPONDIDA",txt,cam,nom);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Resposta enviada ao portal do franqueado"+(nom?" com o anexo":"")+".","ok");telaFranqueados();}
 async function telaLaudos(){
   setNav("laudos","Laudos em Andamento"); carregando();
   if(!E.perfil.head_sim){erro("Esta tela é só para heads.");return;}
