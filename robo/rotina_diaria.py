@@ -160,6 +160,19 @@ def main():
               and coalesce(supervisao,'') not like '%%IMPULSO de%%'""")
         print(f"3z. cartões-zumbi de fixa removidos: {cur.rowcount}")
 
+        # 3z2) fixa DESATIVADA ou reescrita (título novo) deixava o cartão
+        # antigo vivo para sempre — aparecia "repetido" nas fixas do dia
+        # (caso do João, 21/09/2026: DARFs meta 70→20 e planilha de prazos).
+        # Cartão TAREFA FIXA sem fixa ATIVA de mesmo título e assessor → some.
+        cur.execute("""delete from juridico.operacional o
+            where o.status_tarefa = 'TAREFA FIXA'
+              and o.cliente like '📌%%'
+              and not exists (select 1 from juridico.tarefas_fixas f
+                              where upper(coalesce(f.ativo,'')) = 'SIM'
+                                and ('📌 ' || f.titulo) = o.cliente
+                                and coalesce(f.assessor,'') = coalesce(o.assessor,''))""")
+        print(f"3z2. cartões de fixas desativadas/reescritas removidos: {cur.rowcount}")
+
         # 4) tarefas fixas do dia
         DIAS_SEMANA = {"SEMANAL_SEG": 0, "SEMANAL_TER": 1, "SEMANAL_QUA": 2,
                        "SEMANAL_QUI": 3, "SEMANAL_SEX": 4}
