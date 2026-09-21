@@ -367,6 +367,12 @@ const CORR_HEADS=["Danielly","Bruna","Eduarda","Ygor","Madu","Malu"];
 const AUTORIZADOS_DELEGAR=["Malu","Ygor","Madu","Bruna","Danielly","Eduarda"];
 // para quem cada autorizado pode delegar (Configurações; vazio = todos)
 const DELEGA_PARA={};
+// ⚡ exceção pontual (Bruna, 21/09/2026): a regra geral proíbe impulso IMEDIATO,
+// mas SÓ HOJE (21/09) a Malu pode delegar impulso imediato para o Thiago.
+// Auto-expira amanhã sozinha (comparação por data) — nada a reverter.
+const IMP_IMEDIATO_EXCECOES=[{de:"Malu",para:"Thiago",dia:"2026-09-21"}];
+const impImediatoLiberado=(de,para)=>{const d=loginDe(de),p=loginDe(para);
+  return IMP_IMEDIATO_EXCECOES.some(x=>x.de===d&&x.para===p&&x.dia===hojeISO());};
 // janela de prospecção por pessoa (min/dia; Configurações — 0 = sem janela)
 const PROSPEC={};
 // quem tem o bloco FIXO: reserva vale TODOS os dias, mesmo com atrasadas
@@ -2685,8 +2691,8 @@ function abrirDelegar(){const t=E.atual;
   E._pacoteExtras=pacoteDoCliente(t);
   modal2("&#129309; Delegar impulso",esc(t.cliente)+" — pedir uma ação a outro assessor",`
     <div id="dg-carga" style="font-size:11px;color:var(--gray);margin-bottom:6px">carregando a carga do grupo…</div>
-    <div class="linha-acao"><select class="fsel" id="dg-para" onchange="const w=ge('dg-head-w');if(w)w.style.display=precisaPedidoHead(E.perfil.nome_sistema,this.value)?'block':'none'"><option value="">Para quem?</option>${ops}</select>
-    <select class="fsel" id="dg-freq" onchange="avisoImpulsoImediato(this)"><option value="IMEDIATO">Uma vez só (imediato)</option>
+    <div class="linha-acao"><select class="fsel" id="dg-para" onchange="const w=ge('dg-head-w');if(w)w.style.display=precisaPedidoHead(E.perfil.nome_sistema,this.value)?'block':'none';revalImpulsoFreq()"><option value="">Para quem?</option>${ops}</select>
+    <select class="fsel" id="dg-freq" onchange="revalImpulsoFreq()"><option value="IMEDIATO">Uma vez só (imediato)</option>
       <option value="DIÁRIO" selected>Repetir todo dia</option><option value="SEMANAL">Toda semana</option>
       <option value="MENSAL">Todo mês</option></select></div>
     <div id="dg-freq-aviso" style="display:none;margin:6px 0;padding:8px 10px;background:var(--red-lt);border:1px solid var(--red);border-radius:8px;font-size:12px;color:var(--red)">
@@ -2703,13 +2709,22 @@ function abrirDelegar(){const t=E.atual;
     <button class="btn btp btw" style="margin-top:8px" onclick="confirmarDelegar()">&#129309; Enviar impulso</button>`);
   rascunhoLiga("dg-txt","dg:"+t.id_tarefa);
   carregarCargaDelegar();}
-// escolheu "imediato" no impulso? avisa e devolve para DIÁRIO — se é urgente,
-// o próprio assessor cumpre (regra da Bruna, 19/09/2026; vale para heads)
-function avisoImpulsoImediato(sel){
-  if(sel.value!=="IMEDIATO")return;
+// escolheu "imediato" no impulso? em geral avisa e devolve para DIÁRIO — se é
+// urgente, o próprio assessor cumpre (regra da Bruna, 19/09/2026). EXCEÇÃO
+// pontual libera a imediata (ex.: Malu→Thiago só hoje).
+function revalImpulsoFreq(){
+  const sel=ge("dg-freq"),av=ge("dg-freq-aviso");if(!sel)return;
+  if(sel.value!=="IMEDIATO"){if(av)av.style.display="none";return;}
+  const para=(ge("dg-para")||{}).value||"";
+  if(impImediatoLiberado(E.perfil.nome_sistema,para)){
+    if(av){av.style.display="block";av.style.background="var(--green-lt)";av.style.borderColor="var(--green)";av.style.color="var(--green)";
+      av.innerHTML=`&#9889; <b>Exceção liberada só hoje:</b> este impulso vai como <b>IMEDIATO</b> para <b>${esc(para)}</b> — ele deve cumprir hoje.`;}
+    return;}
   sel.value="DIÁRIO";
-  const av=ge("dg-freq-aviso");if(av)av.style.display="block";
+  if(av){av.style.display="block";av.style.background="var(--red-lt)";av.style.borderColor="var(--red)";av.style.color="var(--red)";
+    av.innerHTML=`&#9889; <b>Impulso imediato não existe.</b> Se é urgente, quem cumpre é você mesmo — impulsos só podem ser <b>diários, semanais ou mensais</b>. A frequência voltou para DIÁRIO.`;}
 }
+function avisoImpulsoImediato(sel){revalImpulsoFreq();}   // compat
 // 🔁 REDIRECIONAMENTO (Bruna, 19/09/2026): tarefa com prazo fatal caiu com a
 // pessoa errada → o assessor pede a troca e a head responsável só aprova.
 async function abrirRedirecionar(){
@@ -2753,7 +2768,7 @@ async function carregarCargaDelegar(){
 async function confirmarDelegar(){
   const t=E.atual,para=ge("dg-para").value;let txt=(ge("dg-txt").value||"").trim();
   if(t.prazo_fatal_dt){toast("Tarefa com PRAZO FATAL não pode ser delegada.","erro");return;}
-  if(ge("dg-freq").value==="IMEDIATO"){toast("Impulso não entra como imediato — se é urgente, quem cumpre é você. Escolha diário, semanal ou mensal.","erro");return;}
+  if(ge("dg-freq").value==="IMEDIATO"&&!impImediatoLiberado(E.perfil.nome_sistema,para)){toast("Impulso não entra como imediato — se é urgente, quem cumpre é você. Escolha diário, semanal ou mensal.","erro");return;}
   if(!para){toast("Escolha para quem delegar.","erro");return;}
   if(!txt){toast("Descreva o que precisa ser feito.","erro");return;}
   if(precisaPedidoHead(E.perfil.nome_sistema,para)){
