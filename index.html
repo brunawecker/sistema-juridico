@@ -580,6 +580,15 @@ function vertCheckboxes(id,sel){const s=String(sel||"").toUpperCase();
   return `<div id="${id}" style="display:flex;flex-wrap:wrap;gap:3px 12px;padding:7px 10px;border:1px solid var(--border);border-radius:9px">
     ${VERT_OPC.map(v=>`<label style="font-size:12px;display:flex;gap:5px;align-items:center;cursor:pointer"><input type="checkbox" class="${id}-cb" value="${v}" ${s.split(/[,+/;]/).map(x=>x.trim()).includes(v)?"checked":""}> ${v}</label>`).join("")}</div>`;}
 function vertValor(id){const vs=[...document.querySelectorAll("."+id+"-cb:checked")].map(c=>c.value);return vs.length?vs.join(", "):"A PREENCHER";}
+// esteira da TAX (Bruna, 22/09/2026): SOLICITADO → CALCULADO → FECHADO / SEM_POSSIBILIDADE
+const TAX_ETAPAS=["SOLICITADO","CALCULADO","FECHADO","SEM_POSSIBILIDADE"];
+const TAX_ROT={SOLICITADO:"Cálculo solicitado",CALCULADO:"Calculado",FECHADO:"TAX fechado",SEM_POSSIBILIDADE:"Sem possibilidade"};
+const TAX_COR={SOLICITADO:"var(--amber)",CALCULADO:"var(--navy)",FECHADO:"var(--green)",SEM_POSSIBILIDADE:"var(--red)"};
+const TAX_ICO={SOLICITADO:"&#129518;",CALCULADO:"&#128202;",FECHADO:"&#9989;",SEM_POSSIBILIDADE:"&#10060;"};
+function taxSeloInner(c){const s=String(c&&c.tax_status||"").toUpperCase();
+  if(!TAX_ROT[s])return '<span style="font-size:12px;color:var(--gray)">— sem TAX iniciada</span>';
+  const dt=c.tax_status_dt?" · desde "+brData(String(c.tax_status_dt).slice(0,10)):"";
+  return `<span class="tag" style="background:${TAX_COR[s]};color:white">${TAX_ICO[s]} ${TAX_ROT[s]}</span><span style="font-size:11px;color:var(--gray)">${dt}</span>`;}
 const REGIMES=["Simples Nacional","Lucro Presumido","Lucro Real","MEI","Inativa"];
 
 // ================================================================= DADOS
@@ -5481,6 +5490,18 @@ function prepCliente(id){
       ${podeConverter?`<button class="btn btp btsm" onclick="converterCli('${esc(id)}')">&#10003; Converter em cliente oficial</button>`:""}
       ${E.perfil.head_sim&&c.situacao==="OFICIAL"?`<button class="btn bts btsm" style="color:var(--roxo);border-color:var(--roxo)" onclick="reverterCli('${esc(id)}')">&#8617; Voltar para prospecção</button>`:""}</div>
     ${E.perfil.head_sim?`<div id="lbc-${esc(id)}"></div>`:""}
+    <div style="margin-top:8px;background:#FBFAF5;border:1px solid #E6D9AE;border-radius:10px;padding:9px 11px">
+      <div class="bloco-t" style="color:#7F6000">&#129518; TAX — análise de recuperação de crédito</div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:4px 0 6px">
+        <span id="taxselo-${esc(id)}">${taxSeloInner(c)}</span></div>
+      <div class="linha-acao">
+        <label style="font-size:11px">Atualizar:</label>
+        <select class="fsel" id="taxsel-${esc(id)}" onchange="setTaxCli('${esc(id)}',this.value)">
+          <option value=""${c.tax_status?"":" selected"}>— sem TAX</option>
+          ${TAX_ETAPAS.map(e=>`<option value="${e}"${String(c.tax_status||"").toUpperCase()===e?" selected":""}>${TAX_ROT[e]}</option>`).join("")}</select></div>
+      <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px">&#128206; Cálculo da TAX:</label>
+        <input type="file" id="taxfile-${esc(id)}" class="fsel" style="max-width:210px">
+        <button class="btn bts btsm" onclick="anexarCalcTax('${esc(id)}')">anexar</button></div></div>
     <div style="margin-top:8px;background:#F6F9FB;border:1px solid var(--border);border-radius:10px;padding:9px 11px">
       <div class="bloco-t" style="color:var(--navy)">&#128221; Notas sobre o cliente</div>
       <textarea class="fta" id="nota-cli-${esc(id)}" style="margin-bottom:5px" placeholder="Anote algo sobre a empresa/cliente (contexto, combinados, particularidades)..."></textarea>
@@ -5491,6 +5512,28 @@ function prepCliente(id){
     <div id="ce-${esc(id)}" style="display:none;margin-top:8px"></div>`;
   if(E.perfil.head_sim)carregarLembretesCli(id);
   carregarNotasCli(id);
+}
+// esteira TAX: muda o status (grava data + histórico) e atualiza o selo
+async function setTaxCli(id,status){
+  const c=E._cli[id];const hoje=hojeISO();status=String(status||"").toUpperCase();
+  const valido=TAX_ROT[status]?status:"";
+  try{await DB.clienteUpdate(id,{tax_status:valido||null,tax_status_dt:valido?hoje:null});
+    await DB.nota({id_tarefa:"",id_cliente:id,tipo:"HISTORICO",
+      texto:"🧮 TAX: "+(valido?TAX_ROT[valido]:"removida")+" — por "+E.perfil.nome_sistema});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  c.tax_status=valido;c.tax_status_dt=valido?hoje:null;
+  const el=ge("taxselo-"+id);if(el)el.innerHTML=taxSeloInner(c);
+  toast("Status da TAX atualizado.","ok");carregarNotasCli(id);
+}
+// anexa o cálculo da TAX aos documentos do cliente
+async function anexarCalcTax(id){
+  const inp=ge("taxfile-"+id);const f=inp&&inp.files?inp.files[0]:null;
+  if(!f){toast("Escolha o arquivo do cálculo.","erro");return;}
+  if(f.size>25*1024*1024){toast("Arquivo acima de 25 MB.","erro");return;}
+  try{await DB.docEnviar(f,id,"");
+    await DB.nota({id_tarefa:"",id_cliente:id,tipo:"HISTORICO",texto:"📎 Cálculo da TAX anexado por "+E.perfil.nome_sistema+" ("+f.name+")"});}
+  catch(e){toast("Erro ao anexar: "+e.message,"erro");return;}
+  inp.value="";toast("Cálculo da TAX anexado aos documentos do cliente.","ok");carregarNotasCli(id);
 }
 // notas livres sobre o cliente (Bruna, 22/09/2026) — vão ao histórico do cliente
 async function addNotaCli(id){
