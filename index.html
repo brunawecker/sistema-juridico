@@ -2323,7 +2323,8 @@ async function carregarCliExtra(t){
       <span class="tag" style="background:#E8EAF6;color:#3949AB">&#128193; ${c.pasta_sharepoint
         ?`<a href="${esc(c.pasta_sharepoint)}" target="_blank" style="color:#3949AB;text-decoration:underline">Pasta do cliente</a>`
         :"Pasta: —"} <span style="cursor:pointer" onclick="editarPastaCard()">&#9998;</span></span>
-      <span id="bil-card"></span>`;
+      <span id="bil-card"></span>
+      ${/Proposta Comercial/i.test(t.operacao||"")?taxCardHTML(c):""}`;
     // status de cobrança do cliente no card
     await carregarFinanceiro();
     const cnpj=String(t.cnpj_cpf||"").replace(/\D/g,"");const b=(E._bilMap||{})[cnpj];
@@ -2332,6 +2333,25 @@ async function carregarCliExtra(t){
       :b.pago?'<span class="tag tek">&#10003; pagou este mês</span>':'<span class="tag" style="background:var(--ice);color:var(--dani)">&#128176; provisionado no mês</span>')
       :'<span class="tag tm">sem cobrança no mês</span>';
   }catch(e){}
+}
+// caixa da TAX no cartão da tarefa de Proposta Comercial (Bruna, 22/09/2026):
+// lembra o assessor de solicitar o cálculo e de ir atualizando a esteira.
+function taxCardHTML(c){
+  const s=String(c.tax_status||"").toUpperCase();
+  const selo=TAX_ROT[s]?`<span class="tag" style="background:${TAX_COR[s]};color:white">${TAX_ICO[s]} TAX: ${TAX_ROT[s]}</span>`
+    :`<span class="tag tm">&#129518; TAX: não solicitada</span>`;
+  let btns="";
+  if(!TAX_ROT[s])btns=`<button class="btn btp btsm" onclick="setTaxCard('SOLICITADO')">&#129518; Solicitei o cálculo da TAX</button>`;
+  else if(s==="SOLICITADO")btns=`<button class="btn btg btsm" onclick="setTaxCard('CALCULADO')">&#10003; Cálculo voltou (Calculado)</button>`;
+  else if(s==="CALCULADO")btns=`<button class="btn btg btsm" onclick="setTaxCard('FECHADO')">TAX fechado</button> <button class="btn bts btsm" onclick="setTaxCard('SEM_POSSIBILIDADE')">sem possibilidade</button>`;
+  return `<div style="width:100%;margin-top:5px;padding:7px 10px;background:#FBFAF5;border:1px solid #E6D9AE;border-radius:9px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    ${selo}${s==="SOLICITADO"?'<span style="font-size:11px;color:#7F6000">&#9202; cobre o retorno do cálculo e atualize aqui</span>':""}
+    <span>${btns}</span></div>`;
+}
+async function setTaxCard(status){const c=E._cliCard;if(!c)return;
+  await setTaxCli(c.id_cliente,status);
+  c.tax_status=String(status||"").toUpperCase();c.tax_status_dt=hojeISO();
+  carregarCliExtra(E.atual);
 }
 function editarRegimeCard(){const c=E._cliCard;if(!c)return;
   modal2("Regime tributário",esc(c.nome),`
@@ -3941,6 +3961,17 @@ async function telaCentral(){
         <b>${esc(o.x.cliente)}</b> · vence ${esc(o.x.data_venc)} · ${fmtR$(+o.x.valor_bruto||0)}
         </span></div>`).join("")}
       ${prePag.length>12?`<div style="font-size:11px;color:var(--gray)">+${prePag.length-12} boletos seus nos próximos 2 dias</div>`:""}</div>`:""}
+    ${(()=>{
+      const ta=(cls||[]).filter(c=>String(c.tax_status||"").toUpperCase()==="SOLICITADO"&&String(c.head||"").trim()===eu)
+        .map(c=>{const d=c.tax_status_dt?Math.round((Date.now()-new Date(String(c.tax_status_dt).slice(0,10)+"T12:00:00"))/86400000):null;return {c,d};})
+        .sort((a,b)=>(b.d||0)-(a.d||0));
+      if(!ta.length)return "";
+      return `<div class="painel" style="border-left:4px solid #7F6000">
+        <div class="bloco-t" style="color:#7F6000">&#129518; TAX aguardando cálculo — cobrar o retorno (${ta.length})</div>
+        ${ta.map(o=>`<div class="linha-item" style="cursor:pointer" onclick="prepCliente('${esc(o.c.id_cliente)}');telaClientes()">
+          <span style="font-size:12.5px"><b>${esc(o.c.nome)}</b>${o.c.assessor_responsavel?` · ${esc(o.c.assessor_responsavel)}`:""}</span>
+          <b style="color:${o.d>=5?"var(--red)":"#7F6000"}">${o.d!=null?"há "+o.d+"d":"—"}</b></div>`).join("")}</div>`;
+    })()}
     <div class="painel">
       <div class="bloco-t">&#128203; Minha carteira HOJE — o que ENTRA no dia de cada assessor × fila de espera (${minhasHoje.length})</div>
       <div style="font-size:11px;color:var(--gray);margin-bottom:6px">Mesma régua da tela de cada um (capacidade − reuniões − trabalhado − prospecção − follow-up). Verde = o sistema está cobrando HOJE. Vermelho = não coube no dia — o ⚡ fura a fila.</div>
