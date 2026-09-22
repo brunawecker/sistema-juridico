@@ -573,6 +573,13 @@ const alvosDelegacao=nome=>{const l=DELEGA_PARA[nome]||[];
 const PROP_PRODUTOS=["MANDADO DE SEGURANÇA","MS MIGRAÇÃO","TIS","ÊXITO TRANSAÇÃO","HT","HT MUNICIPAL","LAUDO CAPAG","GARANTIAS","SCORE","ASSESSORIA","TAX","FGTS","BANCÁRIO","CONTABILIZE","RENEGOCIAÇÃO"];
 const PROP_VERTICAIS=["REGULARIZE","AUDITE","BACARIZE","CONCILIE","CONTABILIZE","RECUPERE","RENEGOCIE","RNC","VILLELA IP","VBB"];
 const VERTICAIS_CLIENTE=["REGULARIZE","RECUPERE","RENEGOCIE","GOLDEN","CONTABILIZE","A PREENCHER"];
+// cliente pode ter mais de um tipo de contrato (Bruna, 22/09/2026): checkboxes,
+// guarda como lista separada por vírgula no campo vertical.
+const VERT_OPC=VERTICAIS_CLIENTE.filter(v=>v!=="A PREENCHER");
+function vertCheckboxes(id,sel){const s=String(sel||"").toUpperCase();
+  return `<div id="${id}" style="display:flex;flex-wrap:wrap;gap:3px 12px;padding:7px 10px;border:1px solid var(--border);border-radius:9px">
+    ${VERT_OPC.map(v=>`<label style="font-size:12px;display:flex;gap:5px;align-items:center;cursor:pointer"><input type="checkbox" class="${id}-cb" value="${v}" ${s.split(/[,+/;]/).map(x=>x.trim()).includes(v)?"checked":""}> ${v}</label>`).join("")}</div>`;}
+function vertValor(id){const vs=[...document.querySelectorAll("."+id+"-cb:checked")].map(c=>c.value);return vs.length?vs.join(", "):"A PREENCHER";}
 const REGIMES=["Simples Nacional","Lucro Presumido","Lucro Real","MEI","Inativa"];
 
 // ================================================================= DADOS
@@ -701,6 +708,7 @@ const S = {
     const v=await paginadoS(()=>supa.from("operacional").select("*").order("data_revisao_dt",{ascending:true,nullsFirst:false}).order("linha"));
     E._cacheT={v:v,ts:Date.now()};return v;},
   async historico(id){return okS(await supa.from("historico").select("*").eq("id_tarefa",id).order("data_dt",{ascending:false,nullsFirst:false}).order("linha",{ascending:false}).limit(500))||[];},
+  async notasCli(idc){return okS(await supa.from("historico").select("*").eq("id_cliente",idc).order("data_dt",{ascending:false,nullsFirst:false}).order("linha",{ascending:false}).limit(200))||[];},
   async historicoHoje(){return okS(await supa.from("historico").select("*").eq("data_dt",hojeISO()))||[];},
   async historicoPeriodo(d){const lim=new Date();lim.setDate(lim.getDate()-d);const corte=lim.toISOString().slice(0,10);
     return paginadoS(()=>supa.from("historico").select("*").gte("data_dt",corte).order("linha"));},
@@ -877,9 +885,11 @@ const S = {
     if(d.supervisao)await histS(op,d.id_cliente,"SUPERVISÃO",d.supervisao);
     return{ok:true,id:op};},
   async criarCliente(d){const cl=await novoIdS("CL");
+    const ini=/^\d{4}-\d{2}-\d{2}$/.test(String(d.inicio||""))?d.inicio:null;
     okS(await supa.from("clientes").insert({id_cliente:cl,nome:d.nome,cnpj_cpf:docFormata(d.cnpj)||"",head:d.head||"",
       vertical:d.vertical||"A PREENCHER",regime:d.regime||"",municipio:d.municipio||"",uf:d.uf||"",
-      resumo_da_venda:d.resumo||"",situacao:d.situacao||"OFICIAL"}));return{ok:true,id:cl};},
+      resumo_da_venda:d.resumo||"",situacao:d.situacao||"OFICIAL",
+      data_inicio:ini?brData(ini):null,data_inicio_dt:ini}));return{ok:true,id:cl};},
   async criarProposta(d){let idc=d.id_cliente||"";
     if(d.novo_cliente&&d.cliente){
       // anti-duplicado: se o documento já existe no cadastro, usa o cliente
@@ -5471,10 +5481,33 @@ function prepCliente(id){
       ${podeConverter?`<button class="btn btp btsm" onclick="converterCli('${esc(id)}')">&#10003; Converter em cliente oficial</button>`:""}
       ${E.perfil.head_sim&&c.situacao==="OFICIAL"?`<button class="btn bts btsm" style="color:var(--roxo);border-color:var(--roxo)" onclick="reverterCli('${esc(id)}')">&#8617; Voltar para prospecção</button>`:""}</div>
     ${E.perfil.head_sim?`<div id="lbc-${esc(id)}"></div>`:""}
+    <div style="margin-top:8px;background:#F6F9FB;border:1px solid var(--border);border-radius:10px;padding:9px 11px">
+      <div class="bloco-t" style="color:var(--navy)">&#128221; Notas sobre o cliente</div>
+      <textarea class="fta" id="nota-cli-${esc(id)}" style="margin-bottom:5px" placeholder="Anote algo sobre a empresa/cliente (contexto, combinados, particularidades)..."></textarea>
+      <button class="btn btp btsm" onclick="addNotaCli('${esc(id)}')">&#128190; Salvar nota</button>
+      <div id="notas-cli-${esc(id)}" style="margin-top:7px"></div></div>
     <div id="ct-${esc(id)}" style="margin-top:8px"></div>
     <div id="cdoc-${esc(id)}" style="margin-top:8px"></div>
     <div id="ce-${esc(id)}" style="display:none;margin-top:8px"></div>`;
   if(E.perfil.head_sim)carregarLembretesCli(id);
+  carregarNotasCli(id);
+}
+// notas livres sobre o cliente (Bruna, 22/09/2026) — vão ao histórico do cliente
+async function addNotaCli(id){
+  const ta=ge("nota-cli-"+id);const txt=(ta&&ta.value||"").trim();
+  if(!txt){toast("Escreva a nota antes de salvar.","erro");return;}
+  try{await DB.nota({id_tarefa:"",id_cliente:id,tipo:"HISTORICO",texto:"📝 Nota — "+E.perfil.nome_sistema+": "+txt});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  ta.value="";toast("Nota salva no cadastro do cliente.","ok");carregarNotasCli(id);
+}
+async function carregarNotasCli(id){
+  const box=ge("notas-cli-"+id);if(!box)return;
+  let ns=[];try{ns=await DB.notasCli(id);}catch(e){return;}
+  const notas=(ns||[]).filter(n=>String(n.texto||"").startsWith("📝 Nota"));
+  if(!notas.length){box.innerHTML='<div style="font-size:11px;color:var(--gray)">Nenhuma nota ainda.</div>';return;}
+  box.innerHTML=notas.slice(0,15).map(n=>`<div style="font-size:12px;padding:4px 0;border-top:1px solid var(--gray-lt)">
+    <span style="color:var(--gray);font-size:10px">${esc(String(n.data||"").slice(0,10))}</span> ${esc(String(n.texto||"").replace(/^📝 Nota — /,""))}</div>`).join("")
+    +(notas.length>15?`<div style="font-size:10px;color:var(--gray)">+${notas.length-15} nota(s) mais antigas</div>`:"");
 }
 // lembretes das heads na ficha do cliente — SÓ heads veem (a função do
 // banco devolve vazio para os demais); mostra os de TODAS as heads
@@ -5568,7 +5601,8 @@ function toggleEd(id){
   const inp=(campo,val,ph)=>`<input class="fi" id="ed-${campo}-${id}" value="${esc(val||"")}" placeholder="${ph||""}" style="margin-bottom:6px">`;
   box.innerHTML=`<div class="painel"><div class="bloco-t">Editar cadastro</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
-    <div><label style="font-size:11px">Vertical</label>${sel("vertical",VERTICAIS_CLIENTE,c.vertical)}</div>
+    <div style="grid-column:1/-1"><label style="font-size:11px">Tipo(s) de contrato (marque quantos precisar)</label>${vertCheckboxes("edvert-"+id,c.vertical)}</div>
+    <div><label style="font-size:11px">&#128197; Entrou na casa</label><input type="date" class="fsel" id="ed-inicio-${id}" value="${esc(String(c.data_inicio_dt||"").slice(0,10))}" style="width:100%;margin-bottom:6px"></div>
     <div><label style="font-size:11px">Regime</label>${sel("regime",REGIMES,c.regime)}</div>
     <div><label style="font-size:11px">CAPAG</label>${sel("capag",["A","B","C","D","SEM ACESSO","sem ecac"],c.capag)}</div>
     <div><label style="font-size:11px">e-CAC</label>${inp("e_cac",c.e_cac)}</div>
@@ -5618,7 +5652,11 @@ async function mesclarCliente(fica,some){
   toast("Cadastros mesclados — registrado no histórico do cliente.","ok");telaClientes();}
 async function salvarCliente(id){
   const g=k=>{const el=ge(`ed-${k}-${id}`);return el?el.value:undefined;};
-  const campos={};["vertical","regime","capag","e_cac","franqueado","contrato","municipio","uf","resumo_da_venda","pasta_sharepoint"].forEach(k=>{const v=g(k);if(v!==undefined)campos[k]=v;});
+  const campos={};["regime","capag","e_cac","franqueado","contrato","municipio","uf","resumo_da_venda","pasta_sharepoint"].forEach(k=>{const v=g(k);if(v!==undefined)campos[k]=v;});
+  campos.vertical=vertValor("edvert-"+id);                 // tipos de contrato (múltiplos)
+  const ini=g("inicio");if(ini!==undefined){                // data de entrada na casa
+    const ok=/^\d{4}-\d{2}-\d{2}$/.test(ini);
+    campos.data_inicio_dt=ok?ini:null;campos.data_inicio=ok?brData(ini):null;}
   try{await DB.clienteUpdate(id,campos);}catch(e){toast("Erro: "+e.message,"erro");return;}
   Object.assign(E._cli[id],campos);toast("Cadastro atualizado!","ok");
 }
@@ -6909,8 +6947,9 @@ function abrirNovoCliente(){
     <div style="font-size:10px;color:var(--gray);margin-top:2px">&#128269; Preencheu o CNPJ? Nome, estado e cidade vêm sozinhos da Receita.</div>
     <div class="linha-acao" style="margin-top:6px">
       <select class="fsel" id="nc-head"><option>Danielly</option><option>Bruna</option><option>Eduarda</option></select>
-      <select class="fsel" id="nc-vert">${VERTICAIS_CLIENTE.map(v=>`<option ${v==="A PREENCHER"?"selected":""}>${v}</option>`).join("")}</select>
-      <select class="fsel" id="nc-sit"><option value="OFICIAL">&#10003; Cliente oficial</option><option value="PROSPECCAO">&#128270; Prospecção</option></select></div>
+      <select class="fsel" id="nc-sit"><option value="OFICIAL">&#10003; Cliente oficial</option><option value="PROSPECCAO">&#128270; Prospecção</option></select>
+      <label style="font-size:11px;display:flex;align-items:center;gap:5px">&#128197; Entrou na casa:<input type="date" class="fsel" id="nc-inicio" style="width:150px"></label></div>
+    <div style="margin-top:6px"><div style="font-size:11px;color:var(--gray);margin-bottom:3px">Tipo(s) de contrato — marque quantos precisar (ex.: Recupere + Renegocie):</div>${vertCheckboxes("nc-vert","")}</div>
     <div class="linha-acao" style="margin-top:6px">
       <select class="fsel" id="nc-reg"><option value="">Regime</option>${REGIMES.map(r=>`<option>${r}</option>`).join("")}</select>
       ${selUF("nc-uf","","nc-mun","width:70px")}
@@ -6982,7 +7021,7 @@ async function criarClienteTarefa(){
     return;}
   // cadastro sem tarefa (pedido da Bruna, 19/08/2026)
   if(semTarefa){
-    try{const rc=await DB.criarCliente({nome,cnpj,head:ge("nc-head").value,vertical:ge("nc-vert").value,
+    try{const rc=await DB.criarCliente({nome,cnpj,head:ge("nc-head").value,vertical:vertValor("nc-vert"),inicio:ge("nc-inicio").value,
       situacao:ge("nc-sit").value,regime:ge("nc-reg").value,municipio:ge("nc-mun").value,uf:ge("nc-uf").value,
       resumo:ge("nc-res").value});
       toast(`✓ Cliente ${rc.id} cadastrado (sem tarefa).`,"ok");}
@@ -6999,7 +7038,7 @@ async function criarClienteTarefa(){
   if(chk==="IMEDIATO"&&ge("nc-ass").value!==E.perfil.nome_sistema){
     const q=perguntarQuandoDelegar("IMEDIATO");if(q)revISO=q;}
   try{
-    const rc=await DB.criarCliente({nome,cnpj,head:ge("nc-head").value,vertical:ge("nc-vert").value,
+    const rc=await DB.criarCliente({nome,cnpj,head:ge("nc-head").value,vertical:vertValor("nc-vert"),inicio:ge("nc-inicio").value,
       situacao:ge("nc-sit").value,regime:ge("nc-reg").value,municipio:ge("nc-mun").value,uf:ge("nc-uf").value,
       resumo:ge("nc-res").value});
     if(ecacNC)await DB.clienteUpdate(rc.id,{e_cac:ecacNC});
