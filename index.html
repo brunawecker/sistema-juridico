@@ -367,10 +367,10 @@ const CORR_HEADS=["Danielly","Bruna","Eduarda","Ygor","Madu","Malu"];
 const AUTORIZADOS_DELEGAR=["Malu","Ygor","Madu","Bruna","Danielly","Eduarda"];
 // para quem cada autorizado pode delegar (Configurações; vazio = todos)
 const DELEGA_PARA={};
-// ⚡ exceção pontual (Bruna, 21/09/2026): a regra geral proíbe impulso IMEDIATO,
-// mas SÓ HOJE (21/09) a Madu pode delegar impulso imediato para o Thiago.
+// ⚡ exceção pontual (Bruna, 22/09/2026): a regra geral proíbe impulso IMEDIATO,
+// mas SÓ HOJE (22/09) a Madu pode delegar impulso imediato para o Thiago.
 // Auto-expira amanhã sozinha (comparação por data) — nada a reverter.
-const IMP_IMEDIATO_EXCECOES=[{de:"Madu",para:"Thiago",dia:"2026-09-21"}];
+const IMP_IMEDIATO_EXCECOES=[{de:"Madu",para:"Thiago",dia:"2026-09-22"}];
 const impImediatoLiberado=(de,para)=>{const d=loginDe(de),p=loginDe(para);
   return IMP_IMEDIATO_EXCECOES.some(x=>x.de===d&&x.para===p&&x.dia===hojeISO());};
 // janela de prospecção por pessoa (min/dia; Configurações — 0 = sem janela)
