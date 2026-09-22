@@ -3682,6 +3682,25 @@ async function telaDiario(dia){
         emProd.slice(0,6).map(s=>`<div class="linha-item"><span style="font-size:12.5px"><b>${esc(s.franqueado)}</b> pede <b>parecer</b> · ${esc(s.empresa)}</span>
           <span style="font-size:11px;color:var(--gray)">${new Date(s.criado).toLocaleDateString("pt-BR")} · em produção${s.assessor?" com "+esc(s.assessor):""}</span></div>`).join("")+
         `<button class="btn bts btsm" style="margin-top:4px" onclick="telaFranqueados()">abrir Franqueados para responder</button></div>`;}
+    // 📝 resumos das reuniões de HOJE — visão das heads (Bruna, 22/09/2026):
+    // quem preencheu ✓ × quem está devendo, sem abrir a agenda de ninguém
+    {
+      const hjR=(reunD||[]).filter(r=>String(r.data_dt||"").slice(0,10)===hojeISO());
+      if(hjR.length){
+        const fimMin=r=>{const m=String(r.horario||"").match(/(\d{1,2}):(\d{2})/);if(!m)return null;
+          return (+m[1])*60+(+m[2])+(parseInt(r.duracao_min_num||r.duracao_min)||30);};
+        const agoraMin=new Date().getHours()*60+new Date().getMinutes();
+        const stR=r=>String(r.resumo||"").trim()?["tek","resumo ok"]
+          :r.sem_cliente?["tm","sem cliente"]
+          :(fimMin(r)!==null&&fimMin(r)<=agoraMin)?["ti","PENDENTE"]:["td2","ainda vai rolar"];
+        const pendR=hjR.filter(r=>stR(r)[1]==="PENDENTE").length;
+        h+=`<div class="painel" style="background:#F7F4FB;border-color:#D6C9EA${pendR?";border-left:4px solid var(--red)":""}">
+          <div class="bloco-t" style="color:var(--roxo)">&#128221; Resumos das reuniões de HOJE (${hjR.length}${pendR?` · ${pendR} pendente(s)`:""})</div>`+
+          hjR.slice().sort((a,b)=>String(a.horario||"").localeCompare(String(b.horario||""))).map(r=>{const s2=stR(r);
+            return `<div class="linha-item"><span style="font-size:12.5px"><b>${esc(r.horario||"—")}</b> <b>${esc(r.assessor||"?")}</b> · ${esc(r.titulo||"")}${r.cliente?" · "+esc(r.cliente):""} <span class="tag ${s2[0]}">${s2[1]}</span></span>
+            ${String(r.resumo||"").trim()?`<button class="btn bts btsm" onclick='alert("Resumo ("+${JSON.stringify(String(r.resumo_por||"?"))}+"):\\n\\n"+${JSON.stringify(String(r.resumo))})'>ler</button>`:""}</div>`;}).join("")+
+          `<div style="font-size:10px;color:var(--gray);margin-top:4px">Regra de 22/09: reunião que já aconteceu exige resumo do assessor (ou a marca "sem cliente envolvido"). Vermelho = horário passou e nada foi registrado — cobre pelo nome.</div></div>`;}
+    }
   }
   const por={};
   (hist||[]).forEach(r=>{const a=loginDe(r.autor);if(!a||a==="Sistema"||a==="Migração")return;
