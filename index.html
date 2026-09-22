@@ -910,7 +910,7 @@ const S = {
       if(ja){idc=ja.id_cliente;}
       else{idc=await novoIdS("CL");
       okS(await supa.from("clientes").insert({id_cliente:idc,nome:d.cliente,cnpj_cpf:docFormata(d.cnpj)||"",
-        head:d.responsavel||"",vertical:"PROSPECÇÃO",situacao:"PROSPECCAO"}));}}
+        head:d.head_carteira||"",vertical:"PROSPECÇÃO",situacao:"PROSPECCAO"}));}}
     const pr=await novoIdS("PROP");
     okS(await supa.from("propostas").insert({id_proposta:pr,data_lancamento:brHoje(),
       data_proposta:brData(d.data),data_proposta_dt:d.data,executor:d.executor||"",
@@ -7269,7 +7269,11 @@ async function abrirProposta(){
     <label style="font-size:12px"><input type="checkbox" id="pr-novo" onchange="ge('pr-novo-w').style.display=this.checked?'block':'none';if(this.checked){E._prCli=null;ge('pr-sel').textContent='';}avisaPropDup()"> É cliente novo (prospecção)</label>
     <div id="pr-novo-w" style="display:none;margin-top:4px">
       <input class="fi" id="pr-nnome" placeholder="Nome / Razão social do prospect" oninput="avisaPropDup()">
-      <input class="fi" id="pr-ncnpj" placeholder="CNPJ / CPF (opcional)"></div>
+      <input class="fi" id="pr-ncnpj" placeholder="CNPJ / CPF (opcional)">
+      <select class="fsel" id="pr-nhead" style="width:100%;margin-top:4px">
+        <option value="">Head da carteira deste cliente *</option>
+        ${(E.equipe||[]).filter(m=>/head/i.test(m.cargo||"")&&String(m.status||"").toUpperCase()==="ATIVO").map(m=>`<option>${esc(m.nome_sistema)}</option>`).join("")}</select>
+      <div style="font-size:10px;color:var(--gray)">O cliente novo nasce na carteira dessa head — sem isso ele fica invisível nos painéis dela.</div></div>
     <div id="pr-dup"></div>
     <div class="bloco-t" style="margin-top:8px">Responsáveis</div>
     <div class="linha-acao"><select class="fsel" id="pr-exec"><option value="">Quem executa *</option>${[...new Set(equipeOps)].map(n=>`<option>${n}</option>`).join("")}</select>
@@ -7382,7 +7386,9 @@ async function lancarProposta(){
   const dups=propostasAbertasDe(cliente,idc);
   if(dups.length&&!confirm("⚠️ Já existe proposta em aberto para "+cliente+
     " (executou "+(dups[0].executor||"?")+", status "+(dups[0].status||"?")+").\n\nLançar mesmo assim?"))return;
-  try{const r=await DB.criarProposta({cliente,id_cliente:idc,cnpj,novo_cliente:novo,
+  const headCart=novo?ge("pr-nhead").value:"";
+  if(novo&&!headCart){toast("Cliente novo precisa de uma head de carteira — escolha Bruna, Danielly ou Eduarda.","erro");return;}
+  try{const r=await DB.criarProposta({cliente,id_cliente:idc,cnpj,novo_cliente:novo,head_carteira:headCart,
     executor:exec,quem_pediu:pediu,responsavel:pediu||exec,produtos:prods.join(", "),verticais:verts.join(", "),
     valor:tot,cond,origem:orig,contato:cont,parecer:par,sharepoint:sp,tempo,
     data:ge("pr-data").value||hojeISO(),obs:ge("pr-obs").value||"",status:"Proposta enviada",
