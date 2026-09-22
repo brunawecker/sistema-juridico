@@ -505,6 +505,11 @@ def sincronizar_agendas(sess):
     agora = _dt.now(sp)
     t_min = agora.replace(hour=0, minute=0, second=0).isoformat()
     t_max = (agora + _td(days=7)).isoformat()
+    # gcal_ids que JÁ têm cópia local do sistema (para não reimportar/duplicar);
+    # eventos origem='sistema' SEM cópia local (fluxo antigo) seguem importando.
+    with psycopg.connect() as conn, conn.cursor() as cur:
+        cur.execute("select gcal_id from juridico.reunioes where coalesce(gcal_id,'') <> ''")
+        locais_gcal = {row[0] for row in cur.fetchall()}
     for ag in AGENDAS:
         cal = ag["cal"]
         pessoas = ag.get("ver", [])
@@ -539,8 +544,8 @@ def sincronizar_agendas(sess):
                     if not a2.get("resource"))[:600]
                 cr_email = str((ev.get("creator") or {}).get("email", "")).lower()
                 origem = ((ev.get("extendedProperties") or {}).get("private") or {}).get("origem", "")
-                if origem == "sistema":
-                    continue  # compromisso manual do sistema: a cópia local é a fonte
+                if origem == "sistema" and ev.get("id", "") in locais_gcal:
+                    continue  # já existe a cópia local (compromisso manual do sistema)
                 if ag.get("rot") and (cr_email in HEADS_EMAILS or origem == "sistema-3heads"):
                     cat_ev, resp = "todas", ""      # as 3 heads (dourado)
                 elif ag.get("rot"):
