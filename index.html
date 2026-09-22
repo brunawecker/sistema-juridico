@@ -763,6 +763,7 @@ const S = {
   async franqAcesso(id,em){okS(await supa.rpc("franqueado_acesso",{p_id:id,p_email:em}));return{ok:true};},
   async franqCriarConta(id){return okS(await supa.rpc("franqueado_criar_conta",{p_id:id}));},
   async franqResetSenha(id){okS(await supa.rpc("franqueado_resetar_senha",{p_id:id}));return{ok:true};},
+  async franqContatos(){return okS(await supa.rpc("franq_contatos"))||[];},
   async franqNovo(d){return okS(await supa.rpc("franqueado_novo",{p_nome:d.nome,p_telefone:d.tel||"",p_estado:d.uf||"",p_responsavel:d.resp||""}));},
   async franqueadoContato(id,status){return rpcS("franqueado_contato",{p_id:id,p_status:status||""});},
   async franqueadoResp(id,resp){return rpcS("franqueado_resp",{p_id:id,p_resp:resp});},
@@ -1359,6 +1360,7 @@ function montarMenu(){
     ["com","&#128188;","Meu Comercial",telaComercial],
     ["prod","&#128200;","Minha Produtividade",telaProdutividade],
     ["prem","&#127873;","Meus Prêmios",telaMeusPremios],
+    ["franq","&#129309;","Contatos Franqueados",telaFranqueados],
     ["cli","&#127970;","Buscar Clientes",telaClientes],
     ["prop","&#128203;","Minhas Propostas",telaPropostas],
     ["fix","&#128260;","Tarefas Fixas",telaFixas],
@@ -4822,8 +4824,19 @@ async function telaImpacto(){
 }
 // =================================================== TELA: CASOS (head)
 async function telaFranqueados(){
-  setNav("franq","Franqueados"); carregando();
-  if(!E.perfil.head_sim){erro("Esta tela é só para heads.");return;}
+  setNav("franq",E.perfil.head_sim?"Franqueados":"Contatos dos Franqueados"); carregando();
+  // assessor vê SÓ os contatos (nome, FP, telefone) — a gestão é das heads
+  if(!E.perfil.head_sim){
+    let ct;try{ct=await DB.franqContatos();}catch(e){return erro(e.message);}
+    E._fqCt=ct||[];
+    ge("conteudo").innerHTML=`
+      <div class="painel"><div class="bloco-t">&#129309; Contatos dos franqueados (${E._fqCt.length})</div>
+        <div style="font-size:11.5px;color:var(--gray);margin-bottom:8px">Dúvida num pedido de parecer? Fale direto com o franqueado. Quem cuida do relacionamento com cada um são as heads — qualquer coisa além da dúvida pontual, avise a sua.</div>
+        <input class="si" id="fq-busca" placeholder="&#128269; Nome ou FP — filtra na hora" oninput="desenhaFranqContatos()"></div>
+      <div class="painel" id="fq-lista"></div>`;
+    desenhaFranqContatos();
+    return;
+  }
   let fr;try{fr=await DB.franqueados();}catch(e){return erro(e.message);}
   let sols=[];try{sols=await DB.franqSolicListar();}catch(e){}
   let propsAll=[];try{propsAll=await DB.propostas();}catch(e){}
@@ -5008,6 +5021,16 @@ function filtrarFranqLista(){
     const ok=(!q||n.indexOf(q)>-1)&&(!st||s===st);
     el.style.display=ok?"":"none";if(ok)vis++;});
   const vz=ge("franq-vazio");if(vz)vz.style.display=(rows.length&&!vis)?"block":"none";
+}
+function desenhaFranqContatos(){
+  const box=ge("fq-lista");if(!box)return;
+  const q=String((ge("fq-busca")||{}).value||"").toLowerCase();
+  const lista=(E._fqCt||[]).filter(x=>!q||String(x.franqueado||"").toLowerCase().includes(q)||String(x.fp||"").toLowerCase().includes(q));
+  const zap=t=>{const d=String(t||"").replace(/\D/g,"");if(d.length<10)return null;return "https://wa.me/"+(d.startsWith("55")?d:"55"+d);};
+  box.innerHTML=lista.map(x=>{const w=zap(x.telefone);
+    return `<div class="linha-item"><span style="font-size:12.5px"><b>${esc(x.franqueado)}</b>${x.fp&&x.fp!==x.franqueado?` <span class="tag tda">FP: ${esc(x.fp)}</span>`:""}${x.estado?` <span class="tag tm">${esc(x.estado)}</span>`:""}</span>
+      <span style="white-space:nowrap;font-family:'DM Mono';font-size:12px">${esc(x.telefone||"—")}${w?` <a class="btn btg btsm" style="text-decoration:none" href="${esc(w)}" target="_blank">&#128172; WhatsApp</a>`:""}</span></div>`;}).join("")
+    ||'<div class="vazio">Nenhum franqueado com esse nome.</div>';
 }
 async function salvarNovoFranq(){
   const nome=ge("nf-nome").value.trim();
