@@ -6680,10 +6680,10 @@ function reuPendentesDe(reu){
   const ag=new Date(),nowMin=ag.getHours()*60+ag.getMinutes();
   return (reu||[]).filter(r=>{
     if(loginDe(r.assessor)!==eu)return false;
-    if(String(r.categoria||"").toLowerCase()==="pessoal")return false;
     const d=String(r.data_dt||"").slice(0,10);
     if(d<RESUMO_INI||d>hoje)return false;
-    if(String(r.resumo||"").trim())return false;
+    if(String(r.resumo||"").trim())return false;             // já resumida
+    if(r.sem_cliente===true)return false;                    // marcada "sem cliente" → resolvida
     if(d<hoje)return true;                                    // dias passados
     const m=String(r.horario||"").match(/(\d{1,2}):(\d{2})/); // hoje: só se já passou o horário
     return m?((+m[1])*60+(+m[2]))<=nowMin:false;
@@ -6702,14 +6702,15 @@ function pedirResumoReuniao(id,restantes){
   const temCli=!!r.id_cliente;
   modal2("&#128221; Resumo obrigatório da reunião",
     esc(r.titulo||"reunião")+(r.data?" · "+esc(r.data):"")+(restantes>1?" · ainda faltam "+restantes:""),
-    `<div style="font-size:11px;color:var(--gray);margin-bottom:6px">Toda reunião precisa de um resumo — ele fica guardado no cadastro do cliente.</div>
-     ${temCli?`<div style="font-size:12px;margin-bottom:6px">&#9989; Cliente: <b>${esc(r.cliente||"—")}</b></div>`
-       :`<input class="fi" id="res-q" placeholder="&#128269; Vincular a um cliente (2+ letras)..." oninput="buscaResCli()">
-         <div id="res-res" style="max-height:120px;overflow:auto"></div>
-         <div id="res-sel" style="font-size:12px;color:var(--navy);margin:2px 0"></div>
-         <label style="font-size:12px;display:flex;gap:6px;align-items:center;margin:2px 0 6px;cursor:pointer"><input type="checkbox" id="res-semcli"> Sem cliente envolvido nesta reunião</label>`}
-     <textarea class="fta" id="res-txt" rows="4" placeholder="Narre um breve histórico do que foi ajustado na reunião, informações que o cliente passou e de onde veio essa reunião (franqueado, funil específico etc.)"></textarea>
-     <button class="btn btp btw" style="margin-top:8px" onclick="salvarResumoReuniao('${esc(id)}')">&#128190; Salvar resumo</button>
+    `<div style="font-size:11px;color:var(--gray);margin-bottom:6px">Toda reunião pede um resumo. Se <b>não teve cliente envolvido</b> (interno, pessoal, alinhamento), marque a caixa e pronto — sem precisar escrever.</div>
+     <label style="font-size:12.5px;display:flex;gap:6px;align-items:center;margin:2px 0 8px;cursor:pointer;background:var(--gray-lt);border-radius:8px;padding:6px 9px"><input type="checkbox" id="res-semcli" onchange="toggleSemCli()"> &#128101; Sem cliente envolvido nesta reunião</label>
+     <div id="res-cli-w">
+       ${temCli?`<div style="font-size:12px;margin-bottom:6px">&#9989; Cliente: <b>${esc(r.cliente||"—")}</b></div>`
+         :`<input class="fi" id="res-q" placeholder="&#128269; Vincular ao cliente da reunião (2+ letras)..." oninput="buscaResCli()">
+           <div id="res-res" style="max-height:120px;overflow:auto"></div>
+           <div id="res-sel" style="font-size:12px;color:var(--navy);margin:2px 0"></div>`}
+       <textarea class="fta" id="res-txt" rows="4" placeholder="Narre um breve histórico do que foi ajustado na reunião, informações que o cliente passou e de onde veio essa reunião (franqueado, funil específico etc.)"></textarea></div>
+     <button class="btn btp btw" style="margin-top:8px" onclick="salvarResumoReuniao('${esc(id)}')">&#128190; Salvar</button>
      <div style="text-align:center;margin-top:6px"><a href="javascript:marcarReuniaoNaoAconteceu('${esc(id)}')" style="font-size:11px;color:var(--gray)">a reunião não aconteceu / foi cancelada</a></div>`);
 }
 function buscaResCli(){
@@ -6723,19 +6724,26 @@ function buscaResCli(){
 }
 function escolherResCli(id){E._resCli=id;const c=(E._cli||{})[id];
   ge("res-res").innerHTML="";if(ge("res-q"))ge("res-q").value=c?c.nome:"";
-  if(ge("res-sel"))ge("res-sel").innerHTML=c?"&#9989; Vinculado a: <b>"+esc(c.nome)+"</b>":"";
-  const cb=ge("res-semcli");if(cb)cb.checked=false;}
+  if(ge("res-sel"))ge("res-sel").innerHTML=c?"&#9989; Vinculado a: <b>"+esc(c.nome)+"</b>":"";}
+function toggleSemCli(){const cb=ge("res-semcli"),w=ge("res-cli-w");if(w)w.style.display=(cb&&cb.checked)?"none":"block";}
 async function salvarResumoReuniao(id){
   const r=(E._reuMap||{})[id];if(!r)return;
+  // sem cliente envolvido → resolve sem exigir resumo (interno/pessoal)
+  if((ge("res-semcli")||{}).checked){
+    try{await DB.reuniaoResumo(id,{sem_cliente:true,resumo_dt:hojeISO(),resumo_por:E.perfil.nome_sistema});}
+    catch(e){toast("Erro: "+e.message,"erro");return;}
+    if(E._reuMap[id])E._reuMap[id].sem_cliente=true;
+    toast("Reunião marcada como sem cliente envolvido.","ok");fecharModal2();
+    try{checarResumosPendentes(await DB.reunioes());}catch(e){}return;
+  }
   const txt=(ge("res-txt").value||"").trim();
-  if(!txt){toast("Escreva o resumo da reunião.","erro");return;}
-  const semCli=!!(ge("res-semcli")||{}).checked;
+  if(!txt){toast("Escreva o resumo — ou marque 'sem cliente envolvido'.","erro");return;}
   const idc=r.id_cliente||E._resCli||"";
-  if(!idc&&!semCli){toast("Vincule um cliente ou marque 'sem cliente envolvido'.","erro");return;}
-  const campos={resumo:txt,resumo_dt:hojeISO(),resumo_por:E.perfil.nome_sistema,sem_cliente:!idc};
-  if(idc&&!r.id_cliente){campos.id_cliente=idc;const c=(E._cli||{})[idc];if(c)campos.cliente=c.nome;}
+  if(!idc){toast("Vincule o cliente da reunião — ou marque 'sem cliente envolvido'.","erro");return;}
+  const campos={resumo:txt,resumo_dt:hojeISO(),resumo_por:E.perfil.nome_sistema,sem_cliente:false};
+  if(!r.id_cliente){campos.id_cliente=idc;const c=(E._cli||{})[idc];if(c)campos.cliente=c.nome;}
   try{await DB.reuniaoResumo(id,campos);
-    if(idc)await DB.nota({id_tarefa:"",id_cliente:idc,tipo:"HISTORICO",
+    await DB.nota({id_tarefa:"",id_cliente:idc,tipo:"HISTORICO",
       texto:"📝 Resumo de reunião"+(r.data?" ("+r.data+")":"")+" por "+E.perfil.nome_sistema+": "+txt});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   if(E._reuMap[id])E._reuMap[id].resumo=txt;
