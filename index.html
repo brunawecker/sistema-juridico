@@ -3397,7 +3397,7 @@ async function telaPorAssessor(){
           <span style="font-size:12px">${esc(t.cliente)} · ${esc(t.operacao||"")}</span>
           <span class="tag ${dR!==null&&dR<0?"ti":"tm"}">&#9999; com ${esc(t.correcao_head||"head")}${dR!==null?(dR<0?` · retorno vencido há ${Math.abs(dR)}d`:` · retorno ${brData(t.correcao_retorno_dt)}`):""}</span></div>`;}).join("")}</details>`:""}
       </div></details>`;}).join("")
-    ||`<div class="vazio">Sem tarefas.</div>`;
+    +(ord.length?"":`<div class="vazio">Sem tarefas.</div>`);
 }
 // =================================================== TELA: DIÁRIO (head)
 // Aceita uma data (AAAA-MM-DD) para ver o histórico de outro dia; sem data = hoje.
