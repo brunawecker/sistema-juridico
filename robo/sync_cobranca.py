@@ -448,14 +448,15 @@ def empurrar_para_google(sess):
 
     # 2) reuniões PESSOAIS/manuais lançadas no sistema → agenda Google do dono
     from datetime import datetime as _dt2
+    import re as _re2
     with psycopg.connect() as conn, conn.cursor() as cur:
         cur.execute("""select id_reuniao, assessor, titulo, data_dt::text, horario,
-               coalesce(duracao_min_num,30)
+               coalesce(duracao_min_num,30), coalesce(obs,'')
             from juridico.reunioes
             where a_empurrar=true and coalesce(categoria,'') in ('manual','pessoal')
               and coalesce(gcal_id,'')='' """)
         pend = cur.fetchall()
-    for rid, quem, titulo, data_dt, horario, dur in pend:
+    for rid, quem, titulo, data_dt, horario, dur, obs in pend:
         cal = AGENDA_ESCRITA.get(quem)
         if not cal:
             # dono sem agenda de escrita: fica só no sistema, não repete a tentativa
@@ -467,20 +468,28 @@ def empurrar_para_google(sess):
             hh, mm = (horario or "09:00").split(":")[0:2]
             ini = f"{data_dt}T{int(hh):02d}:{int(mm):02d}:00-03:00"
             fim_dt = _dt2.fromisoformat(ini) + _td(minutes=int(dur or 30))
+            # observações do sistema vão como DESCRIÇÃO do evento (sem o [g..])
+            desc = _re2.sub(r"\s*\[g[a-z0-9]+\]", "", obs or "").strip()
             ev = {"summary": titulo,
                   "start": {"dateTime": ini, "timeZone": "America/Sao_Paulo"},
                   "end": {"dateTime": fim_dt.isoformat(), "timeZone": "America/Sao_Paulo"},
                   "extendedProperties": {"private": {"origem": "sistema"}}}
+            if desc:
+                ev["description"] = desc
             r = sess.post(
                 f"https://www.googleapis.com/calendar/v3/calendars/{_up_q(cal)}/events",
                 json=ev, timeout=30)
             if r.status_code >= 300:
                 print(f"empurrar pessoal: falhou ({r.status_code}) '{titulo}' de {quem}")
                 continue
+            gid = r.json().get("id", "")
+            # MANTÉM a cópia local (com as observações) — só marca que já foi ao
+            # Google. A importação ignora eventos origem='sistema' p/ não duplicar.
             with psycopg.connect() as conn, conn.cursor() as cur:
-                cur.execute("delete from juridico.reunioes where id_reuniao=%s", (rid,))
+                cur.execute("update juridico.reunioes set a_empurrar=false, gcal_id=%s where id_reuniao=%s",
+                            (gid, rid))
                 conn.commit()
-            print(f"empurrar pessoal: '{titulo}' → agenda de {quem} ({cal})")
+            print(f"empurrar pessoal: '{titulo}' → agenda de {quem} ({cal}); cópia local mantida")
         except Exception as e:
             print(f"empurrar pessoal: erro tolerado '{titulo}': {e}")
 
@@ -530,6 +539,8 @@ def sincronizar_agendas(sess):
                     if not a2.get("resource"))[:600]
                 cr_email = str((ev.get("creator") or {}).get("email", "")).lower()
                 origem = ((ev.get("extendedProperties") or {}).get("private") or {}).get("origem", "")
+                if origem == "sistema":
+                    continue  # compromisso manual do sistema: a cópia local é a fonte
                 if ag.get("rot") and (cr_email in HEADS_EMAILS or origem == "sistema-3heads"):
                     cat_ev, resp = "todas", ""      # as 3 heads (dourado)
                 elif ag.get("rot"):
