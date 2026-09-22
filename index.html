@@ -6661,9 +6661,15 @@ function quadroRetomar(lembs){
 function verReuniao(id){
   const r=(E._reuMap||{})[id];if(!r)return;
   const linhas=String(r.convidados||"").split(",").map(x=>x.trim()).filter(Boolean);
+  // observações do compromisso manual (obs), sem o marcador de grupo [g..] e
+  // sem os marcadores de sincronização do Google
+  const obsLimpa=String(r.obs||"").replace(/\s*\[g[a-z0-9]+\]/g,"").trim();
+  const obsMostrar=obsLimpa&&!/^agenda google/i.test(obsLimpa)?obsLimpa:"";
   modal2("&#128197; "+esc(r.titulo),
     `${esc(r.horario||"")}${r.duracao_min?" · "+esc(r.duracao_min)+"min":""}${r.data?" · "+esc(r.data):""} ${reuBadge(r)}`,
     `${r.local?`<div class="bloco-t">&#128205; Local</div><div style="font-size:13px">${esc(r.local)}</div>`:""}
+     ${obsMostrar?`<div class="bloco-t" style="margin-top:8px">&#128221; Observações</div>
+       <div style="font-size:13px;white-space:pre-wrap;background:#EEF3F9;border:1px solid #C9D8EA;border-radius:8px;padding:8px 11px">${esc(obsMostrar)}</div>`:""}
      ${r.descricao?`<div class="bloco-t" style="margin-top:8px">&#128221; Descrição</div>
        <div style="font-size:13px;white-space:pre-wrap;background:var(--gray-lt);border-radius:8px;padding:8px 11px;max-height:240px;overflow:auto">${esc(r.descricao)}</div>`:""}
      ${linhas.length?`<div class="bloco-t" style="margin-top:8px">&#128101; Convidados (${linhas.length})</div>
