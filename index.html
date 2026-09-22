@@ -883,7 +883,7 @@ const S = {
     if(!ok)throw new Error("não foi possível finalizar");return{ok:true};},
   async criarTarefa(d){const op=await novoIdS("OP");
     okS(await supa.from("operacional").insert({id_tarefa:op,id_cliente:d.id_cliente,advogada:d.head||"",
-      data_inclusao:brHoje(),cliente:d.cliente||"",cnpj_cpf:d.cnpj||"",check_:d.check||"IMEDIATO",
+      data_inclusao:brHoje(),data_inclusao_dt:hojeISO(),cliente:d.cliente||"",cnpj_cpf:d.cnpj||"",check_:d.check||"IMEDIATO",
       operacao:d.operacao||"",assessor:d.assessor||"",status_tarefa:"AGUARDANDO",
       numero_processual:d.numero_proc||"",estado:d.estado||"",supervisao:d.supervisao||"",
       prazo_fatal:d.prazo_fatal?brData(d.prazo_fatal):null,prazo_fatal_dt:d.prazo_fatal||null,
