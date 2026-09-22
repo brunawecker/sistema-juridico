@@ -193,14 +193,14 @@ def sincronizar_comercial(sess, aba, mes_iso):
     iSt, iForma = idx("STATUS"), idx("FORMA PGTO")
     iDp, iVc = idx("D. PGTO"), idx("VENC.")
     iAdv = idx("ADV")
-    # abas novas têm a coluna ASSESSOR; nas antigas (junho/julho) a
-    # participação morava em "ASS. JUR" — o exato vem primeiro
+    # O assessor da venda vem da coluna cujo cabeçalho é "ASSESSOR" (assim
+    # acompanha a coluna mesmo se ela mudar de lugar). Se esse cabeçalho não
+    # existir, PLANO B = coluna W por POSIÇÃO (idx 22), onde o assessor mora
+    # na estrutura atual da planilha. NUNCA mais cai na "ASS. JUR" (essa coluna
+    # está mal nomeada e na verdade guarda a VERTICAL). Bruna, 22/09/2026.
     iAss = idx("ASSESSOR")
     if iAss is None:
-        iAss = idx("ASS. JUR")
-    if iAss is None:
-        print(f"comercial: aba {aba} sem coluna ASSESSOR — mantendo dados atuais")
-        return
+        iAss = 22  # coluna W (plano B por posição)
 
     def cel(rows, r, j):
         row = rows[r] if r < len(rows) else []
