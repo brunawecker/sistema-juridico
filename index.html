@@ -3357,7 +3357,14 @@ async function telaPorAssessor(){
     const fu=fuEfetivo(FOLLOWUP[n]||0,minhasNaRua(propsPA,n).length);
     if(fu>0)ch.push(`<span class="tag tek" title="Follow-up diário de propostas — bloco obrigatório, todo dia">&#128222; ${fmtMin(fu)}/dia</span>`);
     return ch.join(" ");};
-  ge("conteudo").innerHTML=ord.map(([n,lista])=>{
+  // filtro por assessor no topo (Bruna, 22/09/2026)
+  const fAss=(E._paAss&&ord.some(([n])=>n===E._paAss))?E._paAss:"";
+  ge("conteudo").innerHTML=`<div class="flr" style="margin-bottom:10px">
+    <select class="fsel" id="pa-ass" onchange="E._paAss=this.value;telaPorAssessor()">
+      <option value="">&#128101; Todos os assessores</option>
+      ${ord.map(([n,l])=>`<option value="${esc(n)}"${n===fAss?" selected":""}>${esc(n)} (${l.length})</option>`).join("")}</select>
+    ${fAss?`<button class="btn bts btsm" onclick="E._paAss='';telaPorAssessor()">&#10005; limpar filtro</button>`:""}</div>`
+   +ord.filter(([n])=>!fAss||n===fAss).map(([n,lista])=>{
     // o QUADRO reflete o dia a dia REAL (Bruna, 19/09/2026): só o que está
     // COM a pessoa (mesma régua do Minhas Tarefas dela). O que ela delegou
     // ou mandou para correção fica em seções recolhidas, com o atraso
@@ -6736,12 +6743,44 @@ function montarFab(vend){
   ge("fab-menu").innerHTML=vend
     ?it("&#128100; Novo cliente + tarefa","abrirNovoCliente")
     +it("&#128203; Nova tarefa (cliente existente)","abrirNovaTarefa")
+    +it("&#128221; Nota rápida de cliente","abrirNotaRapida")
     +it("&#128221; Lançar proposta","abrirProposta")+it("&#9201; Iniciar atividade (tempo)","abrirAvulsa")
     :it("&#128100; Novo cliente + tarefa","abrirNovoCliente")
     +it("&#128203; Nova tarefa (cliente existente)","abrirNovaTarefa")
+    +it("&#128221; Nota rápida de cliente","abrirNotaRapida")
     +it("&#128221; Lançar proposta","abrirProposta")
     +it("&#128197; Reunião / compromisso","abrirReuniao")
     +it("&#9201; Iniciar atividade (tempo)","abrirAvulsa");
+}
+// 📝 Nota rápida vinculada a um cliente (Bruna, 22/09/2026) — sem criar tarefa
+async function abrirNotaRapida(){
+  modal2("&#128221; Nota rápida de cliente","Anote uma informação importante vinculada ao cliente",`
+    <input class="fi" id="nr-q" placeholder="&#128269; Digite 2+ letras do cliente..." oninput="buscaNotaRapida()">
+    <div id="nr-res" style="max-height:150px;overflow:auto"></div>
+    <div id="nr-sel" style="font-size:12px;color:var(--navy);margin:4px 0"></div>
+    <textarea class="fta" id="nr-txt" placeholder="Informação importante sobre o cliente/empresa..."></textarea>
+    <button class="btn btp btw" style="margin-top:8px" onclick="salvarNotaRapida()">&#128190; Salvar nota</button>`);
+  E._nrCli=null;
+  if(!E._clsTodos||!E._clsTodos.length){try{E._clsTodos=await DB.clientes("");E._cli={};E._clsTodos.forEach(c=>E._cli[c.id_cliente]=c);}catch(e){}}
+}
+function buscaNotaRapida(){
+  const q=(ge("nr-q").value||"").trim();const box=ge("nr-res");
+  if(q.length<2){box.innerHTML="";return;}
+  const f=filtraLocalClientes(E._clsTodos||[],q).slice(0,25);
+  box.innerHTML=f.map(c=>`<div class="linha-item" style="cursor:pointer" onclick='escolherNotaRapida(${JSON.stringify(c.id_cliente)})'>
+    <span><b>${esc(c.nome)}</b> <span style="color:var(--gray);font-size:11px">${esc(c.cnpj_cpf||"")}</span></span></div>`).join("")
+    ||`<div style="font-size:12px;color:var(--gray)">Nenhum cliente com esse nome.</div>`;
+}
+function escolherNotaRapida(id){E._nrCli=id;const c=E._cli[id];
+  ge("nr-res").innerHTML="";ge("nr-q").value=c?c.nome:"";
+  ge("nr-sel").innerHTML=c?`&#9989; Nota para: <b>${esc(c.nome)}</b>`:"";}
+async function salvarNotaRapida(){
+  if(!E._nrCli){toast("Escolha o cliente na busca acima.","erro");return;}
+  const txt=(ge("nr-txt").value||"").trim();
+  if(!txt){toast("Escreva a nota.","erro");return;}
+  try{await DB.nota({id_tarefa:"",id_cliente:E._nrCli,tipo:"HISTORICO",texto:"📝 Nota — "+E.perfil.nome_sistema+": "+txt});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Nota salva no cadastro do cliente.","ok");fecharModal2();
 }
 // vendedor cria e direciona tarefas SÓ para o grupo configurado em
 // "delega para" (pedido da Bruna, 12/08/2026: João, Laura e Thiago —
