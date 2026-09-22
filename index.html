@@ -817,6 +817,7 @@ const S = {
   async docsProposta(idProp){return okS(await supa.from("documentos").select("*").eq("id_tarefa",idProp).order("linha",{ascending:false}))||[];},
   async tarefasFixas(){return okS(await supa.from("tarefas_fixas").select("*").order("id_fixa"))||[];},
   async reunioes(){return okS(await supa.from("reunioes").select("*").order("data_dt",{ascending:false,nullsFirst:false}).limit(500))||[];},
+  async reuniaoResumo(id,campos){okS(await supa.from("reunioes").update(campos).eq("id_reuniao",id));return{ok:true};},
   async snapshot(){return okS(await supa.from("snapshot_diario").select("*").order("data_dt"))||[];},
   async snapshotDia(d){return okS(await supa.from("snapshot_diario").select("*").eq("data_dt",d).order("linha",{ascending:false}).limit(1))||[];},
   async cobranca(){return okS(await supa.from("cobranca").select("*").order("linha"))||[];},
@@ -1940,6 +1941,7 @@ async function telaMinhas(){
   ge("conteudo").innerHTML=h;
   desenhaMinhas();
   if(E.perfil.head_sim||CORR_HEADS.includes(nome))painelParaCorrigir("mt-corrigir");
+  checarResumosPendentes(reun);
 }
 function desenhaMinhas(){
   const alvo=ge("mt-lista");if(!alvo)return;
@@ -6536,6 +6538,7 @@ async function telaMeuDia(){
       ${saiuReserva.length?`<div style="font-size:11px;color:var(--gray);margin-top:8px;border-top:1px dashed var(--border);padding-top:6px">&#9203; ${saiuReserva.length} proposta(s) passaram de ${RESERVA_DIAS} dias de reserva de mercado e foram para a condução das heads.</div>`:""}</div>
     <div class="linha-acao" style="margin:2px 0 10px"><button class="btn btg btsm" onclick="abrirLembrete()">&#128278; Retomar depois</button></div>
     ${quadroRetomar(lembs||[])}`;
+  checarResumosPendentes(reu);
 }
 async function telaAgenda(){
   setNav("agenda","Minha Agenda"); carregando();
@@ -6637,6 +6640,7 @@ async function telaAgenda(){
     h+=grade;
   }
   ge("conteudo").innerHTML=h;
+  checarResumosPendentes(reu);
 }
 function quadroRetomar(lembs){
   const hj2=hojeISO();
@@ -6666,6 +6670,84 @@ function verReuniao(id){
        <div style="font-size:12px;color:var(--gray)">${linhas.map(esc).join("<br>")}</div>`:""}
      ${!r.local&&!r.descricao&&!linhas.length?`<div style="font-size:13px;color:var(--gray)">Este evento não tem descrição ou convidados no Google.</div>`:""}
      ${r.link_ev?`<a href="${esc(r.link_ev)}" target="_blank" class="btn btp btw" style="margin-top:12px;display:block;text-align:center;text-decoration:none">&#128279; Abrir no Google / entrar na reunião</a>`:""}`);
+}
+// ===== Resumo OBRIGATÓRIO de reunião (Bruna, 22/09/2026) =====
+// Toda reunião passada (a partir de 22/09) exige resumo; enquanto pendente, o
+// sistema cobra ao abrir as telas do dia. Vale p/ todos, inclusive Nicholas.
+const RESUMO_INI="2026-09-22";
+function reuPendentesDe(reu){
+  const eu=loginDe(E.perfil.nome_sistema),hoje=hojeISO();
+  const ag=new Date(),nowMin=ag.getHours()*60+ag.getMinutes();
+  return (reu||[]).filter(r=>{
+    if(loginDe(r.assessor)!==eu)return false;
+    if(String(r.categoria||"").toLowerCase()==="pessoal")return false;
+    const d=String(r.data_dt||"").slice(0,10);
+    if(d<RESUMO_INI||d>hoje)return false;
+    if(String(r.resumo||"").trim())return false;
+    if(d<hoje)return true;                                    // dias passados
+    const m=String(r.horario||"").match(/(\d{1,2}):(\d{2})/); // hoje: só se já passou o horário
+    return m?((+m[1])*60+(+m[2]))<=nowMin:false;
+  });
+}
+async function checarResumosPendentes(reu){
+  if(E.atual)return;                                 // não interrompe um cartão de tarefa aberto
+  if(!reu){try{reu=await DB.reunioes();}catch(e){return;}}
+  const pend=reuPendentesDe(reu);if(!pend.length)return;
+  E._reuMap=E._reuMap||{};pend.forEach(r=>E._reuMap[r.id_reuniao]=r);
+  pedirResumoReuniao(pend[0].id_reuniao,pend.length);
+}
+function pedirResumoReuniao(id,restantes){
+  const r=(E._reuMap||{})[id];if(!r)return;
+  E._resCli=r.id_cliente||"";
+  const temCli=!!r.id_cliente;
+  modal2("&#128221; Resumo obrigatório da reunião",
+    esc(r.titulo||"reunião")+(r.data?" · "+esc(r.data):"")+(restantes>1?" · ainda faltam "+restantes:""),
+    `<div style="font-size:11px;color:var(--gray);margin-bottom:6px">Toda reunião precisa de um resumo — ele fica guardado no cadastro do cliente.</div>
+     ${temCli?`<div style="font-size:12px;margin-bottom:6px">&#9989; Cliente: <b>${esc(r.cliente||"—")}</b></div>`
+       :`<input class="fi" id="res-q" placeholder="&#128269; Vincular a um cliente (2+ letras)..." oninput="buscaResCli()">
+         <div id="res-res" style="max-height:120px;overflow:auto"></div>
+         <div id="res-sel" style="font-size:12px;color:var(--navy);margin:2px 0"></div>
+         <label style="font-size:12px;display:flex;gap:6px;align-items:center;margin:2px 0 6px;cursor:pointer"><input type="checkbox" id="res-semcli"> Sem cliente envolvido nesta reunião</label>`}
+     <textarea class="fta" id="res-txt" rows="4" placeholder="Narre um breve histórico do que foi ajustado na reunião, informações que o cliente passou e de onde veio essa reunião (franqueado, funil específico etc.)"></textarea>
+     <button class="btn btp btw" style="margin-top:8px" onclick="salvarResumoReuniao('${esc(id)}')">&#128190; Salvar resumo</button>
+     <div style="text-align:center;margin-top:6px"><a href="javascript:marcarReuniaoNaoAconteceu('${esc(id)}')" style="font-size:11px;color:var(--gray)">a reunião não aconteceu / foi cancelada</a></div>`);
+}
+function buscaResCli(){
+  const q=(ge("res-q").value||"").trim(),box=ge("res-res");if(!box)return;
+  if(q.length<2){box.innerHTML="";return;}
+  if(!E._clsTodos||!E._clsTodos.length){box.innerHTML='<div style="font-size:11px;color:var(--gray)">carregando…</div>';
+    DB.clientes("").then(cs=>{E._clsTodos=cs||[];E._cli={};E._clsTodos.forEach(c=>E._cli[c.id_cliente]=c);buscaResCli();}).catch(()=>{});return;}
+  const f=filtraLocalClientes(E._clsTodos||[],q).slice(0,20);
+  box.innerHTML=f.map(c=>`<div class="linha-item" style="cursor:pointer" onclick='escolherResCli(${JSON.stringify(c.id_cliente)})'><span><b>${esc(c.nome)}</b> <span style="color:var(--gray);font-size:11px">${esc(c.cnpj_cpf||"")}</span></span></div>`).join("")
+    ||'<div style="font-size:11px;color:var(--gray)">Nenhum cliente.</div>';
+}
+function escolherResCli(id){E._resCli=id;const c=(E._cli||{})[id];
+  ge("res-res").innerHTML="";if(ge("res-q"))ge("res-q").value=c?c.nome:"";
+  if(ge("res-sel"))ge("res-sel").innerHTML=c?"&#9989; Vinculado a: <b>"+esc(c.nome)+"</b>":"";
+  const cb=ge("res-semcli");if(cb)cb.checked=false;}
+async function salvarResumoReuniao(id){
+  const r=(E._reuMap||{})[id];if(!r)return;
+  const txt=(ge("res-txt").value||"").trim();
+  if(!txt){toast("Escreva o resumo da reunião.","erro");return;}
+  const semCli=!!(ge("res-semcli")||{}).checked;
+  const idc=r.id_cliente||E._resCli||"";
+  if(!idc&&!semCli){toast("Vincule um cliente ou marque 'sem cliente envolvido'.","erro");return;}
+  const campos={resumo:txt,resumo_dt:hojeISO(),resumo_por:E.perfil.nome_sistema,sem_cliente:!idc};
+  if(idc&&!r.id_cliente){campos.id_cliente=idc;const c=(E._cli||{})[idc];if(c)campos.cliente=c.nome;}
+  try{await DB.reuniaoResumo(id,campos);
+    if(idc)await DB.nota({id_tarefa:"",id_cliente:idc,tipo:"HISTORICO",
+      texto:"📝 Resumo de reunião"+(r.data?" ("+r.data+")":"")+" por "+E.perfil.nome_sistema+": "+txt});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  if(E._reuMap[id])E._reuMap[id].resumo=txt;
+  toast("Resumo salvo no cadastro do cliente.","ok");fecharModal2();
+  try{checarResumosPendentes(await DB.reunioes());}catch(e){}
+}
+async function marcarReuniaoNaoAconteceu(id){
+  const r=(E._reuMap||{})[id];
+  try{await DB.reuniaoResumo(id,{resumo:"(reunião não aconteceu / cancelada)",resumo_dt:hojeISO(),resumo_por:E.perfil.nome_sistema,sem_cliente:true});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  if(r)r.resumo="(reunião não aconteceu / cancelada)";
+  fecharModal2();try{checarResumosPendentes(await DB.reunioes());}catch(e){}
 }
 function agNavegar(n){
   const d=new Date((E._agRef||hojeISO())+"T00:00:00");
