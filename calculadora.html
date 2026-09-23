@@ -1,0 +1,258 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Calculadora Cartão Villela</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+:root{
+  --bg:#F3F5F4; --surface:#FFFFFF; --ink:#14213D; --muted:#5A6573; --line:#DCE1E3;
+  --accent:#0F6E68; --accent-soft:#E2F1EF; --accent-ink:#FFFFFF; --warn:#9A5B00; --warn-soft:#FFF3DF;
+  --sans:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0E1417; --surface:#162025; --ink:#E4EBEE; --muted:#95A3AC; --line:#26343B;
+    --accent:#3DBDB2; --accent-soft:#17312F; --accent-ink:#0B1A19; --warn:#F2B35C; --warn-soft:#2E2413;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0E1417; --surface:#162025; --ink:#E4EBEE; --muted:#95A3AC; --line:#26343B;
+  --accent:#3DBDB2; --accent-soft:#17312F; --accent-ink:#0B1A19; --warn:#F2B35C; --warn-soft:#2E2413;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5;padding-inline:16px;padding-block:24px 48px}
+.wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+header h1{font-size:1.6rem;margin:0;letter-spacing:-.01em;text-wrap:balance}
+header p{margin:4px 0 0;color:var(--muted);max-width:68ch}
+.eyebrow{font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:700}
+.grid{display:grid;grid-template-columns:340px 1fr;gap:20px;align-items:start}
+@media (max-width:860px){.grid{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px;display:flex;flex-direction:column;gap:16px}
+.panel h2{font-size:.95rem;margin:0;font-weight:700}
+.field{display:flex;flex-direction:column;gap:6px}
+label,.lbl{font-size:.8rem;font-weight:600;color:var(--muted)}
+input[type=text],input[type=number]{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;width:100%}
+input.big{font-family:var(--mono);font-size:1.35rem;font-weight:600}
+input:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.seg{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{font:inherit;font-size:.82rem;font-weight:600;padding:9px 6px;border:0;background:var(--bg);color:var(--muted);cursor:pointer;line-height:1.25}
+.seg button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
+.hint{font-size:.78rem;color:var(--muted);margin:0}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font:inherit;font-family:var(--mono);font-size:.85rem;font-weight:600;min-width:46px;padding:7px 10px;border-radius:999px;border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer}
+.chip[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.chip.rec{font-family:var(--sans)}
+.links{display:flex;gap:12px;font-size:.78rem}
+.links button{font:inherit;background:none;border:0;color:var(--accent);cursor:pointer;padding:0;text-decoration:underline}
+details{border-top:1px solid var(--line);padding-top:12px}
+summary{cursor:pointer;font-size:.85rem;font-weight:600}
+.rates{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.rates .field{gap:2px}
+.rates input{padding:6px 8px;font-family:var(--mono);font-size:.85rem}
+.note{background:var(--warn-soft);color:var(--warn);border-radius:8px;padding:10px 12px;font-size:.8rem}
+.tablewrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;min-width:640px}
+th{font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:right;padding:8px 10px;border-bottom:1px solid var(--line);font-weight:700}
+th:first-child,td:first-child{text-align:left}
+td{padding:11px 10px;border-bottom:1px solid var(--line);text-align:right;font-family:var(--mono);font-size:.9rem}
+td:first-child{font-family:var(--sans);font-weight:600}
+td.com{font-weight:600;color:var(--accent)}
+tr.best td{background:var(--accent-soft)}
+.tag{display:inline-block;font-family:var(--sans);font-size:.66rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:999px;background:var(--accent);color:var(--accent-ink);margin-left:6px;vertical-align:1px}
+.tag.alt{background:transparent;color:var(--muted);border:1px solid var(--line)}
+.sub{display:block;font-family:var(--sans);font-size:.72rem;color:var(--muted);font-weight:400}
+.proposal{font-family:var(--sans);white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin:0;font-size:.9rem;line-height:1.6;min-height:120px}
+.bar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.btn{font:inherit;font-weight:700;font-size:.85rem;background:var(--accent);color:var(--accent-ink);border:0;border-radius:8px;padding:9px 16px;cursor:pointer}
+.toast{font-size:.8rem;color:var(--accent);font-weight:600}
+.opts{display:flex;flex-wrap:wrap;gap:14px;font-size:.82rem}
+.opts label{display:flex;align-items:center;gap:6px;font-weight:500;color:var(--ink);cursor:pointer}
+.comrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.comrow input{width:110px;font-family:var(--mono);font-size:1.1rem;font-weight:600}
+.pctsign{font-family:var(--mono);font-weight:600;color:var(--muted)}
+.empty{color:var(--muted);font-size:.9rem;padding:14px 0}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Diretoria Financeira · vendas a partir de 01/10/2026</div>
+    <h1>Calculadora de cartão e comissão</h1>
+    <p>Escolha as condições que vai oferecer ao cliente. A tabela mostra quanto a empresa recebe e a comissão de cada opção; o quadro de baixo já sai pronto para enviar ao cliente.</p>
+  </header>
+
+  <div class="grid">
+    <!-- ENTRADAS -->
+    <section class="panel" aria-label="Dados da venda">
+      <div class="field">
+        <label for="valor">Valor da venda (honorário)</label>
+        <input id="valor" class="big" type="text" inputmode="decimal" value="10.000,00">
+      </div>
+
+      <div class="field">
+        <span class="lbl">Quem arca com a taxa do cartão?</span>
+        <div class="seg" role="group" aria-label="Quem arca com a taxa">
+          <button id="m-abs" type="button" aria-pressed="true">Empresa<br><small>cliente paga o valor cheio</small></button>
+          <button id="m-rep" type="button" aria-pressed="false">Cliente<br><small>taxa repassada no preço</small></button>
+        </div>
+        <p class="hint" id="modeHint"></p>
+      </div>
+
+      <div class="field">
+        <span class="lbl">Opções que vão para o cliente</span>
+        <div class="chips" id="chips"></div>
+        <div class="links"><button type="button" id="selAll">Marcar todas</button><button type="button" id="selNone">Limpar</button><button type="button" id="selStd">Sugestão padrão</button></div>
+      </div>
+
+      <div class="field">
+        <label for="com">Seu percentual de comissão (%)</label>
+        <div class="comrow">
+          <input id="com" type="text" inputmode="decimal" value="10" aria-describedby="comHint"><span class="pctsign">%</span>
+        </div>
+        <p class="hint" id="comHint">Digite o seu percentual (ex.: 10 · 5 · 1,5).</p>
+      </div>
+
+      <div class="field">
+        <label for="meses">Recorrente: nº de meses</label>
+        <input id="meses" type="number" min="2" max="60" value="12">
+      </div>
+
+      <div class="field">
+        <label for="cliente">Nome do cliente (para a proposta)</label>
+        <input id="cliente" type="text" placeholder="Ex.: Transportes Alfa Ltda.">
+      </div>
+
+      <details>
+        <summary>Ajustar taxas (tabela do comunicado)</summary>
+        <div class="rates" id="rates"></div>
+        <div class="field" style="margin-top:10px">
+          <label for="r-rec">Recorrente: taxa por mensalidade (%)</label>
+          <input id="r-rec" type="text" inputmode="decimal" value="2,89" style="font-family:var(--mono)">
+        </div>
+        <p class="note" style="margin-top:10px">O comunicado diz que cada cobrança do Recorrente é processada como transação à vista, por isso usamos a taxa de 1x (2,89%). Confirme com o Financeiro.</p>
+      </details>
+    </section>
+
+    <!-- RESULTADOS -->
+    <div style="display:flex;flex-direction:column;gap:20px;min-width:0">
+      <section class="panel" aria-label="Visão interna">
+        <div class="bar">
+          <h2>Visão interna: taxa e comissão</h2>
+          <span class="hint">Não enviar ao cliente</span>
+        </div>
+        <div class="tablewrap">
+          <table>
+            <thead><tr>
+              <th>Opção</th><th>Cliente paga</th><th>Total ao cliente</th><th>Taxa</th><th>Líquido (base)</th><th id="comTh">Comissão</th>
+            </tr></thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+        <p class="hint" id="diffHint"></p>
+      </section>
+
+      <section class="panel" aria-label="Proposta ao cliente">
+        <div class="bar">
+          <h2>Texto para o cliente</h2>
+          <div style="display:flex;gap:10px;align-items:center"><span class="toast" id="toast" aria-live="polite"></span><button class="btn" type="button" id="copy">Copiar texto</button></div>
+        </div>
+        <div class="opts">
+          <label><input type="checkbox" id="o-total" checked> Mostrar total de cada opção</label>
+          <label><input type="checkbox" id="o-rec" checked> Explicar o Recorrente</label>
+        </div>
+        <pre class="proposal" id="proposal"></pre>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+const DEFAULT_RATES=[2.89,4.29,4.99,5.69,6.39,7.09,7.79,8.49,9.19,9.89,10.59,11.00];
+const STD=["1","3","6","12","rec"];
+const state={mode:"abs",sel:new Set(STD),rates:[...DEFAULT_RATES]};
+const $=id=>document.getElementById(id);
+const brl=n=>n.toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
+const pct=n=>n.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})+"%";
+function parseBR(s){s=String(s).trim().replace(/[R$\s]/g,"");if(s.includes(","))s=s.replace(/\./g,"").replace(",",".");const n=parseFloat(s);return isFinite(n)?n:0;}
+
+// chips
+const chipKeys=[...Array(12)].map((_,i)=>String(i+1)).concat("rec");
+chipKeys.forEach(k=>{const b=document.createElement("button");b.type="button";b.className="chip"+(k==="rec"?" rec":"");b.dataset.k=k;b.textContent=k==="rec"?"Recorrente":k+"x";b.onclick=()=>{state.sel.has(k)?state.sel.delete(k):state.sel.add(k);render();};$("chips").appendChild(b);});
+$("selAll").onclick=()=>{chipKeys.forEach(k=>state.sel.add(k));render();};
+$("selNone").onclick=()=>{state.sel.clear();render();};
+$("selStd").onclick=()=>{state.sel=new Set(STD);render();};
+
+// rates
+DEFAULT_RATES.forEach((r,i)=>{const f=document.createElement("div");f.className="field";f.innerHTML=`<label for="r${i+1}">${i+1}x</label><input id="r${i+1}" type="text" inputmode="decimal" value="${r.toFixed(2).replace(".",",")}">`;$("rates").appendChild(f);f.querySelector("input").addEventListener("input",e=>{state.rates[i]=parseBR(e.target.value);render();});});
+
+$("m-abs").onclick=()=>{state.mode="abs";render();};
+$("m-rep").onclick=()=>{state.mode="rep";render();};
+["valor","meses","com","cliente","r-rec","o-total","o-rec"].forEach(id=>$(id).addEventListener("input",render));
+$("valor").addEventListener("blur",e=>{const v=parseBR(e.target.value);if(v>0)e.target.value=v.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});});
+
+function calc(){
+  const V=parseBR($("valor").value), c=parseBR($("com").value)/100;
+  const meses=Math.max(2,Math.min(60,parseInt($("meses").value)||12));
+  const rows=[];
+  chipKeys.filter(k=>state.sel.has(k)).forEach(k=>{
+    const rec=k==="rec", n=rec?meses:parseInt(k);
+    const t=(rec?parseBR($("r-rec").value):state.rates[n-1])/100;
+    // abs: cliente paga V, empresa recebe V(1-t). rep: cliente paga V/(1-t), empresa recebe V.
+    const total=state.mode==="abs"?V:V/(1-t);
+    const taxa=total*t, liquido=total-taxa;
+    rows.push({k,rec,n,t,total,parcela:total/n,taxa,liquido,com:liquido*c});
+  });
+  return {V,c,meses,rows};
+}
+
+function render(){
+  document.querySelectorAll(".chip").forEach(b=>b.setAttribute("aria-pressed",state.sel.has(b.dataset.k)));
+  $("m-abs").setAttribute("aria-pressed",state.mode==="abs");
+  $("m-rep").setAttribute("aria-pressed",state.mode==="rep");
+  $("modeHint").textContent=state.mode==="abs"
+    ?"O cliente paga o mesmo valor em qualquer opção. A taxa sai do valor recebido e reduz a base de comissão."
+    :"O preço sobe para cobrir a taxa: a empresa recebe o valor cheio da venda em qualquer opção.";
+  const cp=parseBR($("com").value);
+  $("comTh").textContent=`Comissão (${cp.toLocaleString("pt-BR",{maximumFractionDigits:2})}%)`;
+  const {V,rows}=calc();
+  const tb=$("tbody");tb.innerHTML="";
+  if(!rows.length||V<=0){tb.innerHTML=`<tr><td colspan="6" class="empty">${V<=0?"Informe o valor da venda.":"Selecione pelo menos uma opção."}</td></tr>`;$("diffHint").textContent="";$("proposal").textContent="";return;}
+  const best=Math.max(...rows.map(r=>r.com)), worst=Math.min(...rows.map(r=>r.com));
+  rows.forEach(r=>{
+    const tr=document.createElement("tr");
+    if(rows.length>1&&r.com===best&&best!==worst)tr.className="best";
+    const nome=r.rec?`Recorrente ${r.n} meses<span class="sub">cobrança mensal · taxa à vista</span>`:(r.n===1?"1x (à vista)":r.n+"x");
+    const tag=(rows.length>1&&r.com===best&&best!==worst)?'<span class="tag">maior comissão</span>':"";
+    tr.innerHTML=`<td>${nome}${tag}</td><td>${r.n}× ${brl(r.parcela)}</td><td>${brl(r.total)}</td><td>${brl(r.taxa)}<span class="sub">${pct(r.t*100)}${r.rec?" por cobrança":""}</span></td><td>${brl(r.liquido)}</td><td class="com">${brl(r.com)}</td>`;
+    tb.appendChild(tr);
+  });
+  $("diffHint").textContent=rows.length>1&&best!==worst?`Diferença de comissão entre a melhor e a pior opção: ${brl(best-worst)}.`:"";
+  $("proposal").textContent=proposal(rows);
+}
+
+function proposal(rows){
+  const nome=$("cliente").value.trim(), showT=$("o-total").checked, explRec=$("o-rec").checked;
+  let s=(nome?`Olá, ${nome}!\n\n`:"Olá!\n\n")+"Seguem as condições de pagamento no cartão de crédito:\n\n";
+  rows.forEach(r=>{
+    if(r.rec) s+=`• Cartão Recorrente: ${r.n} mensalidades de ${brl(r.parcela)}`;
+    else if(r.n===1) s+=`• À vista no cartão: ${brl(r.total)}`;
+    else s+=`• ${r.n}x de ${brl(r.parcela)}`;
+    if(showT&&!(r.n===1&&!r.rec)) s+=` (total ${brl(r.total)})`;
+    s+="\n";
+  });
+  if(explRec&&rows.some(r=>r.rec)) s+="\nNo Cartão Recorrente, a cobrança é feita mês a mês, como uma assinatura: só o valor da mensalidade é usado do limite do cartão, e não o valor total. Sem boletos e sem precisar lembrar do vencimento.\n";
+  s+="\nFico à disposição para seguirmos com a opção que for melhor para você.";
+  return s;
+}
+
+$("copy").onclick=()=>{
+  const txt=$("proposal").textContent, t=$("toast");
+  const done=m=>{t.textContent=m;setTimeout(()=>t.textContent="",2500);};
+  try{navigator.clipboard.writeText(txt).then(()=>done("Copiado"),()=>{selectText();done("Texto selecionado: use Ctrl+C");});}
+  catch(e){selectText();done("Texto selecionado: use Ctrl+C");}
+};
+function selectText(){const r=document.createRange();r.selectNodeContents($("proposal"));const s=getSelection();s.removeAllRanges();s.addRange(r);}
+render();
+</script>
