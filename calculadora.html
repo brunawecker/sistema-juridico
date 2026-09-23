@@ -156,7 +156,7 @@ tr.best td{background:var(--accent-soft)}
       <section class="panel" aria-label="Proposta ao cliente">
         <div class="bar">
           <h2>Texto para o cliente</h2>
-          <div style="display:flex;gap:10px;align-items:center"><span class="toast" id="toast" aria-live="polite"></span><button class="btn" type="button" id="copy">Copiar texto</button></div>
+          <div style="display:flex;gap:10px;align-items:center"><span class="toast" id="toast" aria-live="polite"></span><button class="btn" type="button" id="use" style="background:var(--ink)">Usar nesta proposta</button><button class="btn" type="button" id="copy">Copiar texto</button></div>
         </div>
         <div class="opts">
           <label><input type="checkbox" id="o-total" checked> Mostrar total de cada opção</label>
@@ -254,5 +254,21 @@ $("copy").onclick=()=>{
   catch(e){selectText();done("Texto selecionado: use Ctrl+C");}
 };
 function selectText(){const r=document.createRange();r.selectNodeContents($("proposal"));const s=getSelection();s.removeAllRanges();s.addRange(r);}
+
+// integração com o sistema: leva a condição escolhida para o "Lançar proposta".
+// só faz sentido quando aberta dentro do sistema (aba Calculadora); solta, some.
+const embutida=(window.parent&&window.parent!==window);
+if(!embutida)$("use").style.display="none";
+$("use").onclick=()=>{
+  const {V,rows}=calc(), t=$("toast");
+  const done=m=>{t.textContent=m;setTimeout(()=>t.textContent="",2800);};
+  if(!rows.length||V<=0){done(V<=0?"Informe o valor da venda":"Selecione ao menos uma opção");return;}
+  const modo=state.mode==="abs"?"empresa arca a taxa":"cliente arca a taxa no preço";
+  const optTxt=rows.map(r=>r.rec?`Recorrente ${r.n}x de ${brl(r.parcela)}`:(r.n===1?`à vista ${brl(r.total)}`:`${r.n}x de ${brl(r.parcela)}`)).join(" · ");
+  const cliente=$("cliente").value.trim();
+  const cond=`Cartão (${modo}): ${optTxt}`;
+  try{window.parent.postMessage({source:"calc-villela",valor:V,cond,cliente,mode:state.mode},"*");done("Enviado para a proposta ✓");}
+  catch(e){done("Abra dentro do sistema para usar");}
+};
 render();
 </script>
