@@ -393,7 +393,7 @@ const reservaVenc=p=>{const dr=diasReserva(p);return dr!==null&&dr>RESERVA_DIAS;
 // taxa média de fechamento proposta→negócio em serviços B2B (referência de
 // mercado, pedido da Bruna 18/08/2026) — usada no "falta buscar" do Comercial
 const TAXA_FECHAMENTO_MERCADO=0.25;
-const CALC_VER="2026-10b"; // versão da calculadora de cartão (bump ao editar calculadora.html)
+const CALC_VER="2026-10c"; // versão da calculadora de cartão (bump ao editar calculadora.html)
 // propostas que trabalham para a meta da pessoa: as dela E as que ela pediu
 const propostasDe=(lista,nome)=>(lista||[]).filter(p=>propNaRua(p)&&(
   String(p.responsavel||p.executor||"").trim()===nome||String(p.quem_pediu||"").trim()===nome));
@@ -6447,7 +6447,7 @@ async function telaComercial(){
   if(comTab==="calc"){
     ge("conteudo").innerHTML=tabBar+`<div style="border:1px solid var(--border);border-radius:0 10px 10px 10px;background:#fff;padding:10px">
       <div style="font-size:12px;color:var(--gray);margin:2px 4px 8px">Monte as opções de cartão e copie o texto pronto para o cliente. Vale para vendas <b>a partir de 01/10/2026</b>. A tabela interna (taxa e comissão) é só sua — para o cliente, envie apenas o texto copiado.</div>
-      <iframe src="calculadora.html?v=${CALC_VER}" title="Calculadora de cartão" style="width:100%;height:calc(100vh - 240px);min-height:680px;border:0;border-radius:8px;background:#fff"></iframe>
+      <iframe id="calc-frame" src="calculadora.html?v=${CALC_VER}" title="Calculadora de cartão" scrolling="no" style="width:100%;height:900px;border:0;border-radius:8px;background:#fff;display:block;overflow:hidden"></iframe>
     </div>`;
   }else{
     ge("conteudo").innerHTML=tabBar+`<div style="border-top:2px solid var(--navy);padding-top:10px">`+h+`</div>`;
@@ -7483,8 +7483,9 @@ async function lancarProposta(){
 }
 // ponte da Calculadora de cartão → Lançar proposta (mensagem vinda do iframe)
 window.addEventListener("message",ev=>{
-  const d=ev.data;
-  if(!d||d.source!=="calc-villela")return;
+  const d=ev.data;if(!d)return;
+  if(d.source==="calc-villela-height"){const f=ge("calc-frame");if(f&&+d.h>200)f.style.height=(+d.h)+"px";return;}
+  if(d.source!=="calc-villela")return;
   E._calcCond={valor:+d.valor||0,cond:String(d.cond||""),cliente:String(d.cliente||"")};
   if(ge("pr-cardcond")){preencherCalcNoForm();}      // formulário já aberto
   else{abrirProposta().then(preencherCalcNoForm);}   // abre e preenche
