@@ -230,6 +230,7 @@ function render(){
   });
   $("diffHint").textContent=rows.length>1&&best!==worst?`Diferença de comissão entre a melhor e a pior opção: ${brl(best-worst)}.`:"";
   $("proposal").textContent=proposal(rows);
+  if(window.__postH)window.__postH();
 }
 
 function proposal(rows){
@@ -259,6 +260,18 @@ function selectText(){const r=document.createRange();r.selectNodeContents($("pro
 // só faz sentido quando aberta dentro do sistema (aba Calculadora); solta, some.
 const embutida=(window.parent&&window.parent!==window);
 if(!embutida)$("use").style.display="none";
+// embutida no sistema: sem margens grandes e avisa a altura para o quadro
+// crescer sozinho (nada de barra de rolagem dupla)
+if(embutida){
+  document.body.style.padding="10px 12px 16px";
+  document.documentElement.style.background="transparent";
+  document.body.style.background="transparent";
+  window.__postH=()=>{try{const h=Math.ceil(document.body.getBoundingClientRect().height)+22;
+    window.parent.postMessage({source:"calc-villela-height",h},"*");}catch(e){}};
+  try{new ResizeObserver(()=>window.__postH()).observe(document.body);}catch(e){}
+  window.addEventListener("load",()=>window.__postH());
+  setTimeout(()=>window.__postH(),250);
+}
 $("use").onclick=()=>{
   const {V,rows}=calc(), t=$("toast");
   const done=m=>{t.textContent=m;setTimeout(()=>t.textContent="",2800);};
