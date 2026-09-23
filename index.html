@@ -6444,13 +6444,29 @@ async function telaComercial(){
   const rotCom=ehHead?"Comercial":"Meu Comercial";
   const tabBtn=(k,ic,rot)=>`<button class="btn btsm" style="border:1px solid var(--border);border-bottom:0;border-radius:9px 9px 0 0;padding:8px 16px;${comTab===k?"background:var(--navy);color:#fff":"background:#fff;color:var(--navy)"}" onclick="if((E._comTab||'com')!=='${k}'){E._comTab='${k}';telaComercial();}">${ic} ${rot}</button>`;
   const tabBar=`<div style="display:flex;gap:4px;margin-bottom:-2px;position:relative;z-index:1">${tabBtn("com","&#128188;",rotCom)}${tabBtn("calc","&#129518;","Calculadora")}</div>`;
+  // card "como usar" da calculadora (topo da aba)
+  const cardComoUsar=`<div style="background:var(--navy);color:#fff;border-radius:10px;padding:12px 14px;margin-bottom:10px">
+      <div style="font-weight:800;font-size:14px">&#129518; Calculadora de cartão — como usar</div>
+      <ol style="margin:7px 0 0 18px;padding:0;font-size:12.5px;line-height:1.7">
+        <li>Digite o <b>valor do honorário</b> e escolha <b>quem arca a taxa</b> (Empresa = cliente paga o valor cheio · Cliente = taxa entra no preço).</li>
+        <li>Marque as <b>opções de parcelamento</b> que vai oferecer (ou clique em "Sugestão padrão").</li>
+        <li>Confira a <b>tabela interna</b> (taxa + a sua comissão de cada opção) — <b>essa tabela é só sua, não envie ao cliente</b>.</li>
+        <li><b>Copiar texto</b> = manda pronto pro cliente (sem taxa/comissão). <b>Usar nesta proposta</b> = já leva a condição pro "Lançar proposta" (dá pra editar lá).</li>
+      </ol>
+      <div style="margin-top:9px;background:#FFF3DF;color:#8A5B00;border-radius:8px;padding:7px 10px;font-size:12px;font-weight:700">&#9888;&#65039; Vale <u>só para vendas a partir de 01/10/2026</u>. Vendas até 30/09/2026 seguem a taxa antiga.</div>
+    </div>`;
   if(comTab==="calc"){
     ge("conteudo").innerHTML=tabBar+`<div style="border:1px solid var(--border);border-radius:0 10px 10px 10px;background:#fff;padding:10px">
-      <div style="font-size:12px;color:var(--gray);margin:2px 4px 8px">Monte as opções de cartão e copie o texto pronto para o cliente. Vale para vendas <b>a partir de 01/10/2026</b>. A tabela interna (taxa e comissão) é só sua — para o cliente, envie apenas o texto copiado.</div>
+      ${cardComoUsar}
       <iframe id="calc-frame" src="calculadora.html?v=${CALC_VER}" title="Calculadora de cartão" scrolling="no" style="width:100%;height:900px;border:0;border-radius:8px;background:#fff;display:block;overflow:hidden"></iframe>
     </div>`;
   }else{
-    ge("conteudo").innerHTML=tabBar+`<div style="border-top:2px solid var(--navy);padding-top:10px">`+h+`</div>`;
+    // aviso de novidade no Meu Comercial (some ao clicar "Entendi")
+    let avisoCalc="";
+    try{if(localStorage.getItem("aviso_calc_out26")!=="1")avisoCalc=`<div id="aviso-calc" style="background:var(--green-lt);border:1px solid var(--green);border-radius:10px;padding:10px 14px;margin-bottom:12px;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+      <div style="font-size:12.5px;color:#14532d">&#129518; <b>Novidade:</b> a <b>Calculadora de cartão</b> agora fica aqui no sistema — é só clicar na aba <b>Calculadora</b> (ao lado). Vale para vendas <b>a partir de 01/10/2026</b>.</div>
+      <button class="btn btsm" onclick="try{localStorage.setItem('aviso_calc_out26','1')}catch(e){};var a=ge('aviso-calc');if(a)a.remove()">Entendi</button></div>`;}catch(e){}
+    ge("conteudo").innerHTML=tabBar+`<div style="border-top:2px solid var(--navy);padding-top:10px">`+avisoCalc+h+`</div>`;
   }
 }
 async function coroarAgora(){
