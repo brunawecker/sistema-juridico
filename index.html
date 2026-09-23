@@ -393,7 +393,7 @@ const reservaVenc=p=>{const dr=diasReserva(p);return dr!==null&&dr>RESERVA_DIAS;
 // taxa média de fechamento proposta→negócio em serviços B2B (referência de
 // mercado, pedido da Bruna 18/08/2026) — usada no "falta buscar" do Comercial
 const TAXA_FECHAMENTO_MERCADO=0.25;
-const CALC_VER="2026-10a"; // versão da calculadora de cartão (bump ao editar calculadora.html)
+const CALC_VER="2026-10b"; // versão da calculadora de cartão (bump ao editar calculadora.html)
 // propostas que trabalham para a meta da pessoa: as dela E as que ela pediu
 const propostasDe=(lista,nome)=>(lista||[]).filter(p=>propNaRua(p)&&(
   String(p.responsavel||p.executor||"").trim()===nome||String(p.quem_pediu||"").trim()===nome));
@@ -7373,6 +7373,8 @@ async function abrirProposta(){
       ${temX?`em <input class="fsel" id="pgx-${id}" type="number" min="1" value="1" style="width:56px" oninput="somaProposta()">x <span id="pgh-${id}" style="font-size:10px;color:var(--dani)"></span>`:""}</span></div>`).join("")}</div>
     <div style="background:var(--green-lt);border-radius:9px;padding:8px 12px;display:flex;justify-content:space-between;margin-top:6px">
       <b style="font-size:12px;color:var(--green)">&#128176; Total da proposta</b><b id="pr-total" style="color:var(--green)">R$ 0,00</b></div>
+    <div class="bloco-t" style="margin-top:8px">&#128179; Condição do cartão <span style="font-weight:400;font-size:10px">(opcional — pode vir da Calculadora; edite à vontade)</span></div>
+    <textarea class="fta" id="pr-cardcond" style="min-height:52px" placeholder="Ex.: Cartão (empresa arca a taxa): 3x de R$ 3.333,33 · 6x de R$ 1.666,67 · Recorrente 12x de R$ 833,33">${E._calcCond?esc(E._calcCond.cond):""}</textarea>
     <div class="bloco-t" style="margin-top:8px">Origem e formato</div>
     <div class="linha-acao"><select class="fsel" id="pr-orig"><option value="">Veio de *</option>${["Cliente Villela (carteira)","Franqueado","Indicação de Parceiro","T2 (SDRs Lauren)","Backoffice","Prospecção direta"].map(x=>`<option>${x}</option>`).join("")}</select>
       <select class="fsel" id="pr-cont"><option value="">Como foi feita *</option><option>Reunião</option><option>WhatsApp</option></select>
@@ -7457,6 +7459,8 @@ async function lancarProposta(){
   }else{
     cond=(partes.length>1?`Total R$ ${tot.toLocaleString("pt-BR",{minimumFractionDigits:2})} = `:"")+partes.join(" + ");
   }
+  const cardcond=(ge("pr-cardcond")?ge("pr-cardcond").value:"").trim();
+  if(cardcond)cond=(cond?cond+" · ":"")+cardcond;
   const orig=ge("pr-orig").value;if(!orig){toast("Informe a origem.","erro");return;}
   const cont=ge("pr-cont").value;if(!cont){toast("Como foi feita?","erro");return;}
   const par=ge("pr-par").value;if(!par){toast("Tipo de parecer?","erro");return;}
@@ -7473,9 +7477,28 @@ async function lancarProposta(){
     valor:tot,cond,origem:orig,contato:cont,parecer:par,sharepoint:sp,tempo,
     data:ge("pr-data").value||hojeISO(),obs:ge("pr-obs").value||"",status:"Proposta enviada",
     data_reuniao:ge("pr-reuniao").value||null});
-    toast("✓ Proposta lançada: "+r.id,"ok");}
+    toast("✓ Proposta lançada: "+r.id,"ok");E._calcCond=null;}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   fecharModal2();if(E.view==="prop")telaPropostas();
+}
+// ponte da Calculadora de cartão → Lançar proposta (mensagem vinda do iframe)
+window.addEventListener("message",ev=>{
+  const d=ev.data;
+  if(!d||d.source!=="calc-villela")return;
+  E._calcCond={valor:+d.valor||0,cond:String(d.cond||""),cliente:String(d.cliente||"")};
+  if(ge("pr-cardcond")){preencherCalcNoForm();}      // formulário já aberto
+  else{abrirProposta().then(preencherCalcNoForm);}   // abre e preenche
+});
+function preencherCalcNoForm(){
+  const cc=E._calcCond;if(!cc||!ge("pr-cardcond"))return;
+  ge("pr-cardcond").value=cc.cond;
+  // já marca a forma "Cartão" com o valor do honorário para o total bater (editável)
+  if(cc.valor>0&&ge("pg-cartao")&&!ge("pg-cartao").checked){
+    ge("pg-cartao").checked=true;ge("pgw-cartao").style.display="inline-flex";
+    ge("pgv-cartao").value=cc.valor.toLocaleString("pt-BR",{minimumFractionDigits:2});
+    if(typeof somaProposta==="function")somaProposta();
+  }
+  toast("Condição trazida da calculadora ✓ — confira e edite se quiser","ok");
 }
 // ---- atividade avulsa (tempo geral: WhatsApp, e-mails...)
 async function abrirAvulsa(){
