@@ -5975,7 +5975,7 @@ async function apagarProposta(id){
   const p=E._propMap[id];if(!p)return;
   if(!confirm(`🗑 APAGAR a proposta ${id}?\n\n${p.cliente} · ${p.produtos||"—"} · etapa ${p.status||"—"}\n\nUse só para lançamento errado ou duplicado. A proposta some das telas e dos números; um retrato dela (valor, etapa e linha do tempo) fica gravado no histórico do cliente.\n\nEsta ação NÃO tem desfazer.`))return;
   try{await DB.propostaApagar(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
-  toast("Proposta apagada — retrato registrado no histórico do cliente.","ok");telaPropostas();
+  toast("Proposta apagada — retrato registrado no histórico do cliente.","ok");recarregarTelaAtual();
 }
 async function mudaStatusProp(id,status){
   // "Aceita" passa pelo mesmo portão do fechamento: confirmar o valor final
@@ -6018,7 +6018,7 @@ async function confirmarRecusa(id){
     log:linha+(p.negociacao_log?"\n"+p.negociacao_log:"")});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Recusa registrada — proposta baixada (dados preservados).","ok");
-  fecharModal2();telaPropostas();
+  fecharModal2();recarregarTelaAtual();
 }
 function fecharProp(id){
   const p=E._propMap[id];if(!p)return;
@@ -6048,7 +6048,7 @@ async function confirmarFechamento(id){
   catch(e){toast("Erro: "+e.message,"erro");return;}
   const jaCasa=String((E._situMap||{})[p.id_cliente]||"").toUpperCase()==="OFICIAL";
   toast(jaCasa?"Negócio fechado por R$ "+vTxt+" — este já era cliente da casa.":"Negócio fechado por R$ "+vTxt+"! Cliente agora é oficial.","ok");
-  fecharModal2();telaPropostas();
+  fecharModal2();recarregarTelaAtual();
 }
 function abrirNegociacao(id){
   const p=E._propMap[id];if(!p)return;
@@ -6195,7 +6195,7 @@ async function salvarNegociacao(id){
       if(avisou)toast("Parecer pronto! Sinal enviado para "+(quem||"quem conduz a venda")+" agendar a 1ª reunião de apresentação.","ok");}
     if(!avisou)toast(r.convertido?"🎉 Rodada salva — cliente convertido em OFICIAL!":"Rodada registrada!","ok");}
   catch(e){toast("Erro: "+e.message,"erro");return;}
-  fecharModal2();telaPropostas();
+  fecharModal2();recarregarTelaAtual();
 }
 // =================================================== TELA: COMERCIAL
 // Etapas 4 e 5 do Comercial (aprovadas em 18/08/2026): assessor vê a própria
@@ -7495,7 +7495,7 @@ async function lancarProposta(){
     data_reuniao:ge("pr-reuniao").value||null});
     toast("✓ Proposta lançada: "+r.id,"ok");E._calcCond=null;}
   catch(e){toast("Erro: "+e.message,"erro");return;}
-  fecharModal2();if(E.view==="prop")telaPropostas();
+  fecharModal2();recarregarTelaAtual();
 }
 // ponte da Calculadora de cartão → Lançar proposta (mensagem vinda do iframe)
 window.addEventListener("message",ev=>{
