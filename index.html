@@ -1086,19 +1086,22 @@ function portalWrap(inner){
   let pf=ge("portal-franq");
   if(!pf){pf=document.createElement("div");pf.id="portal-franq";document.body.appendChild(pf);}
   pf.style.cssText="min-height:100vh;background:var(--bg);padding:24px 14px;display:flex;justify-content:center";
-  const prev=!!E.franq._preview;
+  const prev=!!E.franq._preview,vc=!!E.franq._verComo,admin=prev||vc;
   pf.innerHTML=`<div style="width:100%;max-width:640px">
     ${prev?`<div style="background:var(--roxo);color:white;border-radius:12px;padding:8px 14px;margin-bottom:10px;font-size:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <b>Visualização (admin):</b> é assim que o franqueado vê.
       <button class="btn btsm" style="background:white;color:var(--roxo)" onclick="portalTrocaSenha()">tela do 1º acesso</button>
       <button class="btn btsm" style="background:white;color:var(--roxo)" onclick="portalFranqueado()">portal</button>
       <button class="btn btsm" style="background:white;color:var(--roxo)" onclick="portalPreviewSair()">&#8617; voltar ao sistema</button></div>`:""}
+    ${vc?`<div style="background:var(--roxo);color:white;border-radius:12px;padding:8px 14px;margin-bottom:10px;font-size:12px;display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+      <span>&#128065; <b>Vendo como ${esc(E.franq.franqueado)}</b> — dados reais, só leitura.</span>
+      <button class="btn btsm" style="background:white;color:var(--roxo)" onclick="portalPreviewSair()">&#8617; voltar ao sistema</button></div>`:""}
     <div style="background:linear-gradient(135deg,var(--dani),var(--navy-lt));color:white;border-radius:var(--r);padding:16px 20px;margin-bottom:14px;box-shadow:var(--sh)">
       <div style="font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;opacity:.75">Grupo Villela · Jurídico</div>
       <div style="font-size:20px;font-weight:700;margin-top:2px">Portal do Franqueado</div>
       <div style="font-size:13px;opacity:.9;margin-top:2px">${esc(E.franq.franqueado)}${E.franq.responsavel?` · seu contato no jurídico: <b>${esc(E.franq.responsavel)}</b>`:""}</div></div>
     ${inner}
-    ${prev?"":`<div style="text-align:center;margin-top:14px"><button class="btn bts" onclick="sair()">Sair</button></div>`}</div>`;
+    ${admin?"":`<div style="text-align:center;margin-top:14px"><button class="btn bts" onclick="sair()">Sair</button></div>`}</div>`;
 }
 // "Ver como franqueado" (só admin): visual idêntico, dados de exemplo, nada é gravado
 function portalPreviewFranq(){
@@ -1107,6 +1110,12 @@ function portalPreviewFranq(){
 }
 function portalPreviewSair(){const pf=ge("portal-franq");if(pf)pf.remove();E.franq=null;
   ge("app").style.display="block";}
+// "Ver como franqueado" (só head): abre o portal com os dados REAIS do
+// franqueado — só leitura, nada é enviado.
+function verComoFranqueado(id){
+  const x=(E._franqMap||{})[id]||{};
+  E.franq={id:id,franqueado:x.franqueado||"Franqueado",responsavel:x.responsavel||"",senha_trocada:true,_verComo:true};
+  ge("app").style.display="none";portalFranqueado();}
 function pfAviso(m,t){const el=ge("pf-aviso");if(el)el.innerHTML=`<div class="aviso ${t||"erro"}" style="margin-top:8px">${esc(m)}</div>`;}
 function portalTrocaSenha(){
   portalWrap(`<div class="painel"><div class="bloco-t">&#128274; Primeiro acesso — crie a sua senha</div>
@@ -1205,6 +1214,7 @@ async function pfBuscaCNPJ(el){
   if(info)info.innerHTML="&#10003; Receita: "+esc(d.razao_social||"")+(d.municipio?" — "+esc(d.municipio)+"/"+esc(d.uf||""):"");
 }
 async function portalSolicitar(){
+  if(E.franq&&E.franq._verComo)return pfAviso("Você está no modo &#128065; ver como — só leitura. Aqui o franqueado enviaria o pedido; nada é gravado.","info");
   if(E.franq&&E.franq._preview)return pfAviso("Visualização: aqui o pedido viraria uma tarefa imediata no jurídico (uma por empresa) e apareceria na lista embaixo.","info");
   // coleta as empresas (uma ou várias do mesmo dono)
   const empresas=[];const vistos=new Set();
@@ -1265,7 +1275,7 @@ async function portalLista(){
       {status:"EM_ANALISE",tipo:"PROPOSTA",empresa:"MERCADO MODELO ME",cnpj:null,criado:hj,descricao:"Interessado na tese do PIS/COFINS — pediu proposta.",resposta:null},
       {status:"RESPONDIDA",tipo:"PARECER",empresa:"AUTO PEÇAS FICTÍCIA",cnpj:null,criado:hj,descricao:"Dúvida sobre mudança de regime tributário.",resposta:"Parecer favorável — os detalhes foram ao seu contato no jurídico.",resp_anexo_caminho:"__exemplo__",resp_anexo_nome:"parecer_final.pdf"},
       {status:"RECUSADA",tipo:"PROPOSTA",empresa:"EXEMPLO RECUSADO SA",cnpj:null,criado:hj,descricao:"Pedido fora do escopo tributário.",resposta:"Fora do escopo do jurídico — encaminhar ao comercial."}];}
-  else{const r=await supa.rpc("franq_minhas");data=r.data;error=r.error;}
+  else{const r=await supa.rpc("franq_minhas",E.franq&&E.franq._verComo?{p_franq_id:E.franq.id}:{});data=r.data;error=r.error;}
   if(error){el.innerHTML=`<div class="vazio">${esc(error.message)}</div>`;return;}
   if(!data||!data.length){el.innerHTML='<div class="vazio">Nenhuma solicitação ainda — a primeira é ali em cima.</div>';return;}
   el.innerHTML=data.map(s=>{const st=PF_ST[s.status]||["tm",s.status];
@@ -5004,6 +5014,7 @@ async function telaFranqueados(){
       <span style="white-space:nowrap"><button class="btn btg btsm" onclick="registrarContatoFranq(${x.id})">&#128222; registrei contato</button>
         <button class="btn bts btsm" onclick="trocarRespFranq(${x.id})" title="trocar responsável">&#128100;${esc(x.responsavel||"?")}</button>
         <button class="btn bts btsm" onclick="acessoFranq(${x.id})" title="${x.email?"portal: "+esc(x.email):"dar acesso ao portal (login e senha)"}">&#128273;${x.email?(x.senha_trocada?" portal ativo":x.acesso_criado?" senha padrão":""):" dar acesso"}</button>
+        ${x.acesso_criado?`<button class="btn bts btsm" style="color:var(--roxo);border-color:var(--roxo)" onclick="verComoFranqueado(${x.id})" title="abrir o portal como este franqueado (dados reais, só leitura)">&#128065; ver como</button>`:""}
         ${x.acesso_criado?`<button class="btn bts btsm" style="color:var(--amber);border-color:var(--amber)" onclick="resetSenhaFranq(${x.id})" title="esqueceu a senha? volta para a padrão">&#8634;</button>`:""}</span></div>`;};
   // 📨 solicitações vindas do portal (parecer/proposta)
   const solRot={NOVA:["tda","nova"],EM_ANALISE:["td2","em análise"],RESPONDIDA:["tek","respondida"],RECUSADA:["ti","recusada"]};
