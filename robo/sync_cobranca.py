@@ -581,6 +581,15 @@ def sincronizar_agendas(sess):
                     (nome, f"GCAL-{caltag}-%", agora.date(), vivos or ["x"]))
             conn.commit()
         print(f"agenda {cat} ({cal}): {len(vivos)} espelho(s)")
+    # reuniões SDR (Nicholas) aparecem SÓ para ele: as heads veem filtrando a
+    # agenda dele (a RLS deixa head ver todas), nunca por uma cópia com o nome
+    # delas. Esta limpeza remove cópias antigas e evita que voltem a surgir.
+    with psycopg.connect() as conn, conn.cursor() as cur:
+        cur.execute("delete from juridico.reunioes "
+                    "where categoria='sdr' and assessor <> 'Nicholas'")
+        if cur.rowcount:
+            print(f"limpeza SDR: {cur.rowcount} cópia(s) antiga(s) de head removida(s)")
+        conn.commit()
 
 
 def main():
