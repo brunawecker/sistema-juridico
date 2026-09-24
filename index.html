@@ -1099,7 +1099,7 @@ function portalWrap(inner){
     <div style="background:linear-gradient(135deg,var(--dani),var(--navy-lt));color:white;border-radius:var(--r);padding:16px 20px;margin-bottom:14px;box-shadow:var(--sh)">
       <div style="font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;opacity:.75">Grupo Villela · Jurídico</div>
       <div style="font-size:20px;font-weight:700;margin-top:2px">Portal do Franqueado</div>
-      <div style="font-size:13px;opacity:.9;margin-top:2px">${esc(E.franq.franqueado)}${E.franq.responsavel?` · seu contato no jurídico: <b>${esc(E.franq.responsavel)}</b>`:""}</div></div>
+      <div style="font-size:13px;opacity:.9;margin-top:2px">${esc(E.franq.franqueado)}</div></div>
     ${inner}
     ${admin?"":`<div style="text-align:center;margin-top:14px"><button class="btn bts" onclick="sair()">Sair</button></div>`}</div>`;
 }
@@ -1159,15 +1159,6 @@ async function portalFranqueado(){
         <span style="font-size:12px;color:var(--gray)">&#128197; Reunião de devolução já marcada com o cliente?</span>
         <input class="fi" id="pf-reuniao" type="date" style="max-width:160px;padding:6px 9px" min="${new Date().toISOString().slice(0,10)}">
         <span style="font-size:10.5px;color:var(--gray)">(se sim, informe — o jurídico mira essa data)</span></div>
-      <div style="background:var(--amber-lt);border-radius:9px;padding:8px 10px;margin-bottom:10px">
-        <div style="font-size:11px;font-weight:700;color:#7F6000;margin-bottom:5px">&#128273; Acesso aos dados da Receita *</div>
-        <select class="fi" id="pf-ec" style="margin-bottom:6px" onchange="ge('pf-ec-qual').style.display=this.value==='LIB'?'block':'none'">
-          <option value="">— como vamos acessar? —</option>
-          <option value="LIB">e-CAC já liberado em um CNPJ da Villela</option>
-          <option value="GOV">Login gov.br (CPF/CNPJ e senha do cliente)</option>
-          <option value="NAO">Ainda não está liberado</option></select>
-        <input class="fi" id="pf-ec-qual" placeholder="Em qual CNPJ da Villela? (ex.: 07-95)" style="display:none;margin-bottom:2px">
-        <div style="font-size:10.5px;color:#7F6000">O certificado digital vai <b>em cada empresa</b> acima (um por CNPJ).</div></div>
       <button class="btn btp btw" id="pf-enviar" onclick="portalSolicitar()">Enviar para o jurídico</button>
       <div id="pf-aviso"></div></div>
     <div class="painel"><div class="bloco-t">&#128203; Minhas solicitações</div>
@@ -1195,8 +1186,26 @@ function pfEmpRow(i){return `<div class="pf-emp-row" data-i="${i}" style="border
       ${i>0?`<button type="button" class="btn bts btsm" style="color:var(--red);border-color:var(--red)" title="remover esta empresa" onclick="pfDelEmpresa(this)">&#128465;</button>`:""}</div>
     <input class="fi pf-emp" placeholder="Nome da empresa (vem do CNPJ)" style="margin-top:6px">
     <div class="pf-cnpj-info" style="font-size:11px;color:var(--green);margin-top:4px"></div>
-    <div style="font-size:10.5px;color:#7F6000;margin-top:6px">&#128206; Certificado digital <b>desta empresa</b> (se tiver — agiliza):</div>
+    <div style="background:var(--amber-lt);border-radius:8px;padding:7px 9px;margin-top:6px">
+      <div style="font-size:11px;font-weight:700;color:#7F6000;margin-bottom:4px">&#128273; Como vamos acessar a Receita desta empresa? *</div>
+      <select class="fi pf-ec" style="margin-bottom:6px" onchange="pfEcMuda(this)">
+        <option value="">— escolha —</option>
+        <option value="LIB">e-CAC já liberado em um CNPJ da Villela</option>
+        <option value="GOV">Login gov.br (CPF/CNPJ e senha)</option>
+        <option value="CERT">Certificado digital (anexo abaixo)</option>
+        <option value="NAO">Ainda não está liberado</option></select>
+      <input class="fi pf-ec-lib" placeholder="Em qual CNPJ da Villela? (ex.: 07-95)" style="display:none;margin-bottom:2px">
+      <div class="pf-ec-gov" style="display:none">
+        <input class="fi pf-ec-doc" placeholder="CPF/CNPJ do login gov.br" style="margin-bottom:5px">
+        <input class="fi pf-ec-sen" placeholder="Senha do gov.br" style="margin-bottom:2px"></div>
+      <div class="pf-ec-cert" style="display:none;font-size:10.5px;color:#7F6000">Anexe o <b>certificado digital</b> no campo abaixo — é por ele que vamos acessar.</div>
+    </div>
+    <div style="font-size:10.5px;color:#7F6000;margin-top:6px">&#128206; Certificado digital desta empresa (se tiver — <b>obrigatório</b> quando o acesso for por certificado):</div>
     <input type="file" class="pf-cert" style="font-size:12px;max-width:100%;margin-top:2px"></div>`;}
+function pfEcMuda(sel){const row=sel.closest(".pf-emp-row");if(!row)return;const v=sel.value;
+  row.querySelector(".pf-ec-lib").style.display=v==="LIB"?"block":"none";
+  row.querySelector(".pf-ec-gov").style.display=v==="GOV"?"block":"none";
+  row.querySelector(".pf-ec-cert").style.display=v==="CERT"?"block":"none";}
 function pfAddEmpresa(){const box=ge("pf-empresas");if(!box)return;
   E._pfEmpI=(E._pfEmpI||0)+1;box.insertAdjacentHTML("beforeend",pfEmpRow(E._pfEmpI));}
 function pfDelEmpresa(btn){const row=btn.closest(".pf-emp-row");
@@ -1226,16 +1235,26 @@ async function portalSolicitar(){
     if(!nome)return pfAviso("Informe o nome de todas as empresas.");
     if(vistos.has(dig))return pfAviso("Há um CNPJ repetido na lista de empresas.");
     vistos.add(dig);
-    empresas.push({dig,nome,mun:row.dataset.mun||"",uf:row.dataset.uf||"",
-      cert:((row.querySelector(".pf-cert")||{}).files||[])[0]||null});
+    const cert=((row.querySelector(".pf-cert")||{}).files||[])[0]||null;
+    // acesso à Receita desta empresa
+    const ecSel=(row.querySelector(".pf-ec")||{}).value||"";
+    if(!ecSel)return pfAviso("Diga como vamos acessar a Receita da empresa "+nome+".");
+    let ec;
+    if(ecSel==="LIB"){const q=(row.querySelector(".pf-ec-lib").value||"").trim();
+      if(!q)return pfAviso("Diga em qual CNPJ da Villela o e-CAC está liberado ("+nome+").");
+      ec="e-CAC liberado no CNPJ da Villela "+q;}
+    else if(ecSel==="GOV"){const doc=(row.querySelector(".pf-ec-doc").value||"").trim();
+      const sen=(row.querySelector(".pf-ec-sen").value||"").trim();
+      if(!doc||!sen)return pfAviso("Informe o CPF/CNPJ e a senha do gov.br ("+nome+").");
+      ec="gov.br — login "+doc+" · senha "+sen;}
+    else if(ecSel==="CERT"){if(!cert)return pfAviso("Anexe o certificado digital de "+nome+" — o acesso é por ele.");
+      ec="Certificado digital anexado";}
+    else{ec="NÃO LIBERADO";}
+    empresas.push({dig,nome,mun:row.dataset.mun||"",uf:row.dataset.uf||"",cert,ec});
   }
   if(!empresas.length)return pfAviso("Informe ao menos uma empresa (CNPJ + nome).");
   if(!ge("pf-head").value)return pfAviso("Escolha a head responsável.");
   if(!ge("pf-desc").value.trim())return pfAviso("Descreva a situação do cliente.");
-  const ecSel=ge("pf-ec").value;
-  if(!ecSel)return pfAviso("Diga como vamos acessar os dados da Receita (e-CAC / gov.br).");
-  let ec=ecSel==="GOV"?"GOV (CPF/CNPJ + senha do cliente)":ecSel==="NAO"?"NÃO LIBERADO":ge("pf-ec-qual").value.trim();
-  if(ecSel==="LIB"&&!ec)return pfAviso("Diga em qual CNPJ da Villela o e-CAC está liberado.");
   const bt=ge("pf-enviar");bt.disabled=true;bt.textContent="Enviando…";
   const fim=()=>{bt.disabled=false;bt.textContent="Enviar para o jurídico";};
   // um pedido por empresa: mesma head/descrição/acesso/reunião, MESMO assessor
@@ -1252,7 +1271,7 @@ async function portalSolicitar(){
     }
     const{data,error}=await supa.rpc("franq_solicitar",{p_head:ge("pf-head").value,
       p_cnpj:e.dig,p_empresa:e.nome,p_descricao:ge("pf-desc").value.trim(),
-      p_municipio:e.mun,p_uf:e.uf,p_ecac:ec,
+      p_municipio:e.mun,p_uf:e.uf,p_ecac:e.ec,
       p_anexo_caminho:anexo,p_anexo_nome:anexoNome,p_anexo_tamanho:anexoTam,
       p_reuniao:ge("pf-reuniao").value||null,p_assessor:assessorLote});
     if(error){erros.push(e.nome+": "+error.message);}
@@ -1262,8 +1281,7 @@ async function portalSolicitar(){
   if(erros.length)return pfAviso("Enviei "+okN+" de "+empresas.length+". Não deu em: "+erros.join(" · "));
   // limpa o formulário (volta a ter uma empresa em branco)
   E._pfEmpI=0;ge("pf-empresas").innerHTML=pfEmpRow(0);
-  ["pf-desc","pf-ec-qual","pf-reuniao"].forEach(i=>ge(i).value="");
-  ge("pf-ec").value="";ge("pf-ec-qual").style.display="none";
+  ["pf-desc","pf-reuniao"].forEach(i=>ge(i).value="");
   pfAviso("Enviado! "+okN+" empresa(s) já viraram tarefa imediata no jurídico"+(novos?" ("+novos+" cliente(s) cadastrado(s))":"")+". Acompanhe aqui embaixo.","info");
   portalLista();
 }
