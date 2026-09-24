@@ -1157,9 +1157,8 @@ async function portalFranqueado(){
           <option value="LIB">e-CAC já liberado em um CNPJ da Villela</option>
           <option value="GOV">Login gov.br (CPF/CNPJ e senha do cliente)</option>
           <option value="NAO">Ainda não está liberado</option></select>
-        <input class="fi" id="pf-ec-qual" placeholder="Em qual CNPJ da Villela? (ex.: 07-95)" style="display:none;margin-bottom:6px">
-        <div style="font-size:11px;color:#7F6000;margin-bottom:3px">&#128206; Certificado digital da empresa (se tiver, anexe — agiliza tudo):</div>
-        <input type="file" id="pf-cert" style="font-size:12px;max-width:100%"></div>
+        <input class="fi" id="pf-ec-qual" placeholder="Em qual CNPJ da Villela? (ex.: 07-95)" style="display:none;margin-bottom:2px">
+        <div style="font-size:10.5px;color:#7F6000">O certificado digital vai <b>em cada empresa</b> acima (um por CNPJ).</div></div>
       <button class="btn btp btw" id="pf-enviar" onclick="portalSolicitar()">Enviar para o jurídico</button>
       <div id="pf-aviso"></div></div>
     <div class="painel"><div class="bloco-t">&#128203; Minhas solicitações</div>
@@ -1186,7 +1185,9 @@ function pfEmpRow(i){return `<div class="pf-emp-row" data-i="${i}" style="border
       <input class="fi pf-cnpj" placeholder="CNPJ da empresa *" style="flex:1.2;min-width:170px" onblur="pfBuscaCNPJ(this)">
       ${i>0?`<button type="button" class="btn bts btsm" style="color:var(--red);border-color:var(--red)" title="remover esta empresa" onclick="pfDelEmpresa(this)">&#128465;</button>`:""}</div>
     <input class="fi pf-emp" placeholder="Nome da empresa (vem do CNPJ)" style="margin-top:6px">
-    <div class="pf-cnpj-info" style="font-size:11px;color:var(--green);margin-top:4px"></div></div>`;}
+    <div class="pf-cnpj-info" style="font-size:11px;color:var(--green);margin-top:4px"></div>
+    <div style="font-size:10.5px;color:#7F6000;margin-top:6px">&#128206; Certificado digital <b>desta empresa</b> (se tiver — agiliza):</div>
+    <input type="file" class="pf-cert" style="font-size:12px;max-width:100%;margin-top:2px"></div>`;}
 function pfAddEmpresa(){const box=ge("pf-empresas");if(!box)return;
   E._pfEmpI=(E._pfEmpI||0)+1;box.insertAdjacentHTML("beforeend",pfEmpRow(E._pfEmpI));}
 function pfDelEmpresa(btn){const row=btn.closest(".pf-emp-row");
@@ -1215,7 +1216,8 @@ async function portalSolicitar(){
     if(!nome)return pfAviso("Informe o nome de todas as empresas.");
     if(vistos.has(dig))return pfAviso("Há um CNPJ repetido na lista de empresas.");
     vistos.add(dig);
-    empresas.push({dig,nome,mun:row.dataset.mun||"",uf:row.dataset.uf||""});
+    empresas.push({dig,nome,mun:row.dataset.mun||"",uf:row.dataset.uf||"",
+      cert:((row.querySelector(".pf-cert")||{}).files||[])[0]||null});
   }
   if(!empresas.length)return pfAviso("Informe ao menos uma empresa (CNPJ + nome).");
   if(!ge("pf-head").value)return pfAviso("Escolha a head responsável.");
@@ -1226,31 +1228,32 @@ async function portalSolicitar(){
   if(ecSel==="LIB"&&!ec)return pfAviso("Diga em qual CNPJ da Villela o e-CAC está liberado.");
   const bt=ge("pf-enviar");bt.disabled=true;bt.textContent="Enviando…";
   const fim=()=>{bt.disabled=false;bt.textContent="Enviar para o jurídico";};
-  // certificado digital primeiro (se tiver) — anexado ao 1º CNPJ da lista
-  let anexo=null,anexoNome=null,anexoTam=null;
-  const f=(ge("pf-cert").files||[])[0];
-  if(f){
-    const caminho="franq/"+E.franq.id+"/"+Date.now()+"_"+String(f.name).replace(/[^\w.\-]+/g,"_").slice(0,120);
-    const up=await supa.storage.from("documentos").upload(caminho,f);
-    if(up.error){fim();return pfAviso("O anexo não subiu: "+up.error.message);}
-    anexo=caminho;anexoNome=f.name;anexoTam=f.size;
-  }
-  // um pedido por empresa (mesma head, descrição, acesso e data de reunião)
-  let okN=0,novos=0;const erros=[];
+  // um pedido por empresa: mesma head/descrição/acesso/reunião, MESMO assessor
+  // (a 1ª empresa define; as demais recebem o assessor pronto). Certificado por
+  // empresa (cada CNPJ pode ter o seu).
+  let okN=0,novos=0,assessorLote=null;const erros=[];
   for(let i=0;i<empresas.length;i++){const e=empresas[i];
+    let anexo=null,anexoNome=null,anexoTam=null;
+    if(e.cert){
+      const caminho="franq/"+E.franq.id+"/"+Date.now()+"_"+String(e.cert.name).replace(/[^\w.\-]+/g,"_").slice(0,120);
+      const up=await supa.storage.from("documentos").upload(caminho,e.cert);
+      if(up.error){erros.push(e.nome+" (certificado): "+up.error.message);continue;}
+      anexo=caminho;anexoNome=e.cert.name;anexoTam=e.cert.size;
+    }
     const{data,error}=await supa.rpc("franq_solicitar",{p_head:ge("pf-head").value,
       p_cnpj:e.dig,p_empresa:e.nome,p_descricao:ge("pf-desc").value.trim(),
       p_municipio:e.mun,p_uf:e.uf,p_ecac:ec,
-      p_anexo_caminho:i===0?anexo:null,p_anexo_nome:i===0?anexoNome:null,p_anexo_tamanho:i===0?anexoTam:null,
-      p_reuniao:ge("pf-reuniao").value||null});
-    if(error){erros.push(e.nome+": "+error.message);}else{okN++;if(data&&data.novo)novos++;}
+      p_anexo_caminho:anexo,p_anexo_nome:anexoNome,p_anexo_tamanho:anexoTam,
+      p_reuniao:ge("pf-reuniao").value||null,p_assessor:assessorLote});
+    if(error){erros.push(e.nome+": "+error.message);}
+    else{okN++;if(data&&data.novo)novos++;if(data&&data.assessor&&!assessorLote)assessorLote=data.assessor;}
   }
   fim();
   if(erros.length)return pfAviso("Enviei "+okN+" de "+empresas.length+". Não deu em: "+erros.join(" · "));
   // limpa o formulário (volta a ter uma empresa em branco)
   E._pfEmpI=0;ge("pf-empresas").innerHTML=pfEmpRow(0);
   ["pf-desc","pf-ec-qual","pf-reuniao"].forEach(i=>ge(i).value="");
-  ge("pf-ec").value="";ge("pf-ec-qual").style.display="none";ge("pf-cert").value="";
+  ge("pf-ec").value="";ge("pf-ec-qual").style.display="none";
   pfAviso("Enviado! "+okN+" empresa(s) já viraram tarefa imediata no jurídico"+(novos?" ("+novos+" cliente(s) cadastrado(s))":"")+". Acompanhe aqui embaixo.","info");
   portalLista();
 }
