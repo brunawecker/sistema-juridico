@@ -783,6 +783,7 @@ const S = {
   // portal do franqueado — lado do TIME (as funções do lado do franqueado usam supa.rpc direto)
   async franqSolicListar(){return okS(await supa.rpc("franq_solic_listar"))||[];},
   async franqResponder(id,st,resp,anexoCam,anexoNome){okS(await supa.rpc("franq_responder",{p_id:id,p_status:st,p_resposta:resp||"",p_anexo_caminho:anexoCam||null,p_anexo_nome:anexoNome||null}));return{ok:true};},
+  async franqSolicPorTarefa(idTar){return okS(await supa.rpc("franq_solic_por_tarefa",{p_tarefa_id:idTar}))||[];},
   async franqAcesso(id,em){okS(await supa.rpc("franqueado_acesso",{p_id:id,p_email:em}));return{ok:true};},
   async franqCriarConta(id){return okS(await supa.rpc("franqueado_criar_conta",{p_id:id}));},
   async franqResetSenha(id){okS(await supa.rpc("franqueado_resetar_senha",{p_id:id}));return{ok:true};},
@@ -1025,6 +1026,8 @@ const S = {
   async verComo(a){okS(await supa.from("ver_como").insert({admin_email:E.perfil.email,alvo:a}));return{ok:true};},
   async verComoSair(){await supa.from("ver_como").update({encerrado_em:new Date().toISOString()}).is("encerrado_em",null);return{ok:true};},
   async docsDe(idCli){return okS(await supa.from("documentos").select("*").eq("id_cliente",idCli).order("linha",{ascending:false}))||[];},
+  async docsDeVarios(ids){if(!ids||!ids.length)return [];
+    return okS(await supa.from("documentos").select("id_cliente,nome_arquivo,caminho").in("id_cliente",ids))||[];},
   async docEnviar(file,idCli,idTar){
     const caminho=idCli+"/"+Date.now()+"_"+String(file.name).replace(/[^\w.\-]+/g,"_").slice(0,120);
     const up=await supa.storage.from("documentos").upload(caminho,file);
@@ -2208,6 +2211,11 @@ async function abrirTarefa(id){
   else if(!mesma){iniciarTimer();
     try{await DB.sessaoIniciar({id_tarefa:t.id_tarefa,cliente:t.cliente,operacao:t.operacao});}catch(e){}}
   let hist=[];try{hist=await DB.historico(id);}catch(e){toast("Erro no histórico: "+e.message,"erro");}
+  // parecer do portal: se esta tarefa nasceu de um pedido de franqueado, quem
+  // corrige (ou head) pode devolver o parecer por aqui
+  E._parecerSol=null;
+  if(/Parecer Tribut/i.test(t.operacao||"")){
+    try{const rs=await DB.franqSolicPorTarefa(t.id_tarefa);if(rs&&rs.length)E._parecerSol=rs[0];}catch(e){}}
   // impulso: traz junto o histórico da TAREFA DE ORIGEM — quem recebe precisa
   // do contexto para saber que andamento dar (relato dos assessores)
   if(t._impulso){
@@ -2350,6 +2358,17 @@ function desenharCard(t,hist){
       <label style="font-size:11px">Prazo fatal:</label><input type="date" class="fsel" id="ag2-fatal" value="${t.prazo_fatal_dt?String(t.prazo_fatal_dt).slice(0,10):""}">
       <label style="font-size:11px" title="Depende de retorno de terceiro? O cartão sai do topo dos fatais e volta nesta data (no máximo no próprio prazo)">&#9203; Retomada do fatal:</label><input type="date" class="fsel" id="ag2-retomada" value="${t.retomada_fatal_dt?String(t.retomada_fatal_dt).slice(0,10):""}">
       <button class="btn btsm" style="background:#1F4E79;color:white" onclick="colocarAguardando()">&#9203; Aguardando c/ follow-up</button></div></div></div>`;}
+  // devolver parecer ao franqueado (heads + quem corrige) — só tarefa de parecer do portal
+  const _podeResp=E.perfil.head_sim||CORR_HEADS.includes(E.perfil.nome_sistema);
+  if(E._parecerSol&&_podeResp){
+    const jaResp=String(E._parecerSol.status||"")==="RESPONDIDA";
+    h+=`<div class="bloco"><div class="bloco-t">&#128228; Devolver parecer ao franqueado</div>
+      <div style="background:#F1F8F3;border:1px solid #CDE7D6;border-radius:9px;padding:10px 12px">
+        <div style="font-size:12px;color:var(--gray);margin-bottom:7px">Anexe o parecer final. Ele é <b>salvo no cadastro do cliente</b> e o franqueado recebe o aviso de <b>análise finalizada</b> para agendar a reunião de retorno.${jaResp?' <b style="color:var(--green)">· já devolvido antes</b>':""}</div>
+        <input type="file" id="par-file" style="font-size:12px;max-width:100%;margin-bottom:7px">
+        <button class="btn btp btsm" onclick="enviarParecerFranq()">&#128228; Enviar parecer e concluir</button>
+      </div></div>`;
+  }
   // concluir
   h+=`<div class="bloco"><div class="bloco-t">Atualizar / concluir</div><div class="linha-acao">
     <label style="font-size:11px;color:var(--gray)">Frequência:</label>
@@ -2708,6 +2727,24 @@ async function salvarQueda(){
       :`📅 Data de queda do impedimento informada: ${brData(v)}`),hist_tipo:"HISTORICO"});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   t.queda_impedimento_dt=v;toast("Data de queda salva!","ok");abrirTarefa(t.id_tarefa);}
+async function enviarParecerFranq(){
+  const s=E._parecerSol;if(!s)return;
+  const f=(ge("par-file").files||[])[0];
+  if(!f){toast("Anexe o parecer antes de enviar.","erro");return;}
+  const MSG="Análise finalizada! Já pode agendar com o jurídico a reunião de retorno para apresentarmos a proposta.";
+  let cam=null,nom=null;
+  try{
+    const caminho="franq/"+s.franq_id+"/resp/"+Date.now()+"_"+String(f.name).replace(/[^\w.\-]+/g,"_").slice(0,120);
+    const up=await supa.storage.from("documentos").upload(caminho,f);
+    if(up.error){toast("O anexo não subiu: "+up.error.message,"erro");return;}
+    cam=caminho;nom=f.name;
+  }catch(e){toast("Erro no anexo: "+e.message,"erro");return;}
+  try{await DB.franqResponder(s.id,"RESPONDIDA",MSG,cam,nom);}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Parecer enviado ao franqueado e salvo no cadastro do cliente.","ok");
+  E._parecerSol=null;
+  concluirTarefa();
+}
 async function concluirTarefa(){
   const t=E.atual,check=ge("conc-check").value,dm=ge("conc-data").value;
   // IMPULSO: "concluir" não devolve ao dono — oferece o caminho certo
@@ -6678,6 +6715,33 @@ async function apagarFixa(id,tit){
 }
 
 // =================================================== TELA: AGENDA (semana)
+// nome "núcleo" da empresa (sem acento, sem LTDA/ME/etc.) para casar o nome de
+// um cliente da casa com o título de um compromisso na agenda
+function nomeNucleo(s){return String(s||"").toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g,"")
+  .replace(/\b(LTDA|ME|EPP|EIRELI|MEI|S\/?A|SA|CIA|COMERCIO|COMERCIAL|INDUSTRIA|SERVICOS)\b/g," ")
+  .replace(/[^A-Z0-9 ]/g," ").replace(/\s+/g," ").trim();}
+// botões para baixar os documentos do cliente da casa ligado a esta reunião
+function reuDocsHTML(r){const ds=(E._agDocsPorReu||{})[r&&r.id_reuniao];if(!ds||!ds.docs||!ds.docs.length)return "";
+  return `<div style="margin-top:4px;font-size:11px;color:var(--gray)">&#128206; ${esc(ds.cliente)}: `+
+    ds.docs.slice(0,6).map(d=>`<a onclick='event.stopPropagation();abrirDoc(${JSON.stringify(d.caminho)})' style="color:var(--green);cursor:pointer;text-decoration:underline;margin-right:8px">${esc(d.nome_arquivo||"documento")}</a>`).join("")+
+    (ds.docs.length>6?`<span>+${ds.docs.length-6}</span>`:"")+`</div>`;}
+async function montarDocsAgenda(cls,reus){
+  E._agDocsPorReu={};
+  const ofi=(cls||[]).filter(c=>String(c.situacao||"").toUpperCase()==="OFICIAL"&&c.id_cliente&&c.nome)
+    .map(c=>({id:c.id_cliente,nome:c.nome,core:nomeNucleo(c.nome)}))
+    .filter(c=>c.core.length>=6).sort((a,b)=>b.core.length-a.core.length);
+  if(!ofi.length||!reus||!reus.length)return;
+  const reuCli={};const ids=new Set();
+  for(const r of reus){
+    const txt=nomeNucleo((r.titulo||"")+" "+(r.cliente||""));
+    if(txt.length<6)continue;
+    const m=ofi.find(c=>txt.includes(c.core));
+    if(m){reuCli[r.id_reuniao]={id:m.id,nome:m.nome};ids.add(m.id);}}
+  if(!ids.size)return;
+  let docs=[];try{docs=await DB.docsDeVarios([...ids]);}catch(e){return;}
+  const porCli={};docs.forEach(d=>{(porCli[d.id_cliente]=porCli[d.id_cliente]||[]).push(d);});
+  for(const rid in reuCli){const c=reuCli[rid];const ds=porCli[c.id]||[];
+    if(ds.length)E._agDocsPorReu[rid]={cliente:c.nome,docs:ds};}}
 // cor e etiqueta da reunião por categoria (agendas coloridas — 16/09/2026)
 function reuCor(r){const c=(r&&r.categoria)||"manual";
   return c==="sdr"?"var(--roxo)":c==="sc"?"var(--green)":c==="todas"?"#C79A00":c==="pessoal"?"var(--navy)":"var(--dani)";}
@@ -6748,7 +6812,7 @@ async function telaMeuDia(){
 }
 async function telaAgenda(){
   setNav("agenda","Minha Agenda"); carregando();
-  let ops,reu,lembs;try{[ops,reu,lembs]=await Promise.all([DB.tarefas(),DB.reunioes(),DB.lembretes().catch(()=>[])]);}catch(e){return erro(e.message);}
+  let ops,reu,lembs,cls;try{[ops,reu,lembs,cls]=await Promise.all([DB.tarefas(),DB.reunioes(),DB.lembretes().catch(()=>[]),DB.clientes("").catch(()=>[])]);}catch(e){return erro(e.message);}
   const ehHeadAg=E.perfil.head_sim;
   if(!E._agPessoa)E._agPessoa=E.perfil.nome_sistema;
   const alvoAg=ehHeadAg?E._agPessoa:E.perfil.nome_sistema;
@@ -6756,6 +6820,9 @@ async function telaAgenda(){
   E.tarefas=(ops||[]).map(classificar);
   const ts=E.tarefas.filter(t=>todosAg?true:(alvoAg===E.perfil.nome_sistema?ehMeuNome(t.assessor):String(t.assessor||"").trim()===alvoAg));
   const minhasReu=(reu||[]).filter(r=>todosAg?true:r.assessor===alvoAg);
+  // 📎 casa cada compromisso com um cliente da casa (OFICIAL) que tenha documento
+  // salvo, para baixar direto na agenda (Bruna, 24/09/2026)
+  try{await montarDocsAgenda(cls,minhasReu);}catch(e){E._agDocsPorReu={};}
   const chave=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
   const hoje=new Date();hoje.setHours(0,0,0,0);const kHoje=chave(hoje);
   if(!E._agModo)E._agModo="semana";
@@ -6802,7 +6869,7 @@ async function telaAgenda(){
       ${rs.length?rs.map((r,ri)=>{E._reuMap=E._reuMap||{};E._reuMap[r.id_reuniao]=r;
         const temDet=r.descricao||r.local||r.convidados||r.link_ev;
         return `<div class="linha-item" style="border-left:5px solid ${reuCor(r)};background:${reuBg(r)};border-radius:8px;padding:6px 10px;margin-bottom:3px${temDet?";cursor:pointer":""}" ${temDet?`onclick='verReuniao(${JSON.stringify(r.id_reuniao)})'`:""}><span style="font-size:13px"><b>${esc(r.horario||"—")}</b> · ${esc(r.titulo)}${r.cliente?" — "+esc(r.cliente):""} ${reuBadge(r)}${todosAg?` <span class="tag tda">${esc(r.assessor)}</span>`:""}${temDet?' <span style="font-size:10px;color:var(--dani)">&#128269; detalhes</span>':""}</span>
-        <span style="font-size:11px;color:var(--gray)">${esc(r.duracao_min||r.duracao_min_num||30)}min ${reuGoogle(r)?"&#128197; Google":`<button class="btn bts btsm" onclick='event.stopPropagation();removerReuniao(${JSON.stringify(r.id_reuniao)})'>&#10005;</button>`}</span></div>`;}).join("")
+        <span style="font-size:11px;color:var(--gray)">${esc(r.duracao_min||r.duracao_min_num||30)}min ${reuGoogle(r)?"&#128197; Google":`<button class="btn bts btsm" onclick='event.stopPropagation();removerReuniao(${JSON.stringify(r.id_reuniao)})'>&#10005;</button>`}</span></div>${reuDocsHTML(r)}`;}).join("")
         :'<div class="vazio">Sem compromissos neste dia.</div>'}</div>
     <div class="painel"><div class="bloco-t">&#128203; Tarefas com data neste dia (${tr.length})</div>
       ${tr.length?tr.map(t=>cardTarefa(t,false,true)).join(""):'<div style="font-size:12px;color:var(--gray)">Nenhuma tarefa marcada para este dia.</div>'}</div>`;
@@ -6881,6 +6948,8 @@ function verReuniao(id){
      ${linhas.length?`<div class="bloco-t" style="margin-top:8px">&#128101; Convidados (${linhas.length})</div>
        <div style="font-size:12px;color:var(--gray)">${linhas.map(esc).join("<br>")}</div>`:""}
      ${!r.local&&!r.descricao&&!linhas.length?`<div style="font-size:13px;color:var(--gray)">Este evento não tem descrição ou convidados no Google.</div>`:""}
+     ${(E._agDocsPorReu||{})[id]&&(E._agDocsPorReu[id].docs||[]).length?`<div class="bloco-t" style="margin-top:10px">&#128206; Documentos de ${esc(E._agDocsPorReu[id].cliente)} no sistema</div>
+       <div style="font-size:12px">${E._agDocsPorReu[id].docs.map(d=>`<a onclick='abrirDoc(${JSON.stringify(d.caminho)})' style="color:var(--green);cursor:pointer;text-decoration:underline;display:inline-block;margin:2px 12px 2px 0">&#128206; ${esc(d.nome_arquivo||"documento")}</a>`).join("")}</div>`:""}
      <div class="bloco-t" style="margin-top:10px">&#128221; Resumo da reunião</div>
      ${String(r.resumo||"").trim()?`<div style="font-size:13px;white-space:pre-wrap;background:#F1F8F3;border:1px solid #CDE7D6;border-radius:8px;padding:8px 11px">${esc(r.resumo)}</div>
         <div style="font-size:10.5px;color:var(--gray);margin-top:3px">${r.resumo_por?"por "+esc(r.resumo_por):""}${r.resumo_dt?" · "+brData(String(r.resumo_dt).slice(0,10)):""}</div>
