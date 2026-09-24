@@ -784,6 +784,7 @@ const S = {
   async franqSolicListar(){return okS(await supa.rpc("franq_solic_listar"))||[];},
   async franqResponder(id,st,resp,anexoCam,anexoNome){okS(await supa.rpc("franq_responder",{p_id:id,p_status:st,p_resposta:resp||"",p_anexo_caminho:anexoCam||null,p_anexo_nome:anexoNome||null}));return{ok:true};},
   async franqSolicPorTarefa(idTar){return okS(await supa.rpc("franq_solic_por_tarefa",{p_tarefa_id:idTar}))||[];},
+  async franqSetVerParecer(id,ver){okS(await supa.rpc("franq_set_ver_parecer",{p_id:id,p_ver:!!ver}));return{ok:true};},
   async franqAcesso(id,em){okS(await supa.rpc("franqueado_acesso",{p_id:id,p_email:em}));return{ok:true};},
   async franqCriarConta(id){return okS(await supa.rpc("franqueado_criar_conta",{p_id:id}));},
   async franqResetSenha(id){okS(await supa.rpc("franqueado_resetar_senha",{p_id:id}));return{ok:true};},
@@ -5134,6 +5135,7 @@ async function telaFranqueados(){
         <button class="btn bts btsm" onclick="trocarRespFranq(${x.id})" title="trocar responsável">&#128100;${esc(x.responsavel||"?")}</button>
         <button class="btn bts btsm" onclick="acessoFranq(${x.id})" title="${x.email?"portal: "+esc(x.email):"dar acesso ao portal (login e senha)"}">&#128273;${x.email?(x.senha_trocada?" portal ativo":x.acesso_criado?" senha padrão":""):" dar acesso"}</button>
         ${x.acesso_criado?`<button class="btn bts btsm" style="color:var(--roxo);border-color:var(--roxo)" onclick="verComoFranqueado(${x.id})" title="abrir o portal como este franqueado (dados reais, só leitura)">&#128065; ver como</button>`:""}
+        <button class="btn bts btsm" style="${x.ver_parecer?"color:var(--green);border-color:var(--green)":"color:var(--gray);border-color:var(--border)"}" onclick="toggleVerParecer(${x.id})" title="${x.ver_parecer?"este franqueado VÊ o anexo do parecer no portal — clique para bloquear":"este franqueado NÃO vê o anexo (recebe só a mensagem) — clique para liberar"}">&#128196; anexo: ${x.ver_parecer?"liberado":"bloqueado"}</button>
         ${x.acesso_criado?`<button class="btn bts btsm" style="color:var(--amber);border-color:var(--amber)" onclick="resetSenhaFranq(${x.id})" title="esqueceu a senha? volta para a padrão">&#8634;</button>`:""}</span></div>`;};
   // 📨 solicitações vindas do portal (parecer/proposta)
   const solRot={NOVA:["tda","nova"],EM_ANALISE:["td2","em análise"],RESPONDIDA:["tek","respondida"],RECUSADA:["ti","recusada"]};
@@ -5347,6 +5349,15 @@ async function acessoFranq(id){
     toast(r==="CRIADA"?"Conta criada! Passe a ele: login "+login+" · senha "+FRANQ_SENHA_PADRAO
       :"Login salvo — a conta já existia.","ok");
   }catch(e){toast("Erro: "+e.message,"erro");return;}
+  telaFranqueados();}
+async function toggleVerParecer(id){
+  const x=(E._franqMap||{})[id];if(!x)return;
+  const novo=!x.ver_parecer;
+  if(!confirm(novo
+    ?"Liberar o ANEXO do parecer para "+x.franqueado+"?\n\nEle passará a conseguir BAIXAR o parecer no portal."
+    :"Bloquear o anexo do parecer para "+x.franqueado+"?\n\nEle recebe só a mensagem de análise finalizada (sem o arquivo)."))return;
+  try{await DB.franqSetVerParecer(id,novo);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast(novo?"Anexo liberado para "+x.franqueado+".":"Anexo bloqueado — "+x.franqueado+" recebe só a mensagem.","ok");
   telaFranqueados();}
 async function resetSenhaFranq(id){
   const x=(E._franqMap||{})[id];if(!x)return;
