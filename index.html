@@ -3293,7 +3293,7 @@ async function telaPainel(){
   const _eh=escHead();if(_eh)ts=ts.filter(t=>String(t.advogada||"").trim()===_eh);
   E.tarefas=ts;E._todasBanco=ts;
   const at=ts.filter(t=>t.id_tarefa&&!t._delegada&&!t._emCorrecao);
-  const total=at.length,atr=at.filter(t=>t._atrasada).length,imed=at.filter(t=>t._g===1).length;
+  const total=nProcSum(at),atr=nProcSum(at.filter(t=>t._atrasada)),imed=nProcSum(at.filter(t=>t._g===1));
   const porHead={Danielly:0,Bruna:0,Eduarda:0};
   at.forEach(t=>{if(porHead[t.advogada]!==undefined)porHead[t.advogada]++;});
   // carga = TUDO que está no nome da pessoa (encerradas já saíram do quadro):
@@ -3301,12 +3301,13 @@ async function telaPainel(){
   const porAss={};
   ts.forEach(t=>{if(!t.id_tarefa)return;const nA=loginDe(t.assessor);if(!nA)return;
     const o=porAss[nA]=porAss[nA]||{tot:0,atr:0,pend:0,dia:0,corr:0,deleg:0};
-    o.tot++;
-    if(t._delegada)o.deleg++;
-    else if(t._emCorrecao)o.corr++;
-    else if(t._concluida)o.dia++;
-    else if(t._atrasada)o.atr++;
-    else o.pend++;});
+    const np=t._nproc||1;  // volume conta processos (Bruna, 24/09/2026)
+    o.tot+=np;
+    if(t._delegada)o.deleg+=np;
+    else if(t._emCorrecao)o.corr+=np;
+    else if(t._concluida)o.dia+=np;
+    else if(t._atrasada)o.atr+=np;
+    else o.pend+=np;});
   const ae=Object.entries(porAss).sort((a,b)=>b[1].tot-a[1].tot);const mx=ae.length?ae[0][1].tot:1;
   // alerta de dia zerado + inatividade (sessões)
   let alerta="";
@@ -3784,7 +3785,7 @@ async function telaDiario(dia){
       if(!atv.length)return;
       const p=montarPlanoDia(n,atv,reunD,hist,propsD);
       const c=corDe(n);
-      hDia+=`<details class="det"><summary><b style="color:${c.text}">${esc(n)}</b> — hoje: <b>${p.plano.length}</b> (&asymp;${fmtMin(p.planejado)} de ${fmtMin(p.capDisp)})${p.reservaPros?` · &#127919;${fmtMin(p.reservaPros)}`:""}${p.reservaFu?` · &#128222;${fmtMin(p.reservaFu)}`:""} · fila: <b style="color:${p.fila.length?"var(--red)":"var(--green)"}">${p.fila.length}</b>${p.fila.length?` (&asymp;${fmtMin(p.filaMin)})`:""}</summary>
+      hDia+=`<details class="det"><summary><b style="color:${c.text}">${esc(n)}</b> — hoje: <b>${nProcSum(p.plano)}</b> (&asymp;${fmtMin(p.planejado)} de ${fmtMin(p.capDisp)})${p.reservaPros?` · &#127919;${fmtMin(p.reservaPros)}`:""}${p.reservaFu?` · &#128222;${fmtMin(p.reservaFu)}`:""} · fila: <b style="color:${p.fila.length?"var(--red)":"var(--green)"}">${nProcSum(p.fila)}</b>${p.fila.length?` (&asymp;${fmtMin(p.filaMin)})`:""}</summary>
         <div style="padding:6px 10px">
         <div style="font-size:11px;font-weight:700;color:var(--navy);margin-bottom:3px">Cobrado para hoje</div>
         ${p.plano.map(t=>`<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')"><span style="font-size:12px">${t._urg===0?"&#9888;&#65039; ":t._urg===0.5?"&#128204; ":t._urg===1?"&#9889; ":""}${esc(t.cliente)} · ${esc(t.operacao||"")} <span style="color:var(--gray);font-size:10px">&#9201;${t._tempo}min</span></span>${atrasoDias(t)>0?`<span class="tdy ov">${atrasoDias(t)}d atraso</span>`:""}</div>`).join("")||'<div style="font-size:12px;color:var(--gray);padding:4px 0">nada além dos blocos fixos</div>'}
@@ -4156,7 +4157,7 @@ async function telaCentral(){
         const fila2=lst.filter(t=>idsFila.has(t.id_tarefa));
         const fora2=lst.filter(t=>!idsHoje.has(t.id_tarefa)&&!idsFila.has(t.id_tarefa));
         const atr=lst.filter(t=>t._atrasada).length;
-        return `<details class="det"><summary><b>${esc(ass2)}</b> — <b style="color:var(--green)">${hoje2.length} entram hoje</b> · <b style="color:${fila2.length?"var(--red)":"var(--gray)"}">${fila2.length} na fila</b>${fora2.length?` · ${fora2.length} fora do dia`:""}${atr?` · <b style="color:var(--red)">${atr} atrasada(s)</b>`:""}</summary>
+        return `<details class="det"><summary><b>${esc(ass2)}</b> — <b style="color:var(--green)">${nProcSum(hoje2)} entram hoje</b> · <b style="color:${fila2.length?"var(--red)":"var(--gray)"}">${nProcSum(fila2)} na fila</b>${fora2.length?` · ${fora2.length} fora do dia`:""}${atr?` · <b style="color:var(--red)">${atr} atrasada(s)</b>`:""}</summary>
           <div style="padding:4px 8px">
           ${hoje2.length?`<div style="font-size:11px;font-weight:700;color:var(--green);margin:3px 0">&#10004; ENTRAM NO DIA DELE HOJE (${hoje2.length}) — o sistema está cobrando</div>`+hoje2.map(t=>cardTarefa(t,false)).join("")
             :'<div style="font-size:11px;color:var(--gray);margin:3px 0">Nenhuma da sua carteira entrou no plano de hoje dele.</div>'}
@@ -4682,7 +4683,7 @@ async function telaCapacidade(){
     // mesma régua do Painel Geral: só tarefas ativas (fora delegadas/correção),
     // e "imediatas" = IMEDIATO pendente (não conta as já concluídas no ciclo)
     const minhas=tsCap.filter(t=>t.id_tarefa&&loginDe(t.assessor)===nome&&!t._delegada&&!t._emCorrecao);
-    const imed=minhas.filter(t=>t._g===1).length;
+    const imed=nProcSum(minhas.filter(t=>t._g===1));
     const min=(hist||[]).filter(r=>r.tipo==="TIMER"&&loginDe(r.autor)===nome)
       .reduce((s,r)=>s+parseInt((String(r.texto||"").match(/(\d+)\s*min/)||[0,0])[1]),0);
     const upd=(hist||[]).filter(r=>r.tipo!=="TIMER"&&loginDe(r.autor)===nome).length;
@@ -4979,9 +4980,9 @@ async function telaRelatorio(){
   const naSemana=d=>{if(!d)return false;const x=new Date(String(d).slice(0,10)+"T00:00:00");return x>=ini;};
   // indicadores gerais
   const concl=ts.filter(t=>t._concluida).length,
-    atras=ts.filter(t=>t._atrasada&&!t._delegada&&!t._emCorrecao).length,
-    imed=ts.filter(t=>t._g===1&&!t._emCorrecao).length,
-    pf7=ts.filter(t=>t._pfDias!==null&&t._pfDias>=0&&t._pfDias<=7).length,
+    atras=nProcSum(ts.filter(t=>t._atrasada&&!t._delegada&&!t._emCorrecao)),
+    imed=nProcSum(ts.filter(t=>t._g===1&&!t._emCorrecao)),
+    pf7=nProcSum(ts.filter(t=>t._pfDias!==null&&t._pfDias>=0&&t._pfDias<=7)),
     corr=ts.filter(t=>t._emCorrecao).length,
     encSem=(casos||[]).filter(c=>naSemana(c.data_encerramento_dt)).length,
     propLanc=(props||[]).filter(p=>naSemana(p.data_proposta_dt)).length,
@@ -4994,7 +4995,7 @@ async function telaRelatorio(){
     ${cardI("&#10003;","Concluídas",concl,"var(--green)")}${cardI("&#128193;","Casos encerrados",encSem,"var(--green)")}
     ${cardI("&#9999;","Aguardando correção",corr,"#6B4FBF")}</div>`;
   h+=`<div class="bloco-t">Situação atual</div><div class="sg">
-    ${cardI("&#128203;","Tarefas ativas",ts.filter(t=>t.id_tarefa).length)}
+    ${cardI("&#128203;","Tarefas ativas",nProcSum(ts.filter(t=>t.id_tarefa)))}
     ${cardI("&#128308;","Atrasadas",atras,atras?"var(--red)":"var(--green)")}
     ${cardI("&#128992;","Imediatas",imed,imed?"var(--amber)":"var(--green)")}
     ${cardI("&#9888;","Prazo fatal (7d)",pf7,pf7?"var(--red)":"var(--green)")}</div>`;
