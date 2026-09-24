@@ -873,10 +873,9 @@ const S = {
     await histS(t.id_tarefa,t.id_cliente,"CORRECAO",
       `✋ Correção vencida puxada por ${E.perfil.nome_sistema}${antes&&antes!==E.perfil.nome_sistema?" (estava com "+antes+")":" (prazo renovado)"} — novo retorno ${brData(ret)}.`);
     return{ok:true};},
-  async correcaoDevolver(t){okS(await supa.from("operacional").update({correcao_head:"",correcao_data:"",correcao_data_dt:null,
-      correcao_retorno:"",correcao_retorno_dt:null,check_:"IMEDIATO",status_tarefa:"AGUARDANDO",
-      data_revisao:brData(hojeISO()),data_revisao_dt:hojeISO()}).eq("id_tarefa",t.id_tarefa).eq("linha",t.linha));
-    await histS(t.id_tarefa,t.id_cliente,"CORRECAO","Correção concluída — devolvida ao assessor (imediato)");return{ok:true};},
+  // devolver via função assinada: no PG17 o update direto morre quando a
+  // corretora se remove da tarefa (perde a visão da linha no mesmo ato)
+  async correcaoDevolver(t){okS(await supa.rpc("correcao_devolver",{p_id_tarefa:t.id_tarefa}));return{ok:true};},
   async delegar(t,x){const sub=await novoIdS("OP"),hid=await novoIdS("HIS");
     await rpcS("delegar_impulso",{p_id_tarefa:t.id_tarefa,p_para:x.para,p_desc:x.descricao,
       p_freq:x.freq||"DIÁRIO",p_sub_id:sub,p_hist_id:hid,p_quando:x.quando||null});return{ok:true,sub:sub};},
@@ -1709,6 +1708,8 @@ function dataLanc(t){
 function lancKey(t){const m=String(dataLanc(t)||"").match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   return m?`${m[3]}-${m[2]}-${m[1]}`:"9999-12-31";}
 // cartão criado pelo robô a partir de uma tarefa fixa (📌)
+// soma de volume contando processos (execução multi conta ×N — Bruna, 24/09)
+function nProcSum(l){return (l||[]).reduce((s2,t2)=>s2+(t2._nproc||1),0);}
 function ehFixaCard(t){return String(t.status_tarefa||"")==="TAREFA FIXA"||String(t.cliente||"").startsWith("📌");}
 // prazo fatal entra no banco com MARGEM D-2 em dias úteis (Bruna, 19/09/2026);
 // nunca cai em fim de semana nem antes de hoje. Recebe/retorna AAAA-MM-DD.
@@ -1750,7 +1751,7 @@ function cardTarefa(t,mostrarAssessor,mostrarTempo){
   const tmp=mostrarTempo?`<span class="tco" style="font-family:'DM Mono'">&#9201;${t._tempo}min</span>`:"";
   return `<div class="tc ${t._urg===0?"uF":t._urg===0.5?"uP":"u"+(t._g||5)}" onclick="abrirTarefa('${esc(t.id_tarefa)}')"><div style="flex:1;min-width:0">
     <div class="tcc">${esc(t.cliente)}${fin}</div>
-    <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${t._nproc>1?` <span class="tag ts" title="execução com vários processos — o tempo do dia já conta ×${t._nproc}">&#9878; ${t._nproc} proc.</span>`:""}${ec}${tagLanc(t)}${es}${hd}${pf}${ass}${tmp}</div></div>
+    <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${t._nproc>1?` <span class="tag ts" title="execução com vários processos — o tempo do dia já conta ×${t._nproc}">&#9878; ${t._nproc} proc.</span>`:""}${t.numero_processual?` <span class="tco" style="font-family:'DM Mono';font-size:10px">${esc(t.numero_processual)}</span>`:""}${ec}${tagLanc(t)}${es}${hd}${pf}${ass}${tmp}</div></div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">${dt}${t.prazo_fatal_dt?`<span class="tdy ov" style="font-weight:700">FATAL: ${brData(t.prazo_fatal_dt)}</span>`:""}${t.prazo_fatal_dt&&t.retomada_fatal_dt&&String(t.retomada_fatal_dt).slice(0,10)>hojeISO()?`<span class="tdy ok" title="Andamento do dia cumprido — dorme até a retomada">&#9203; retoma ${brData(t.retomada_fatal_dt)}</span>`:""}</div></div>`;
 }
 // Banner de prazos fatais desta semana (clicável)
@@ -2029,7 +2030,7 @@ function desenhaMinhas(){
   if(E._fuCard&&(!u||u==="1")){h+=fuCardHtml();algum=true;}
   [0,0.5,1,2,3,4].forEach(k=>{
     if(!g[k].length)return;algum=true;
-    h+=`<div class="grupo-t"><span>${rot[k]}</span><span class="qt">${g[k].length} · ~${g[k].reduce((s,t)=>s+t._tempo,0)}min</span></div>`
+    h+=`<div class="grupo-t"><span>${rot[k]}</span><span class="qt">${nProcSum(g[k])}${nProcSum(g[k])!==g[k].length?` (${g[k].length} cards)`:""} · ~${g[k].reduce((s,t)=>s+t._tempo,0)}min</span></div>`
       +g[k].map(t=>cardTarefa(t,false,true)).join("");});
   alvo.innerHTML=algum?h:`<div class="vazio"><div style="font-size:30px">&#127881;</div>
     <p style="font-weight:600;margin-top:8px">Nenhuma tarefa pendente!</p></div>`;
@@ -2063,7 +2064,7 @@ async function telaDelegadas(){
     h+=`<div class="tc ${venc?"u1":"u5"}">
       <div style="flex:1;min-width:0">
         <div class="tcc" style="cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')">${esc(t.cliente)}</div>
-        <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${t._nproc>1?` <span class="tag ts" title="execução com vários processos — o tempo do dia já conta ×${t._nproc}">&#9878; ${t._nproc} proc.</span>`:""}
+        <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${t._nproc>1?` <span class="tag ts" title="execução com vários processos — o tempo do dia já conta ×${t._nproc}">&#9878; ${t._nproc} proc.</span>`:""}${t.numero_processual?` <span class="tco" style="font-family:'DM Mono';font-size:10px">${esc(t.numero_processual)}</span>`:""}
           <span class="tag" style="background:#1F4E79;color:white">&#129309; com ${esc(para)}</span>
           ${subs.map(s=>`<span class="tag ${typeof s._dias==="number"&&s._dias<0?"ti":"tm"}" style="cursor:pointer" onclick="abrirTarefa('${esc(s.id_tarefa)}')" title="abrir o impulso (${esc(s.id_tarefa)})">${esc(s.check_||"")}${typeof s._dias==="number"&&s._dias<0?` · vencido há ${Math.abs(s._dias)}d`:(s.data_revisao_dt?` · rodada ${brData(s.data_revisao_dt)}`:"")}</span>`).join("")}</div>
         ${pedido?`<div class="tco" style="margin-top:3px;font-style:italic">"${esc(pedido)}"</div>`:""}
@@ -5830,7 +5831,7 @@ async function verTarefasCliente(id){
   let propsCli=[];try{propsCli=((await DB.propostas())||[]).filter(p=>p.id_cliente===id);}catch(e){}
   const at=(r.ativas||[]).map(classificar);
   at.forEach(t=>{if(!E.tarefas.find(x=>x.id_tarefa===t.id_tarefa))E.tarefas.push(t);});
-  let h=at.length?`<div class="bloco-t" style="color:var(--dani)">&#10003; ${at.length} ativa(s)</div>`+at.map(t=>cardTarefa(t,true)).join("")
+  let h=at.length?`<div class="bloco-t" style="color:var(--dani)">&#10003; ${nProcSum(at)} ativa(s)${nProcSum(at)!==at.length?` em ${at.length} cards`:""}</div>`+at.map(t=>cardTarefa(t,true)).join("")
     :`<div style="font-size:12px;color:var(--gray)">Sem tarefas ativas.</div>`;
   if((r.encerradas||[]).length){
     // deixa os casos disponíveis para o card completo (verCaso) fora da
