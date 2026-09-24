@@ -1665,6 +1665,7 @@ function classificar(t){
   // concluída = marcada EM DIA (robô das 7h) OU recém-concluída pelo site:
   // o botão Concluir grava status AGUARDANDO com a revisão no futuro — sem
   // isto, a tarefa DIÁRIO concluída ficava pendurada no dia até a manhã seguinte
+  t._nproc=Math.max(1,+t.n_processos||0);
   t._dias=d; t._concluida=st.includes("EM DIA")||(st.includes("AGUARDANDO")&&d!==null&&d>0);
   t._delegada=st.includes("DELEGADA");
   t._emCorrecao=!!String(t.correcao_head||"").trim();
@@ -1749,7 +1750,7 @@ function cardTarefa(t,mostrarAssessor,mostrarTempo){
   const tmp=mostrarTempo?`<span class="tco" style="font-family:'DM Mono'">&#9201;${t._tempo}min</span>`:"";
   return `<div class="tc ${t._urg===0?"uF":t._urg===0.5?"uP":"u"+(t._g||5)}" onclick="abrirTarefa('${esc(t.id_tarefa)}')"><div style="flex:1;min-width:0">
     <div class="tcc">${esc(t.cliente)}${fin}</div>
-    <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${ec}${tagLanc(t)}${es}${hd}${pf}${ass}${tmp}</div></div>
+    <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${t._nproc>1?` <span class="tag ts" title="execução com vários processos — o tempo do dia já conta ×${t._nproc}">&#9878; ${t._nproc} proc.</span>`:""}${ec}${tagLanc(t)}${es}${hd}${pf}${ass}${tmp}</div></div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">${dt}${t.prazo_fatal_dt?`<span class="tdy ov" style="font-weight:700">FATAL: ${brData(t.prazo_fatal_dt)}</span>`:""}${t.prazo_fatal_dt&&t.retomada_fatal_dt&&String(t.retomada_fatal_dt).slice(0,10)>hojeISO()?`<span class="tdy ok" title="Andamento do dia cumprido — dorme até a retomada">&#9203; retoma ${brData(t.retomada_fatal_dt)}</span>`:""}</div></div>`;
 }
 // Banner de prazos fatais desta semana (clicável)
@@ -1795,7 +1796,8 @@ function montarPlanoDia(nome,ativas,reun,histHoje,props){
   // compromissos de agenda descontam NO MÁXIMO 30 min do dia, no TOTAL
   // (Bruna, 21/09/2026 — caso do "despacho com o magistrado" de 90 min)
   const minReu=Math.min(30,meetings.reduce((s,m)=>s+reuMinCap(m),0));
-  ativas.forEach(t=>{t._tempo=t._meta||tempoPlanoDe(nome,t.operacao);});
+  // multi-processo (24/09/2026): execução com N processos pesa N× no dia
+  ativas.forEach(t=>{t._tempo=t._meta||tempoPlanoDe(nome,t.operacao)*(t._nproc||1);});
   const jaTrab=(histHoje||[]).filter(r=>r.tipo==="TIMER"&&loginDe(r.autor)===nome)
     .reduce((s,r)=>s+(parseInt((String(r.texto||"").match(/(\d+)\s*min/)||[])[1])||0),0);
   const cap=capDe(nome), capDia=Math.max(60,cap-minReu), capDisp=Math.max(0,capDia-jaTrab);
@@ -2061,7 +2063,7 @@ async function telaDelegadas(){
     h+=`<div class="tc ${venc?"u1":"u5"}">
       <div style="flex:1;min-width:0">
         <div class="tcc" style="cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')">${esc(t.cliente)}</div>
-        <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>
+        <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${t._nproc>1?` <span class="tag ts" title="execução com vários processos — o tempo do dia já conta ×${t._nproc}">&#9878; ${t._nproc} proc.</span>`:""}
           <span class="tag" style="background:#1F4E79;color:white">&#129309; com ${esc(para)}</span>
           ${subs.map(s=>`<span class="tag ${typeof s._dias==="number"&&s._dias<0?"ti":"tm"}" style="cursor:pointer" onclick="abrirTarefa('${esc(s.id_tarefa)}')" title="abrir o impulso (${esc(s.id_tarefa)})">${esc(s.check_||"")}${typeof s._dias==="number"&&s._dias<0?` · vencido há ${Math.abs(s._dias)}d`:(s.data_revisao_dt?` · rodada ${brData(s.data_revisao_dt)}`:"")}</span>`).join("")}</div>
         ${pedido?`<div class="tco" style="margin-top:3px;font-style:italic">"${esc(pedido)}"</div>`:""}
@@ -2289,6 +2291,7 @@ function desenharCard(t,hist){
       ${t.correcao_data_dt?` · enviada ${brData(String(t.correcao_data_dt).slice(0,10))}`:""}${t.correcao_retorno_dt?` · devolver até <b>${brData(t.correcao_retorno_dt)}</b>`:""}
       ${t.correcao_link?(urlPasta(t.correcao_link)?` · <a href="${esc(urlPasta(t.correcao_link))}" target="_blank" onclick="salvarPastaSeVazia('${esc(t.id_cliente||"")}','${esc(urlPasta(t.correcao_link))}')" style="color:var(--dani);font-weight:700">&#128193; Abrir a pasta (SharePoint)</a>`:` · <span style="color:var(--gray)" title="${esc(t.correcao_link)}">&#128206; ${/anex/i.test(t.correcao_link)?"arquivo anexado nesta tarefa (veja em Documentos, abaixo)":"link enviado: "+esc(String(t.correcao_link).slice(0,60))}</span>`):' · <span style="color:var(--gray)">sem link/arquivo indicado no envio</span>'}
       ${t.correcao_justif?`<br><span style="font-size:11.5px;color:var(--gray)">obs. do assessor: ${esc(t.correcao_justif)}</span>`:""}</div>`:""}
+    <div id="procs-box"></div>
     <div id="cli-extra" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"></div>
     <div id="cli-resumo-notas" style="margin-top:6px"></div>
     <div class="bloco" style="margin-top:10px"><div class="bloco-t">&#128206; Documentos</div>
@@ -2383,8 +2386,67 @@ function desenharCard(t,hist){
   h+=`</div>`;
   ge("m-corpo").innerHTML=h;
   rascunhoLiga("nota-texto","and:"+t.id_tarefa);
-  carregarCliExtra(t);carregarDocs(t);
+  carregarCliExtra(t);carregarDocs(t);carregarProcs(t);
 }
+// ⚖ multi-processo (24/09/2026): lista de processos do card, com status,
+// destacar (vira card próprio) e mesclar (traz outro card p/ cá)
+async function carregarProcs(t){
+  const box=ge("procs-box");if(!box)return;
+  let ps=[];try{ps=okS(await supa.from("tarefa_processos").select("*").eq("id_tarefa",t.id_tarefa).order("id"))||[];}catch(e){}
+  E._procsCard=ps;
+  const ehExec=/Execução Fiscal/i.test(t.operacao||"");
+  if(!ps.length&&!ehExec){box.innerHTML="";return;}
+  const chip={ATIVO:["tek","ativo"],SUSPENSO:["td2","suspenso"],BAIXADO:["tm","baixado"]};
+  box.innerHTML=`<div class="bloco" style="margin-top:10px"><div class="bloco-t">&#9878; Processos desta tarefa (${ps.filter(p=>p.status==="ATIVO").length} ativos${ps.length!==ps.filter(p=>p.status==="ATIVO").length?` · ${ps.length} no total`:""})</div>
+    ${ps.map(p=>{const ch=chip[p.status]||["tm",p.status];
+      return `<div class="linha-item"><span style="font-family:'DM Mono';font-size:11.5px">${esc(p.numero)} <span class="tag ${ch[0]}">${ch[1]}</span></span>
+      <span style="white-space:nowrap">
+        ${p.status==="ATIVO"?`<button class="btn bts btsm" onclick="procStatus(${p.id},'SUSPENSO')" title="pausa: sai da conta de tempo">&#9208;</button>`
+          :`<button class="btn bts btsm" onclick="procStatus(${p.id},'ATIVO')" title="reativar">&#9205;</button>`}
+        ${p.status!=="BAIXADO"?`<button class="btn bts btsm" onclick="procStatus(${p.id},'BAIXADO')" title="baixado/extinto">&#10004;</button>`:""}
+        ${ps.length>1?`<button class="btn bts btsm" onclick='procDestacar(${JSON.stringify(p.numero)})' title="vira um card próprio">&#9986;</button>`:""}</span></div>`;}).join("")
+      ||'<div style="font-size:12px;color:var(--gray)">Só o processo do campo acima. Adicione os demais para o tempo do dia contar certo.</div>'}
+    <div class="linha-acao" style="margin-top:6px">
+      <button class="btn bts btsm" onclick="procAdicionar()">&#10133; adicionar processo</button>
+      <button class="btn bts btsm" onclick="abrirMesclar()">&#128279; mesclar outra tarefa deste cliente aqui</button></div>
+    <div style="font-size:10px;color:var(--gray);margin-top:3px">O tempo do dia conta ×${Math.max(1,ps.filter(p=>p.status==="ATIVO").length)} (processos ativos). Suspenso/baixado não pesa.</div></div>`;
+}
+async function procAdicionar(){
+  const t=E.atual;
+  const n=(prompt("Número do processo a adicionar neste card:")||"").trim();
+  if(!n)return;
+  try{
+    if((E._procsCard||[]).length===0&&String(t.numero_processual||"").trim())
+      await supa.from("tarefa_processos").insert({id_tarefa:t.id_tarefa,numero:String(t.numero_processual).trim(),adicionado_por:E.perfil.nome_sistema});
+    okS(await supa.from("tarefa_processos").insert({id_tarefa:t.id_tarefa,numero:n,adicionado_por:E.perfil.nome_sistema}));
+    await DB.nota({id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,tipo:"HISTORICO",texto:"⚖ Processo adicionado ao card: "+n});
+  }catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Processo adicionado — o tempo do dia já conta com ele.","ok");carregarProcs(t);}
+async function procStatus(id,st){
+  try{okS(await supa.from("tarefa_processos").update({status:st}).eq("id",id));}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  carregarProcs(E.atual);}
+async function procDestacar(numero){
+  const t=E.atual;
+  if(!confirm("Destacar o processo "+numero+" para um card próprio?\nEle sai desta lista e vira uma tarefa separada (mesmo assessor)."))return;
+  let r;try{r=okS(await supa.rpc("tarefa_destacar",{p_id_tarefa:t.id_tarefa,p_numero:numero}));}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("✂️ Destacado: "+r+" criado.","ok");abrirTarefa(t.id_tarefa);}
+async function abrirMesclar(){
+  const t=E.atual;
+  const cands=(E.tarefas||[]).filter(x=>x.id_tarefa&&x.id_tarefa!==t.id_tarefa
+    &&x.id_cliente===t.id_cliente&&String(x.operacao||"").trim()===String(t.operacao||"").trim()
+    &&!String(x.status_tarefa||"").includes("DELEGADA"));
+  if(!cands.length){toast("Não há outra tarefa de "+(t.operacao||"?")+" deste cliente para mesclar.","erro");return;}
+  modal2("&#128279; Mesclar em "+esc(t.id_tarefa),esc(t.cliente)+" — a escolhida entra aqui como processo (andamentos e tempos vêm juntos)",
+    cands.map(x=>`<div class="linha-item"><span style="font-size:12px"><b>${esc(x.id_tarefa)}</b> · ${esc(x.numero_processual||"sem nº")} · rev ${brData(x.data_revisao_dt)||"—"}</span>
+      <button class="btn btp btsm" onclick="mesclarCom('${esc(x.id_tarefa)}')">mesclar</button></div>`).join(""));
+}
+async function mesclarCom(origem){
+  const t=E.atual;
+  try{okS(await supa.rpc("tarefa_mesclar",{p_destino:t.id_tarefa,p_origem:origem}));}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("🔗 "+origem+" mesclada aqui.","ok");fecharModal2();abrirTarefa(t.id_tarefa);}
 async function carregarCliExtra(t){
   if(!t.id_cliente)return;const box=ge("cli-extra");if(!box)return;
   try{const cs=await DB.clientes("");const c=cs.find(x=>x.id_cliente===t.id_cliente);if(!c)return;
