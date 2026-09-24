@@ -1138,14 +1138,13 @@ async function portalSalvarSenha(){
 const PF_ST={NOVA:["tda","recebida"],EM_ANALISE:["td2","em análise"],RESPONDIDA:["tek","respondida"],RECUSADA:["ti","recusada"]};
 async function portalFranqueado(){
   if(!E.franq.senha_trocada)return portalTrocaSenha();
+  E._pfEmpI=0;
   portalWrap(`
     <div class="painel"><div class="bloco-t">&#128232; Pedir parecer tributário (proposta comercial)</div>
-      <div style="font-size:12px;color:var(--gray);margin-bottom:8px">Preencha o CNPJ que o resto vem sozinho da Receita. O pedido entra como <b>imediato</b> no jurídico, aos cuidados da head que você escolher.</div>
-      <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
-        <input class="fi" id="pf-cnpj" placeholder="CNPJ da empresa *" style="flex:1.2;min-width:170px" onblur="pfBuscaCNPJ()">
-        <select class="fi" id="pf-head" style="flex:1;min-width:150px"><option value="">Head responsável *</option></select></div>
-      <input class="fi" id="pf-emp" placeholder="Nome da empresa (vem do CNPJ)" style="margin-bottom:4px">
-      <div id="pf-cnpj-info" style="font-size:11px;color:var(--green);margin-bottom:8px"></div>
+      <div style="font-size:12px;color:var(--gray);margin-bottom:8px">Preencha o CNPJ que o resto vem sozinho da Receita. O pedido entra como <b>imediato</b> no jurídico, aos cuidados da head que você escolher.<br><b>Mesmo dono com mais de um CNPJ?</b> Clique em &#8220;+ Adicionar outra empresa&#8221; e mande todas de uma vez.</div>
+      <div id="pf-empresas">${pfEmpRow(0)}</div>
+      <button type="button" class="btn bts btsm" onclick="pfAddEmpresa()" style="margin-bottom:10px">+ Adicionar outra empresa (mesmo dono)</button>
+      <select class="fi" id="pf-head" style="margin-bottom:8px"><option value="">Head responsável *</option></select>
       <textarea class="fi" id="pf-desc" rows="3" placeholder="Conte a situação: o que o cliente precisa, dívidas, o que ele pediu…" style="margin-bottom:8px;resize:vertical"></textarea>
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
         <span style="font-size:12px;color:var(--gray)">&#128197; Reunião de devolução já marcada com o cliente?</span>
@@ -1180,20 +1179,46 @@ async function pfAbrirAnexo(caminho){
   if(r.error)return pfAviso("Não consegui abrir o arquivo: "+r.error.message);
   window.open(r.data.signedUrl,"_blank");
 }
-async function pfBuscaCNPJ(){
-  const dig=String((ge("pf-cnpj")||{}).value||"").replace(/\D/g,"");
-  E._pfCnpj=null;if(dig.length!==14)return;
+// uma linha de empresa (CNPJ + nome) — o franqueado pode repetir para vários
+// CNPJs do mesmo dono
+function pfEmpRow(i){return `<div class="pf-emp-row" data-i="${i}" style="border:1px solid var(--border);border-radius:9px;padding:8px 9px;margin-bottom:8px">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input class="fi pf-cnpj" placeholder="CNPJ da empresa *" style="flex:1.2;min-width:170px" onblur="pfBuscaCNPJ(this)">
+      ${i>0?`<button type="button" class="btn bts btsm" style="color:var(--red);border-color:var(--red)" title="remover esta empresa" onclick="pfDelEmpresa(this)">&#128465;</button>`:""}</div>
+    <input class="fi pf-emp" placeholder="Nome da empresa (vem do CNPJ)" style="margin-top:6px">
+    <div class="pf-cnpj-info" style="font-size:11px;color:var(--green);margin-top:4px"></div></div>`;}
+function pfAddEmpresa(){const box=ge("pf-empresas");if(!box)return;
+  E._pfEmpI=(E._pfEmpI||0)+1;box.insertAdjacentHTML("beforeend",pfEmpRow(E._pfEmpI));}
+function pfDelEmpresa(btn){const row=btn.closest(".pf-emp-row");
+  if(row&&ge("pf-empresas").querySelectorAll(".pf-emp-row").length>1)row.remove();}
+async function pfBuscaCNPJ(el){
+  const row=el&&el.closest?el.closest(".pf-emp-row"):null;if(!row)return;
+  const dig=String(el.value||"").replace(/\D/g,"");
+  row.dataset.mun="";row.dataset.uf="";
+  const info=row.querySelector(".pf-cnpj-info");
+  if(dig.length!==14){if(info)info.innerHTML="";return;}
   let d;try{const r=await fetch("https://brasilapi.com.br/api/cnpj/v1/"+dig);if(!r.ok)return;d=await r.json();}catch(e){return;}
-  E._pfCnpj={municipio:d.municipio||"",uf:d.uf||""};
-  if(d.razao_social&&ge("pf-emp")&&!(ge("pf-emp").value||"").trim())ge("pf-emp").value=d.razao_social;
-  if(ge("pf-cnpj-info"))ge("pf-cnpj-info").innerHTML="&#10003; Receita: "+esc(d.razao_social||"")+(d.municipio?" — "+esc(d.municipio)+"/"+esc(d.uf||""):"");
+  row.dataset.mun=d.municipio||"";row.dataset.uf=d.uf||"";
+  const emp=row.querySelector(".pf-emp");
+  if(d.razao_social&&emp&&!(emp.value||"").trim())emp.value=d.razao_social;
+  if(info)info.innerHTML="&#10003; Receita: "+esc(d.razao_social||"")+(d.municipio?" — "+esc(d.municipio)+"/"+esc(d.uf||""):"");
 }
 async function portalSolicitar(){
-  if(E.franq&&E.franq._preview)return pfAviso("Visualização: aqui o pedido viraria uma tarefa imediata no jurídico e apareceria na lista embaixo.","info");
-  const dig=String(ge("pf-cnpj").value||"").replace(/\D/g,"");
-  if(dig.length!==14&&dig.length!==11)return pfAviso("O CNPJ da empresa é obrigatório (14 números — ou CPF, 11).");
+  if(E.franq&&E.franq._preview)return pfAviso("Visualização: aqui o pedido viraria uma tarefa imediata no jurídico (uma por empresa) e apareceria na lista embaixo.","info");
+  // coleta as empresas (uma ou várias do mesmo dono)
+  const empresas=[];const vistos=new Set();
+  for(const row of document.querySelectorAll("#pf-empresas .pf-emp-row")){
+    const dig=String((row.querySelector(".pf-cnpj")||{}).value||"").replace(/\D/g,"");
+    const nome=String((row.querySelector(".pf-emp")||{}).value||"").trim();
+    if(!dig&&!nome)continue;                       // linha em branco: ignora
+    if(dig.length!==14&&dig.length!==11)return pfAviso("Há um CNPJ inválido na lista (14 números — ou CPF, 11).");
+    if(!nome)return pfAviso("Informe o nome de todas as empresas.");
+    if(vistos.has(dig))return pfAviso("Há um CNPJ repetido na lista de empresas.");
+    vistos.add(dig);
+    empresas.push({dig,nome,mun:row.dataset.mun||"",uf:row.dataset.uf||""});
+  }
+  if(!empresas.length)return pfAviso("Informe ao menos uma empresa (CNPJ + nome).");
   if(!ge("pf-head").value)return pfAviso("Escolha a head responsável.");
-  if(!ge("pf-emp").value.trim())return pfAviso("Informe o nome da empresa.");
   if(!ge("pf-desc").value.trim())return pfAviso("Descreva a situação do cliente.");
   const ecSel=ge("pf-ec").value;
   if(!ecSel)return pfAviso("Diga como vamos acessar os dados da Receita (e-CAC / gov.br).");
@@ -1201,7 +1226,7 @@ async function portalSolicitar(){
   if(ecSel==="LIB"&&!ec)return pfAviso("Diga em qual CNPJ da Villela o e-CAC está liberado.");
   const bt=ge("pf-enviar");bt.disabled=true;bt.textContent="Enviando…";
   const fim=()=>{bt.disabled=false;bt.textContent="Enviar para o jurídico";};
-  // certificado digital primeiro (se tiver) — vai para a pasta do cliente
+  // certificado digital primeiro (se tiver) — anexado ao 1º CNPJ da lista
   let anexo=null,anexoNome=null,anexoTam=null;
   const f=(ge("pf-cert").files||[])[0];
   if(f){
@@ -1210,17 +1235,23 @@ async function portalSolicitar(){
     if(up.error){fim();return pfAviso("O anexo não subiu: "+up.error.message);}
     anexo=caminho;anexoNome=f.name;anexoTam=f.size;
   }
-  const{data,error}=await supa.rpc("franq_solicitar",{p_head:ge("pf-head").value,
-    p_cnpj:dig,p_empresa:ge("pf-emp").value.trim(),p_descricao:ge("pf-desc").value.trim(),
-    p_municipio:(E._pfCnpj||{}).municipio||"",p_uf:(E._pfCnpj||{}).uf||"",p_ecac:ec,
-    p_anexo_caminho:anexo,p_anexo_nome:anexoNome,p_anexo_tamanho:anexoTam,
-    p_reuniao:ge("pf-reuniao").value||null});
+  // um pedido por empresa (mesma head, descrição, acesso e data de reunião)
+  let okN=0,novos=0;const erros=[];
+  for(let i=0;i<empresas.length;i++){const e=empresas[i];
+    const{data,error}=await supa.rpc("franq_solicitar",{p_head:ge("pf-head").value,
+      p_cnpj:e.dig,p_empresa:e.nome,p_descricao:ge("pf-desc").value.trim(),
+      p_municipio:e.mun,p_uf:e.uf,p_ecac:ec,
+      p_anexo_caminho:i===0?anexo:null,p_anexo_nome:i===0?anexoNome:null,p_anexo_tamanho:i===0?anexoTam:null,
+      p_reuniao:ge("pf-reuniao").value||null});
+    if(error){erros.push(e.nome+": "+error.message);}else{okN++;if(data&&data.novo)novos++;}
+  }
   fim();
-  if(error)return pfAviso(error.message);
-  ["pf-cnpj","pf-emp","pf-desc","pf-ec-qual","pf-reuniao"].forEach(i=>ge(i).value="");
+  if(erros.length)return pfAviso("Enviei "+okN+" de "+empresas.length+". Não deu em: "+erros.join(" · "));
+  // limpa o formulário (volta a ter uma empresa em branco)
+  E._pfEmpI=0;ge("pf-empresas").innerHTML=pfEmpRow(0);
+  ["pf-desc","pf-ec-qual","pf-reuniao"].forEach(i=>ge(i).value="");
   ge("pf-ec").value="";ge("pf-ec-qual").style.display="none";ge("pf-cert").value="";
-  ge("pf-cnpj-info").innerHTML="";E._pfCnpj=null;
-  pfAviso("Enviado! Seu pedido já virou tarefa imediata no jurídico"+(data&&data.novo?" e o cliente foi cadastrado":"")+". Acompanhe aqui embaixo.","info");
+  pfAviso("Enviado! "+okN+" empresa(s) já viraram tarefa imediata no jurídico"+(novos?" ("+novos+" cliente(s) cadastrado(s))":"")+". Acompanhe aqui embaixo.","info");
   portalLista();
 }
 async function portalLista(){
