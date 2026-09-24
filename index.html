@@ -717,6 +717,11 @@ const S = {
     if(E._cacheT&&Date.now()-E._cacheT.ts<60000)return E._cacheT.v;
     const v=await paginadoS(()=>supa.from("operacional").select("*").order("data_revisao_dt",{ascending:true,nullsFirst:false}).order("linha"));
     E._cacheT={v:v,ts:Date.now()};return v;},
+  // clientes onde EU lancei tarefa — via rastro do histórico ("Tarefa criada
+  // por X"); pega inclusive as já arquivadas (o histórico permanece).
+  async clientesQueLancei(){const nome=E.perfil.nome_sistema;
+    const r=okS(await supa.from("historico").select("id_cliente").eq("autor",nome).ilike("texto","%Tarefa criada por %"))||[];
+    return [...new Set(r.map(x=>x.id_cliente).filter(Boolean))];},
   async historico(id){return okS(await supa.from("historico").select("*").eq("id_tarefa",id).order("data_dt",{ascending:false,nullsFirst:false}).order("linha",{ascending:false}).limit(500))||[];},
   async notasCli(idc){return okS(await supa.from("historico").select("*").eq("id_cliente",idc).order("data_dt",{ascending:false,nullsFirst:false}).order("linha",{ascending:false}).limit(200))||[];},
   async historicoHoje(){return okS(await supa.from("historico").select("*").eq("data_dt",hojeISO()))||[];},
@@ -886,7 +891,7 @@ const S = {
   async criarTarefa(d){const op=await novoIdS("OP");
     okS(await supa.from("operacional").insert({id_tarefa:op,id_cliente:d.id_cliente,advogada:d.head||"",
       data_inclusao:brHoje(),data_inclusao_dt:hojeISO(),cliente:d.cliente||"",cnpj_cpf:d.cnpj||"",check_:d.check||"IMEDIATO",
-      operacao:d.operacao||"",assessor:d.assessor||"",status_tarefa:"AGUARDANDO",
+      operacao:d.operacao||"",assessor:d.assessor||"",status_tarefa:"AGUARDANDO",criado_por:E.perfil.nome_sistema,
       numero_processual:d.numero_proc||"",estado:d.estado||"",supervisao:d.supervisao||"",
       prazo_fatal:d.prazo_fatal?brData(d.prazo_fatal):null,prazo_fatal_dt:d.prazo_fatal||null,
       data_revisao:brData(d.revisao),data_revisao_dt:d.revisao}));
@@ -1352,7 +1357,7 @@ function alternarEscopo(){
 function montarMenu(){
   const p=E.perfil, vend=/vendedor|comercial/i.test(p.cargo||"");
   let itens;
-  if(vend) itens=[["meudia","&#127749;","Meu Dia",telaMeuDia],["prop","&#128203;","Propostas",telaPropostas],["com","&#128188;","Comercial",telaComercial],["agenda","&#128197;","Minha Agenda",telaAgenda]];
+  if(vend) itens=[["meudia","&#127749;","Meu Dia",telaMeuDia],["prop","&#128203;","Propostas",telaPropostas],["com","&#128188;","Comercial",telaComercial],["cli","&#127970;","Buscar Clientes",telaClientes],["agenda","&#128197;","Minha Agenda",telaAgenda]];
   else if(p.head_sim) itens=[
     ["central","&#127749;","Central do Dia",telaCentral],
     ["agenda","&#128197;","Minha Agenda",telaAgenda],
@@ -5457,6 +5462,10 @@ async function telaClientes(){
     if(loginDe(t.assessor)===E.perfil.nome_sistema&&!st.includes("EM DIA")){
       E._minhaTarefa[t.id_cliente]=true;
       E._minhaQtd[t.id_cliente]=(E._minhaQtd[t.id_cliente]||0)+1;}});
+  // clientes com tarefas que EU lancei (ativas via criado_por + arquivadas via histórico)
+  E._lanceiCli={};
+  (ops||[]).forEach(t=>{if(t.id_cliente&&ehMeuNome(t.criado_por))E._lanceiCli[t.id_cliente]=true;});
+  try{(await DB.clientesQueLancei()).forEach(id=>E._lanceiCli[id]=true);}catch(e){}
   E.tarefas=(ops||[]).map(classificar);
   const pill=(grupo,val,rot)=>`<button class="btn ${E["_f"+grupo]===val?"btp":"bts"} btsm" onclick="E._f${grupo}='${val}';E._clPag=0;desenhaClientes()">${rot}</button>`;
   ge("conteudo").innerHTML=`
@@ -5486,10 +5495,11 @@ function desenhaPills(){
       <option value="TODOS">Regime: todos</option><option value="CONFIRMAR">&#9888; Para confirmar</option>
       <option value="SIMPLES">Simples/MEI</option><option value="PR">Presumido/Real</option><option value="SEM">Sem regime</option></select>
     <select class="fsel" onchange="E._fAtivo=this.value;E._clPag=0;desenhaClientes()">
-      <option value="TODOS">Tarefas: todas</option><option value="SEM">&#10060; Sem tarefa ativa</option>
-      <option value="COM">&#10003; Com tarefa ativa</option>
-      <option value="MINHAS">&#128100; Sob minha responsabilidade</option>
-      <option value="SEMRESP">&#9888; Sem responsável vinculado</option></select>
+      <option value="TODOS" ${E._fAtivo==="TODOS"?"selected":""}>Tarefas: todas</option><option value="SEM" ${E._fAtivo==="SEM"?"selected":""}>&#10060; Sem tarefa ativa</option>
+      <option value="COM" ${E._fAtivo==="COM"?"selected":""}>&#10003; Com tarefa ativa</option>
+      <option value="MINHAS" ${E._fAtivo==="MINHAS"?"selected":""}>&#128100; Sob minha responsabilidade</option>
+      <option value="LANCEI" ${E._fAtivo==="LANCEI"?"selected":""}>&#129534; Que eu lancei</option>
+      <option value="SEMRESP" ${E._fAtivo==="SEMRESP"?"selected":""}>&#9888; Sem responsável vinculado</option></select>
     <select class="fsel" onchange="E._fHead=this.value;E._clPag=0;desenhaClientes()">
       <option value="TODOS">&#9878; Head: todas</option>
       ${[...new Set((E._clsTodos||[]).map(c=>String(c.head||"").trim()).filter(Boolean))].sort((x,y)=>x.localeCompare(y))
@@ -5529,6 +5539,7 @@ function filtroCliente(c){
   if(E._fAtivo==="COM"&&!E._temTarefa[c.id_cliente])return false;
   if(E._fAtivo==="MINHAS"&&!(E._minhaTarefa[c.id_cliente]
     ||loginDe(c.assessor_responsavel||"")===E.perfil.nome_sistema))return false;
+  if(E._fAtivo==="LANCEI"&&!(E._lanceiCli||{})[c.id_cliente])return false;
   if(E._fAtivo==="SEMRESP"&&String(c.assessor_responsavel||"").trim()!=="")return false;
   return true;
 }
