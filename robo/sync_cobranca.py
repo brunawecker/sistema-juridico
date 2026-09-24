@@ -49,12 +49,14 @@ SC_EMAILS = {
 HEADS_ROT = ["Eduarda", "Bruna", "Danielly"]
 ROT_ANCORA = date(2026, 9, 17)  # índice 0 = Eduarda (a partir de hoje)
 AGENDAS = [
-    # SDRs → reuniões do Nicholas, visíveis às heads (contar quantas ele tem)
+    # SDRs → reuniões do Nicholas: aparecem SÓ para ele (Bruna, 24/09/2026).
+    # As heads não veem por padrão, mas continuam podendo FILTRAR a agenda dele
+    # (a RLS deixa head ver todas) e cobrar o resumo pelo nome na Central.
     {"cal": "nicholasdemeneghe.grupovillela@gmail.com", "ver": ["Nicholas"], "cat": "sdr"},
     {"cal": "plataformabd3.8@gmail.com",
-     "ver": ["Nicholas", "Bruna", "Danielly", "Eduarda"], "cat": "sdr", "dono": "Nicholas"},
+     "ver": ["Nicholas"], "cat": "sdr", "dono": "Nicholas"},
     {"cal": "souzademarqueseduarda@gmail.com",
-     "ver": ["Nicholas", "Bruna", "Danielly", "Eduarda"], "cat": "sdr", "dono": "Nicholas"},
+     "ver": ["Nicholas"], "cat": "sdr", "dono": "Nicholas"},
     # plataforma SC → reuniões das 3 heads, com RODÍZIO diário de responsável
     {"cal": "plataformabde@gmail.com",
      "ver": ["Bruna", "Danielly", "Eduarda"], "cat": "sc", "rot": True},
