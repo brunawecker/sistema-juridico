@@ -1674,7 +1674,14 @@ function classificar(t){
   t._delegada=st.includes("DELEGADA");
   t._emCorrecao=!!String(t.correcao_head||"").trim();
   t._impulso=String(t.supervisao||"").includes("IMPULSO de");
-  const pf=diasAte(t.prazo_fatal_dt); t._pfDias=pf; t._prazoAlerta=(pf!==null&&pf<=5);
+  // prazo do Simples Nacional entra como prazo fatal (rotulado), sem apagar um
+  // prazo fatal real: usamos o mais próximo dos dois para a urgência
+  const pf0=diasAte(t.prazo_fatal_dt), sp=diasAte(t.simples_prazo_dt); t._spDias=sp;
+  let pf=pf0; t._fatalSN=false;
+  if(sp!==null&&(pf0===null||sp<pf0)){pf=sp;t._fatalSN=true;}
+  t._pfDias=pf; t._prazoAlerta=(pf!==null&&pf<=5);
+  const realFatalAtivo=!!t.prazo_fatal_dt&&!(t.retomada_fatal_dt&&String(t.retomada_fatal_dt).slice(0,10)>hojeISO());
+  t._fatalTopo=realFatalAtivo||(sp!==null);
   t._impedimento=/impedimento/i.test(String(t.operacao||""));
   t._laudo=/laudo|capag|\bopf\b/i.test(String(t.operacao||""));
   t._laudoDias=t._laudo&&t.etapa_laudo_dt?(-diasAte(String(t.etapa_laudo_dt).slice(0,10))):null;
@@ -1757,7 +1764,7 @@ function cardTarefa(t,mostrarAssessor,mostrarTempo){
   return `<div class="tc ${t._urg===0?"uF":t._urg===0.5?"uP":"u"+(t._g||5)}" onclick="abrirTarefa('${esc(t.id_tarefa)}')"><div style="flex:1;min-width:0">
     <div class="tcc">${esc(t.cliente)}${fin}</div>
     <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${t._nproc>1?` <span class="tag ts" title="execução com vários processos — o tempo do dia já conta ×${t._nproc}">&#9878; ${t._nproc} proc.</span>`:""}${t.numero_processual?` <span class="tco" style="font-family:'DM Mono';font-size:10px">${esc(t.numero_processual)}</span>`:""}${ec}${tagLanc(t)}${es}${hd}${pf}${ass}${tmp}</div></div>
-    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">${dt}${t.prazo_fatal_dt?`<span class="tdy ov" style="font-weight:700">FATAL: ${brData(t.prazo_fatal_dt)}</span>`:""}${t.prazo_fatal_dt&&t.retomada_fatal_dt&&String(t.retomada_fatal_dt).slice(0,10)>hojeISO()?`<span class="tdy ok" title="Andamento do dia cumprido — dorme até a retomada">&#9203; retoma ${brData(t.retomada_fatal_dt)}</span>`:""}</div></div>`;
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">${dt}${t.prazo_fatal_dt?`<span class="tdy ov" style="font-weight:700">FATAL: ${brData(t.prazo_fatal_dt)}</span>`:""}${t.simples_prazo_dt?`<span class="tdy ov" style="font-weight:700;background:#7B2D8B">&#9203; SIMPLES: ${brData(String(t.simples_prazo_dt).slice(0,10))}</span>`:""}${t.prazo_fatal_dt&&t.retomada_fatal_dt&&String(t.retomada_fatal_dt).slice(0,10)>hojeISO()?`<span class="tdy ok" title="Andamento do dia cumprido — dorme até a retomada">&#9203; retoma ${brData(t.retomada_fatal_dt)}</span>`:""}</div></div>`;
 }
 // Banner de prazos fatais desta semana (clicável)
 function bannerPrazoFatal(ts){
@@ -1814,12 +1821,11 @@ function montarPlanoDia(nome,ativas,reun,histHoje,props){
   // mesmo AGUARDANDO com retorno futuro ("sempre entra na frente").
   // EXCEÇÃO (Bruna, 19/09/2026): andamento do dia dado + RETOMADA marcada →
   // o cartão dorme e só volta ao topo na data de retomada.
-  const fatal=ativas.filter(t=>t.prazo_fatal_dt
-      &&!(t.retomada_fatal_dt&&String(t.retomada_fatal_dt).slice(0,10)>hjISO2))
+  const fatal=ativas.filter(t=>t._fatalTopo)
     .sort((a,b)=>((a._pfDias??999)-(b._pfDias??999)));
-  const fixasDia=ativas.filter(t=>!t._concluida&&!t.prazo_fatal_dt&&ehFixaCard(t)
+  const fixasDia=ativas.filter(t=>!t._concluida&&!t._fatalTopo&&ehFixaCard(t)
     &&typeof t._dias==="number"&&t._dias<=0);
-  const topo=t=>!!t.prazo_fatal_dt||fixasDia.includes(t);
+  const topo=t=>!!t._fatalTopo||fixasDia.includes(t);
   const imed=ativas.filter(t=>t._g===1&&!topo(t)), atr=ativas.filter(t=>t._g===2&&!topo(t)).sort((a,b)=>a._dias-b._dias),
         diar=ativas.filter(t=>t._g===3&&/DI[ÁA]RIO/.test(t._chk)&&!topo(t)),
         hoje0=ativas.filter(t=>t._g===3&&!/DI[ÁA]RIO/.test(t._chk)&&!topo(t));
@@ -2203,7 +2209,7 @@ async function abrirTarefa(id){
     DB.sessaoConcluir(c.min).catch(()=>{});
     if(c.min>=1)DB.tempo({id_tarefa:ant.id_tarefa,id_cliente:ant.id_cliente,minutos:c.min}).catch(()=>{});
     if(c.nota)DB.nota({id_tarefa:ant.id_tarefa,id_cliente:ant.id_cliente,tipo:"HISTORICO",texto:c.nota}).catch(()=>{});}
-  E.atual=t;E._propGateOk=false;E._laudoGateOk=false;
+  E.atual=t;E._propGateOk=false;E._laudoGateOk=false;E._snGateOk=false;
   t._consulta=!podeAgirNa(t);
   ge("m-titulo").textContent=t.cliente||"";
   ge("m-sub").innerHTML=`<span style="cursor:pointer" title="Clique para corrigir o tipo" onclick="editarOperacao()">${esc(t.operacao||"")} &#9998;</span> · ${esc(t.advogada||"")} · ${esc(t.check_||"")} · ${esc(t.assessor||"")}`;
@@ -2293,6 +2299,7 @@ function desenharCard(t,hist){
     ${t.prazo_fatal_dt?`<div>Prazo fatal:<br><b style="color:${t._prazoAlerta?"var(--red)":"var(--navy)"}">${brData(t.prazo_fatal_dt)}</b>
       ${t.retomada_fatal_dt&&String(t.retomada_fatal_dt).slice(0,10)>hojeISO()?`<br><span style="font-size:11px;color:var(--gray)">&#9203; dorme até ${brData(t.retomada_fatal_dt)}</span>`:""}
       ${(isHead||ehMeuNome(t.assessor))?` <button class="btn bts btsm" style="padding:1px 8px;font-size:10px" title="O prazo foi cumprido — limpar o alerta" onclick="marcarPrazoCumprido()">&#10003; cumprido</button>`:""}</div>`:""}
+    ${t.simples_prazo_dt?`<div>&#9203; Prazo <b>Simples Nacional</b>:<br><b style="color:${(t._spDias!==null&&t._spDias<=5)?"var(--red)":"#7B2D8B"}">${brData(String(t.simples_prazo_dt).slice(0,10))}</b>${t._spDias!==null?` <span style="font-size:11px;color:var(--gray)">(${t._spDias<0?(-t._spDias)+"d vencido":t._spDias===0?"hoje":t._spDias+"d"})</span>`:""}</div>`:""}
     <div>Responsável:<br><b>${esc(t.assessor||"—")}</b></div>
     <div>Criada em:<br><b>${(()=>{if(t.data_inclusao_dt)return brData(String(t.data_inclusao_dt).slice(0,10));
       const v=String(t.data_inclusao||"").trim().split(" ")[0];
@@ -2490,6 +2497,10 @@ async function salvarPrazoSimplesCard(limpar){const c=E._cliCard;
   const v=limpar?null:(ge("m2-prazosn").value||null);
   try{await DB.clienteUpdate(c.id_cliente,{prazo_simples:v});}catch(e){toast("Erro: "+e.message,"erro");return;}
   if(E._cliCard)E._cliCard.prazo_simples=v;
+  // reflete na tarefa aberta (urgência tipo prazo) e marca como respondida
+  if(E.atual&&E.atual.id_cliente===c.id_cliente){
+    try{await DB.tarefaUpdate(E.atual,{campos:{simples_prazo_dt:v,simples_respondido:true}});}catch(e){}
+    E.atual.simples_prazo_dt=v;E.atual.simples_respondido=true;E._snGateOk=true;}
   toast(v?"Prazo do Simples salvo!":"Prazo do Simples removido.","ok");fecharModal2();carregarCliExtra(E.atual);}
 async function carregarCliExtra(t){
   if(!t.id_cliente)return;const box=ge("cli-extra");if(!box)return;
@@ -2798,6 +2809,8 @@ async function concluirTarefa(){
     E._gateDepois="concluir";abrirGateProposta();return;}
   // laudo: concluir exige confirmar/atualizar a FASE (Bruna, 17/09/2026)
   if(t._laudo&&!E._laudoGateOk){E._laudoDepois="concluir";abrirGateLaudo();return;}
+  // Simples Nacional: cada tarefa de cliente informa se envolve enquadramento
+  if(t.id_cliente&&!t.simples_respondido&&!E._snGateOk){E._snDepois="concluir";abrirGateSimples();return;}
   let prox;if(dm)prox=dm;else{const d=new Date();d.setDate(d.getDate()+(/SEMANAL/.test(check)?7:/MENSAL/.test(check)?30:1));
     while(d.getDay()===0||d.getDay()===6)d.setDate(d.getDate()+1);   // fim de semana não conta: rola p/ segunda
     prox=d.toISOString().slice(0,10);}
@@ -2866,6 +2879,33 @@ async function gateLaudoOk(){
     t.etapa_laudo=v;t.etapa_laudo_dt=hojeISO();}
   E._laudoGateOk=true;fecharModal2();
   (E._laudoDepois==="encerrar"?abrirEncerrar:concluirTarefa)();
+}
+function abrirGateSimples(){
+  const t=E.atual;
+  const atual=t.simples_prazo_dt||(E._cliCard&&E._cliCard.prazo_simples)||"";
+  const d0=atual?String(atual).slice(0,10):"";
+  modal2("&#9203; Simples Nacional",esc(t.cliente),`
+    <div style="font-size:12.5px;margin-bottom:10px">Esta tarefa envolve um cliente que <b>precisa ser enquadrado no Simples Nacional</b>?</div>
+    <div class="linha-acao" style="gap:8px">
+      <button class="btn bts btw" style="flex:1" onclick="salvarGateSimples(false)">Não envolve</button>
+      <button class="btn btp btw" style="flex:1" onclick="ge('sn-simw').style.display='block';this.style.display='none'">Sim, envolve</button></div>
+    <div id="sn-simw" style="display:${d0?"block":"none"};margin-top:10px">
+      <div style="font-size:12px;color:var(--gray);margin-bottom:5px">Prazo máximo para <b>regularização</b> (vale como prazo, rotulado como Simples):</div>
+      <input type="date" class="fsel" id="sn-data" style="width:100%" value="${d0}">
+      <button class="btn btp btw" style="margin-top:8px" onclick="salvarGateSimples(true)">&#128190; Salvar prazo e continuar</button></div>`);
+}
+async function salvarGateSimples(envolve){
+  const t=E.atual;let data=null;
+  if(envolve){data=ge("sn-data").value||null;
+    if(!data){toast("Informe a data do prazo de regularização do Simples.","erro");return;}}
+  try{await DB.tarefaUpdate(t,{campos:{simples_respondido:true,simples_prazo_dt:data},
+    hist_texto:envolve?`⏳ Simples Nacional: prazo ${brData(data)} (informado ao concluir)`:"Simples Nacional: não envolve (informado ao concluir)",hist_tipo:"HISTORICO"});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  t.simples_respondido=true;t.simples_prazo_dt=data;
+  if(envolve&&t.id_cliente){try{await DB.clienteUpdate(t.id_cliente,{prazo_simples:data});}catch(e){}
+    if(E._cliCard)E._cliCard.prazo_simples=data;}
+  E._snGateOk=true;fecharModal2();
+  (E._snDepois==="encerrar"?abrirEncerrar:concluirTarefa)();
 }
 async function gatePropLancar(){
   const t=E.atual;fecharModal2();
@@ -3138,6 +3178,8 @@ function abrirEncerrar(){const t=E.atual;
     E._gateDepois="encerrar";abrirGateProposta();return;}
   // laudo: arquivar também exige a fase final (alimenta a taxa de deferimento)
   if(t._laudo&&!E._laudoGateOk){E._laudoDepois="encerrar";abrirGateLaudo();return;}
+  // Simples Nacional: também pergunta ao encerrar
+  if(t.id_cliente&&!t.simples_respondido&&!E._snGateOk){E._snDepois="encerrar";abrirGateSimples();return;}
   modal2("&#128193; Encerrar: "+esc(t.cliente),"Esta ação move para Casos Encerrados",`
     <div class="bloco-t">Motivo *</div>
     <select class="fsel" id="en-mot" style="width:100%">${["CONCLUÍDO","RENÚNCIA","PREJUDICADO","CANCELADO","MONITORAMENTO"].map(m=>`<option>${m}</option>`).join("")}</select>
