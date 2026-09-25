@@ -818,9 +818,10 @@ const S = {
     if(!q)return todos();
     const dados=okS(await supa.from("clientes").select("*").order("nome").ilike("nome","%"+q+"%").limit(1000))||[];
     return filtraLocalClientes(dados.length?dados:await todos(),q);},
-  async clienteTarefas(id){const a=await supa.from("operacional").select("*").eq("id_cliente",id);
+  async clienteTarefas(id){const a=await supa.rpc("cliente_tarefas_ativas",{p_id_cliente:id});
     const e=await supa.from("casos_encerrados").select("*").eq("id_cliente",id);
     return{ativas:a.data||[],encerradas:e.data||[]};},
+  async clientesComTarefa(){return okS(await supa.rpc("clientes_com_tarefa"))||[];},
   async casos(){return paginadoS(()=>supa.from("casos_encerrados").select("*").order("data_encerramento_dt",{ascending:false,nullsFirst:false}).order("linha"));},
   async propostas(){return okS(await supa.from("propostas_visiveis").select("*").order("linha",{ascending:false}))||[];},
   async docsProposta(idProp){return okS(await supa.from("documentos").select("*").eq("id_tarefa",idProp).order("linha",{ascending:false}))||[];},
@@ -5717,6 +5718,9 @@ async function telaClientes(){
     if(loginDe(t.assessor)===E.perfil.nome_sistema&&!st.includes("EM DIA")){
       E._minhaTarefa[t.id_cliente]=true;
       E._minhaQtd[t.id_cliente]=(E._minhaQtd[t.id_cliente]||0)+1;}});
+  // selo "com tarefa": considera TODAS as tarefas ativas do cliente (qualquer
+  // executor), não só as que o usuário lê pela RLS
+  try{(await DB.clientesComTarefa()).forEach(x=>{if(x.id_cliente)E._temTarefa[x.id_cliente]=true;});}catch(e){}
   // clientes com tarefas que EU lancei (ativas via criado_por + arquivadas via histórico)
   E._lanceiCli={};
   (ops||[]).forEach(t=>{if(t.id_cliente&&ehMeuNome(t.criado_por))E._lanceiCli[t.id_cliente]=true;});
