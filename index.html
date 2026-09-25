@@ -2469,6 +2469,28 @@ async function mesclarCom(origem){
   try{okS(await supa.rpc("tarefa_mesclar",{p_destino:t.id_tarefa,p_origem:origem}));}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("🔗 "+origem+" mesclada aqui.","ok");fecharModal2();abrirTarefa(t.id_tarefa);}
+// prazo do Simples Nacional: dias até o prazo (negativo = vencido) e a cor
+function prazoSNDias(d){if(!d)return null;const h=new Date();h.setHours(0,0,0,0);
+  const p=new Date(String(d).slice(0,10)+"T00:00:00");if(isNaN(p))return null;return Math.round((p-h)/86400000);}
+function prazoSNtagHTML(c){const d=c&&c.prazo_simples,dd=prazoSNDias(d);
+  const bg=dd===null?"#EEEEEE":dd<=7?"#FDECEA":dd<=30?"#FFF3DF":"#E6F4EA";
+  const fg=dd===null?"#666":dd<=7?"#B23B2E":dd<=30?"#8A5B00":"#1E8449";
+  const lbl=d?brData(String(d).slice(0,10))+(dd<0?` (${-dd}d vencido)`:dd===0?" (hoje)":` (${dd}d)`):"—";
+  return `<span class="tag" style="background:${bg};color:${fg};cursor:pointer" onclick="editarPrazoSimplesCard()" title="Prazo máximo para regularização do enquadramento no Simples Nacional">&#9203; Prazo Simples: ${lbl} &#9998;</span>`;}
+function prazoSNbadge(c){if(!c||!c.prazo_simples)return "";const dd=prazoSNDias(c.prazo_simples);
+  const bg=dd===null?"var(--gray)":dd<=7?"var(--red)":dd<=30?"var(--amber)":"var(--green)";
+  return `<span class="tag" style="background:${bg};color:#fff">&#9203; Simples ${brData(String(c.prazo_simples).slice(0,10))}${dd<0?` (${-dd}d venc.)`:dd===0?" (hoje)":` (${dd}d)`}</span>`;}
+function editarPrazoSimplesCard(){const c=E._cliCard;if(!c)return;
+  modal2("Prazo do Simples Nacional",esc(c.nome),`
+    <div style="font-size:12px;color:var(--gray);margin-bottom:6px">Prazo máximo para <b>regularização</b> para o enquadramento no <b>Simples Nacional</b> (deixe em branco se não se aplica).</div>
+    <input type="date" class="fsel" id="m2-prazosn" style="width:100%" value="${c.prazo_simples?String(c.prazo_simples).slice(0,10):""}">
+    <button class="btn btp btw" style="margin-top:10px" onclick="salvarPrazoSimplesCard(false)">&#128190; Salvar no cadastro</button>
+    ${c.prazo_simples?`<button class="btn bts btsm" style="margin-top:6px;width:100%" onclick="salvarPrazoSimplesCard(true)">Limpar prazo</button>`:""}`);}
+async function salvarPrazoSimplesCard(limpar){const c=E._cliCard;
+  const v=limpar?null:(ge("m2-prazosn").value||null);
+  try{await DB.clienteUpdate(c.id_cliente,{prazo_simples:v});}catch(e){toast("Erro: "+e.message,"erro");return;}
+  if(E._cliCard)E._cliCard.prazo_simples=v;
+  toast(v?"Prazo do Simples salvo!":"Prazo do Simples removido.","ok");fecharModal2();carregarCliExtra(E.atual);}
 async function carregarCliExtra(t){
   if(!t.id_cliente)return;const box=ge("cli-extra");if(!box)return;
   try{const cs=await DB.clientes("");const c=cs.find(x=>x.id_cliente===t.id_cliente);if(!c)return;
@@ -2478,6 +2500,7 @@ async function carregarCliExtra(t){
       <span class="tag" style="background:#E8EAF6;color:#3949AB">&#128193; ${c.pasta_sharepoint
         ?`<a href="${esc(c.pasta_sharepoint)}" target="_blank" style="color:#3949AB;text-decoration:underline">Pasta do cliente</a>`
         :"Pasta: —"} <span style="cursor:pointer" onclick="editarPastaCard()">&#9998;</span></span>
+      ${prazoSNtagHTML(c)}
       <span id="bil-card"></span>
       ${/Proposta Comercial/i.test(t.operacao||"")?taxCardHTML(c):""}`;
     // status de cobrança do cliente no card
@@ -5641,7 +5664,7 @@ async function exportarClientesPlanilhaGo(){
 }
 async function telaClientes(){
   setNav("cli",E.perfil.head_sim?"Gestão de Clientes":"Buscar Clientes"); carregando();
-  E._fSit="TODOS";E._fReg="TODOS";E._fAtivo="TODOS";E._clPag=0;
+  E._fSit="TODOS";E._fReg="TODOS";E._fAtivo="TODOS";E._fSN="TODOS";E._clPag=0;
   if(E._fHead===undefined)E._fHead=escHead()||"TODOS";
   let cs,ops;try{[cs,ops]=await Promise.all([DB.clientes(""),DB.tarefas()]);}catch(e){return erro(e.message);}
   E._clsTodos=cs||[];E._cli={};E._clsTodos.forEach(c=>E._cli[c.id_cliente]=c);
@@ -5681,6 +5704,7 @@ function desenhaPills(){
     <span style="font-size:11px;color:var(--gray)">Situação:</span>
     ${[["TODOS","Todos"],["OFICIAL","&#10003; Clientes"],["PROSPECCAO","&#128270; Prospecção"]].map(([v,r])=>
       `<button class="btn ${E._fSit===v?"btp":"bts"} btsm" onclick="E._fSit='${v}';E._clPag=0;desenhaClientes();desenhaPills()">${r}</button>`).join("")}
+    <button class="btn ${E._fSN==="COM"?"btp":"bts"} btsm" onclick="E._fSN=E._fSN==='COM'?'TODOS':'COM';E._clPag=0;desenhaClientes();desenhaPills()" title="Só clientes com prazo do Simples Nacional — os mais urgentes primeiro">&#9203; Prazo Simples</button>
     <select class="fsel" onchange="E._fReg=this.value;E._clPag=0;desenhaClientes()">
       <option value="TODOS">Regime: todos</option><option value="CONFIRMAR">&#9888; Para confirmar</option>
       <option value="SIMPLES">Simples/MEI</option><option value="PR">Presumido/Real</option><option value="SEM">Sem regime</option></select>
@@ -5731,12 +5755,15 @@ function filtroCliente(c){
     ||loginDe(c.assessor_responsavel||"")===E.perfil.nome_sistema))return false;
   if(E._fAtivo==="LANCEI"&&!(E._lanceiCli||{})[c.id_cliente])return false;
   if(E._fAtivo==="SEMRESP"&&String(c.assessor_responsavel||"").trim()!=="")return false;
+  if(E._fSN==="COM"&&!c.prazo_simples)return false;
   return true;
 }
 function desenhaClientes(){
   const alvo=ge("cl-lista");if(!alvo)return;
   const q=(ge("cl-q")?.value||"").trim();
   let f=(q?filtraLocalClientes(E._clsTodos,q):E._clsTodos).filter(filtroCliente);
+  // filtro do Simples: mais urgentes (prazo mais próximo/vencido) primeiro
+  if(E._fSN==="COM")f=f.slice().sort((a,b)=>String(a.prazo_simples||"9999").slice(0,10).localeCompare(String(b.prazo_simples||"9999").slice(0,10)));
   const PAG=60,fim=Math.min((E._clPag+1)*PAG,f.length);
   const tag=c=>c.situacao==="PROSPECCAO"?'<span class="tag td2">&#128270; PROSPECÇÃO</span>'
     :'<span class="tag tek">&#10003; CLIENTE</span>';
@@ -5744,12 +5771,19 @@ function desenhaClientes(){
   alvo.innerHTML=`<p style="font-size:12px;color:var(--gray);margin-bottom:8px">${f.length} de ${E._clsTodos.length} cliente(s)${E._fAtivo==="MINHAS"?` · <b style="color:var(--navy)">${totMinhas} tarefa(s) ativas suas dentro deles</b>`:""}</p>`+
     f.slice(0,fim).map(c=>`<details class="det" id="cd-${esc(c.id_cliente)}"><summary onclick="prepCliente('${esc(c.id_cliente)}')">
       <div style="flex:1;min-width:0"><div style="font-weight:700;color:var(--navy)">${esc(c.nome)} ${tag(c)}
-        ${E._temTarefa[c.id_cliente]?'<span class="tag tek">com tarefa</span>':'<span class="tag ti">sem tarefa ativa</span>'}${String(c.assessor_responsavel||"").trim()===""?'<span class="tag" style="background:var(--red);color:white">&#9888; sem responsável</span>':""}${(E._minhaQtd||{})[c.id_cliente]?`<span class="tag" style="background:var(--ice);color:var(--dani)">&#128100; ${E._minhaQtd[c.id_cliente]} sua(s)</span>`:""}</div>
+        ${E._temTarefa[c.id_cliente]?'<span class="tag tek">com tarefa</span>':'<span class="tag ti">sem tarefa ativa</span>'}${String(c.assessor_responsavel||"").trim()===""?'<span class="tag" style="background:var(--red);color:white">&#9888; sem responsável</span>':""}${(E._minhaQtd||{})[c.id_cliente]?`<span class="tag" style="background:var(--ice);color:var(--dani)">&#128100; ${E._minhaQtd[c.id_cliente]} sua(s)</span>`:""}${prazoSNbadge(c)}</div>
       <div style="font-size:11px;color:var(--gray)">${esc(c.cnpj_cpf||"")} · ${esc(c.head||"—")}${c.vertical?" · "+esc(c.vertical):""}${c.regime?" · "+esc(c.regime):""}</div></div>
       ${c.head?`<span class="tag tda">${esc(c.head)}</span>`:""}</summary>
       <div style="padding:4px 12px 12px" id="cb-${esc(c.id_cliente)}"></div></details>`).join("")+
     (fim<f.length?`<div style="text-align:center;margin:10px 0"><button class="btn btp" onclick="E._clPag++;desenhaClientes()">Carregar mais ${Math.min(PAG,f.length-fim)} (faltam ${f.length-fim})</button></div>`:"");
 }
+async function salvarPrazoSimplesCli(id,limpar){
+  const el=ge("psn-"+id);const v=limpar?null:((el&&el.value)||null);
+  try{await DB.clienteUpdate(id,{prazo_simples:v});}catch(e){toast("Erro: "+e.message,"erro");return;}
+  if(E._cli&&E._cli[id])E._cli[id].prazo_simples=v;
+  const c2=(E._clsTodos||[]).find(x=>x.id_cliente===id);if(c2)c2.prazo_simples=v;
+  toast(v?"Prazo do Simples salvo!":"Prazo do Simples removido.","ok");
+  const box=ge("cb-"+id);if(box)box.dataset.ok="";prepCliente(id);desenhaClientes();}
 function prepCliente(id){
   const box=ge("cb-"+id);if(!box||box.dataset.ok)return;box.dataset.ok=1;
   const c=E._cli[id];const isHead=E.perfil.head_sim;
@@ -5770,6 +5804,11 @@ function prepCliente(id){
       <button class="btn bts btsm" onclick="toggleEd('${esc(id)}')">&#9998; Editar cadastro</button>
       ${podeConverter?`<button class="btn btp btsm" onclick="converterCli('${esc(id)}')">&#10003; Converter em cliente oficial</button>`:""}
       ${E.perfil.head_sim&&c.situacao==="OFICIAL"?`<button class="btn bts btsm" style="color:var(--roxo);border-color:var(--roxo)" onclick="reverterCli('${esc(id)}')">&#8617; Voltar para prospecção</button>`:""}</div>
+    ${isHead?`<div class="linha-acao" style="margin-top:7px;align-items:center;background:#FDF3F2;border:1px solid #F3C9C4;border-radius:9px;padding:7px 10px">
+      <label style="font-size:11px" title="Prazo máximo para regularização do enquadramento no Simples Nacional">&#9203; <b>Prazo Simples Nacional:</b></label>
+      <input type="date" class="fsel" id="psn-${esc(id)}" value="${c.prazo_simples?String(c.prazo_simples).slice(0,10):""}" style="max-width:170px">
+      <button class="btn btp btsm" onclick="salvarPrazoSimplesCli('${esc(id)}',false)">&#128190; Salvar</button>
+      ${c.prazo_simples?`<button class="btn bts btsm" onclick="salvarPrazoSimplesCli('${esc(id)}',true)">limpar</button>`:""}</div>`:""}
     ${E.perfil.head_sim?`<div id="lbc-${esc(id)}"></div>`:""}
     <div style="margin-top:8px;background:#FBFAF5;border:1px solid #E6D9AE;border-radius:10px;padding:9px 11px">
       <div class="bloco-t" style="color:#7F6000">&#129518; TAX — análise de recuperação de crédito</div>
