@@ -67,9 +67,21 @@ def main():
             and not exists (
               select 1 from juridico.operacional s
               where s.supervisao like '%%IMPULSO de%%'
-                and s.supervisao like '%%Origem: ' || o.id_tarefa || '%%')""",
+                and s.supervisao like '%%Origem: ' || o.id_tarefa || '%%')
+          returning o.id_tarefa, o.id_cliente""",
             (hoje, hoje_br))
-        print(f"2. delegações órfãs devolvidas: {cur.rowcount}")
+        devolvidas = cur.fetchall()
+        # bilhete no histórico (caso Madu/Paverama 28/09: devolução silenciosa
+        # deixou o time sem entender por que o cartão "voltou")
+        for _tid, _idc in devolvidas:
+            _hid = novo_id(cur, "HIS", 5)
+            cur.execute("""insert into juridico.historico
+                (id_historico,id_tarefa,id_cliente,data,data_dt,autor,tipo,texto,origem)
+                values (%s,%s,%s,to_char(current_date,'DD/MM/YY'),current_date,
+                        'Sistema','HISTORICO',
+                        '🤝 O impulso desta tarefa terminou sem devolução formal — o robô devolveu o cartão para você (revisão hoje).','ROBO')""",
+                (_hid, _tid, _idc))
+        print(f"2. delegações órfãs devolvidas: {len(devolvidas)}")
 
         # 2b) ESCALADA de correções — regra HÍBRIDA (Bruna, 20/08/2026):
         # correção que ficou com a HEAD e não foi corrigida no dia do envio
