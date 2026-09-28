@@ -2177,8 +2177,11 @@ async function painelParaCorrigir(alvoId){
           <span style="font-size:11px;color:${cor};font-weight:600;margin-left:6px">${txt}</span></div>
         <span style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
           ${t.correcao_link?(urlPasta(t.correcao_link)?`<a href="${esc(urlPasta(t.correcao_link))}" target="_blank" style="font-size:11px;color:var(--dani)">&#128193; Pasta</a>`:`<span style="font-size:11px;color:var(--gray)" title="${esc(t.correcao_link)}">&#128206; ${/anex/i.test(t.correcao_link)?"anexado na tarefa":"sem link válido"}</span>`):""}
-          <button class="btn btp btsm" onclick="devolverCorrecao('${esc(t.id_tarefa)}',${t.linha})">&#8617; Devolver ao assessor</button>
-          ${(E.perfil.head_sim&&d<0)?`<button class="btn bts btsm" onclick="puxarCorrecao('${esc(t.id_tarefa)}',${t.linha})">&#9995; ${String(t.correcao_head||"").toLowerCase()===meu?"Renovar prazo (1d útil)":"Puxar para mim"}</button>`:""}</span></div>
+          ${(!E.perfil.head_sim&&String(t.correcao_head||"").toLowerCase()!==meu)
+            ?`<div style="font-size:10.5px;color:var(--red);font-weight:600;text-align:right">head não corrigiu no prazo</div>
+              <button class="btn btp btsm" onclick="assumirCorrecao('${esc(t.id_tarefa)}')">&#9995; Assumir correção</button>`
+            :`<button class="btn btp btsm" onclick="devolverCorrecao('${esc(t.id_tarefa)}',${t.linha})">&#8617; Devolver ao assessor</button>
+          ${(E.perfil.head_sim&&d<0)?`<button class="btn bts btsm" onclick="puxarCorrecao('${esc(t.id_tarefa)}',${t.linha})">&#9995; ${String(t.correcao_head||"").toLowerCase()===meu?"Renovar prazo (1d útil)":"Puxar para mim"}</button>`:""}`}</span></div>
         ${t.correcao_justif?`<div style="font-size:11px;color:var(--gray);font-style:italic;margin-top:3px">Justificativa: ${esc(t.correcao_justif)}</div>`:""}</div>`;};
   box.innerHTML=`<div class="painel" style="border-color:#D9CEF0;margin-top:14px">
     <div class="bloco-t" style="color:#6B4FBF">&#9999; Para corrigir · ${lista.length}${E.perfil.head_sim?` (${minhas.length} com você)`:""}</div>`+
@@ -2193,10 +2196,15 @@ async function painelParaCorrigir(alvoId){
 }
 async function puxarCorrecao(id,linha){
   const t=(E._todasBanco||E.tarefas||[]).find(x=>x.id_tarefa===id)||{id_tarefa:id,linha:linha};
-  if(!confirm(`Puxar esta correção para você, com novo prazo de 3 dias úteis?`))return;
+  if(!confirm(`Puxar esta correção para você, com novo prazo de 1 dia útil?`))return;
   try{await DB.correcaoPuxar({id_tarefa:id,linha:linha,id_cliente:t.id_cliente,correcao_head:t.correcao_head});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Correção agora é sua — novo prazo registrado.","ok");recarregar();
+}
+async function assumirCorrecao(id){
+  if(!confirm("Assumir esta correção que a head não fez no prazo? Ela fica com você, com 1 dia útil de prazo."))return;
+  try{await DB.correcaoAssumir(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Correção assumida — agora é sua (1 dia útil).","ok");recarregar();
 }
 async function devolverCorrecao(id,linha){
   try{await DB.correcaoDevolver({id_tarefa:id,linha:linha,id_cliente:(E.tarefas.find(x=>x.id_tarefa===id)||{}).id_cliente});}
