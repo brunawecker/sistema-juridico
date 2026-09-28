@@ -880,9 +880,11 @@ const S = {
   // devolver via função assinada: no PG17 o update direto morre quando a
   // corretora se remove da tarefa (perde a visão da linha no mesmo ato)
   async correcaoDevolver(t){okS(await supa.rpc("correcao_devolver",{p_id_tarefa:t.id_tarefa}));return{ok:true};},
+  async correcoesVencidasPool(){return okS(await supa.rpc("correcoes_vencidas_pool"))||[];},
+  async correcaoAssumir(idTar){okS(await supa.rpc("correcao_assumir",{p_id_tarefa:idTar}));return{ok:true};},
   async delegar(t,x){const sub=await novoIdS("OP"),hid=await novoIdS("HIS");
     await rpcS("delegar_impulso",{p_id_tarefa:t.id_tarefa,p_para:x.para,p_desc:x.descricao,
-      p_freq:x.freq||"DIÁRIO",p_sub_id:sub,p_hist_id:hid,p_quando:x.quando||null});return{ok:true,sub:sub};},
+      p_freq:x.freq||"DIÁRIO",p_sub_id:sub,p_hist_id:hid,p_quando:x.quando||null,p_processos:x.processos||null});return{ok:true,sub:sub};},
   // 🔁 redirecionamento de tarefa (prazo fatal na mão errada): assessor pede,
   // head responsável aprova — sql/071
   async redirPedir(id,para,motivo){return rpcS("redir_pedir",{p_id_tarefa:id,p_para:para,p_motivo:motivo});},
@@ -2144,7 +2146,14 @@ async function painelParaCorrigir(alvoId){
   const todas=(E._todasBanco||[]).filter(t=>t._emCorrecao);
   const meu=E.perfil.nome_sistema.toLowerCase();
   const minhas=todas.filter(t=>String(t.correcao_head||"").toLowerCase()===meu);
-  const lista=E.perfil.head_sim?todas:minhas;
+  // pool: correções que a HEAD não corrigiu no prazo caem para os assessores
+  // corretores (Malu/Madu/Ygor) assumirem
+  let pool=[];
+  if(!E.perfil.head_sim&&CORR_HEADS.includes(E.perfil.nome_sistema)){
+    try{pool=(await DB.correcoesVencidasPool()||[]).map(classificar);
+      pool.forEach(t=>{if(!E.tarefas.find(x=>x.id_tarefa===t.id_tarefa))E.tarefas.push(t);});}catch(e){}
+  }
+  const lista=E.perfil.head_sim?todas:[...minhas,...pool];
   if(!lista.length){box.innerHTML="";return;}
   const dias=v=>v?diasAte(String(v).slice(0,10)):99;
   // head: agrupado por corretora — o SEU grupo primeiro (mesmo vazio, os
@@ -3010,6 +3019,10 @@ function abrirDelegar(){const t=E.atual;
       <span>&#127963;&#65039; Confirmo que esta tarefa é <b>por pedido direto de uma das heads</b> *</span></label>
       <div style="font-size:11px;color:var(--gray);margin-top:3px">Entre ${EXIGE_PEDIDO_HEAD.join(", ")}, delegação um para o outro só com pedido de head — o check aparece marcado para quem recebe.</div></div>
     <div style="font-size:11px;color:var(--gray);margin:6px 0">Se repetir: a pessoa conclui a rodada do dia e a tarefa volta na frequência, até "Finalizar impulso".</div>
+    ${(E._procsCard||[]).filter(p=>p.status==="ATIVO").length>1?`<div style="background:#F0F5F8;border-radius:9px;padding:8px 10px;margin:6px 0">
+      <div style="font-size:11px;font-weight:700;color:var(--gray);margin-bottom:4px">&#9878; Quais processos vão no impulso? <span style="font-weight:400">(sem marcar nenhum = todos)</span></div>
+      ${(E._procsCard||[]).filter(p=>p.status==="ATIVO").map(p=>`<label style="display:flex;gap:6px;align-items:center;font-size:11.5px;font-family:'DM Mono';cursor:pointer"><input type="checkbox" class="dg-proc" value="${esc(p.numero)}"> ${esc(p.numero)}</label>`).join("")}
+      <div style="font-size:10px;color:var(--gray);margin-top:3px">Marcou só alguns? Eles mudam para o card do colega e voltam para o seu quando o impulso terminar — o resto continua com você.</div></div>`:""}
     <textarea class="fta" id="dg-txt" placeholder="O que precisa ser feito? Ex: Ligar para o cartório e confirmar o protocolo..."></textarea>
     <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px">&#128206; Anexo (opcional — print, certificado, documento):</label>
     <input type="file" id="dg-file" class="fsel" style="max-width:240px"></div>
@@ -3086,7 +3099,8 @@ async function confirmarDelegar(){
   const f=ge("dg-file")&&ge("dg-file").files?ge("dg-file").files[0]:null;
   const quando=perguntarQuandoDelegar(ge("dg-freq").value);
   let r;
-  try{r=await DB.delegar(t,{para,descricao:txt,freq:ge("dg-freq").value,quando});}
+  const procs=[...document.querySelectorAll(".dg-proc:checked")].map(x=>x.value);
+  try{r=await DB.delegar(t,{para,descricao:txt,freq:ge("dg-freq").value,quando,processos:procs.length?procs:null});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   if(f){if(f.size>25*1024*1024)toast("Impulso enviado, mas o anexo não foi: arquivo acima de 25 MB.","erro");
     else try{await DB.docEnviar(f,t.id_cliente,(r&&r.sub)||t.id_tarefa);}
