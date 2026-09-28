@@ -592,6 +592,75 @@ def sincronizar_agendas(sess):
         conn.commit()
 
 
+# corretores-assessores que assumem quando a head não corrige no prazo
+CORRETORES = ["Malu", "Madu", "Ygor"]
+
+
+def escalar_correcoes_vencidas():
+    """Correção que a HEAD não fez no prazo (1 dia útil) é enviada automaticamente
+    para o corretor de MENOR CARGA entre Malu/Madu/Ygor, considerando férias/home
+    office (ausente_ate). Renova o prazo em +1 dia útil e registra no histórico."""
+    hoje = date.today()
+    prox = hoje + _td(days=1)
+    while prox.weekday() >= 5:            # sábado(5)/domingo(6) -> segunda
+        prox += _td(days=1)
+    with psycopg.connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """select o.id_tarefa, o.id_cliente, o.correcao_head
+                 from juridico.operacional o
+                where coalesce(o.correcao_head,'') <> ''
+                  and o.correcao_retorno_dt is not null
+                  and o.correcao_retorno_dt < %s
+                  and exists (select 1 from juridico.equipe e
+                              where e.nome_sistema = o.correcao_head
+                                and e.cargo ilike '%%head%%')""",
+            (hoje,))
+        vencidas = cur.fetchall()
+        movidas = 0
+        for id_tar, id_cli, head_antes in vencidas:
+            # menor carga entre os corretores disponíveis (menos correções, depois
+            # menos tarefas próprias ativas); fora quem está ausente hoje
+            cur.execute(
+                """select e.nome_sistema from juridico.equipe e
+                    where e.nome_sistema = any(%s)
+                      and upper(coalesce(e.status,'')) = 'ATIVO'
+                      and (e.ausente_ate is null or e.ausente_ate < %s)
+                    order by (select count(*) from juridico.operacional c
+                              where c.correcao_head = e.nome_sistema),
+                             (select count(*) from juridico.operacional a
+                              where a.assessor = e.nome_sistema
+                                and a.status_tarefa not ilike '%%EM DIA%%')
+                    limit 1""",
+                (CORRETORES, hoje))
+            row = cur.fetchone()
+            if not row:
+                continue
+            alvo = row[0]
+            cur.execute(
+                """update juridico.operacional set
+                       correcao_head = %s,
+                       correcao_data = to_char(current_date,'DD/MM/YYYY'),
+                       correcao_data_dt = current_date,
+                       correcao_retorno = to_char(%s::date,'DD/MM/YYYY'),
+                       correcao_retorno_dt = %s
+                     where id_tarefa = %s""",
+                (alvo, prox, prox, id_tar))
+            cur.execute("select juridico.prox_id('HIS',5)")
+            hid = cur.fetchone()[0]
+            cur.execute(
+                """insert into juridico.historico
+                     (id_historico,id_tarefa,id_cliente,data,data_dt,autor,tipo,texto,origem)
+                   values (%s,%s,%s,to_char(current_date,'DD/MM/YY'),current_date,
+                           'Sistema','CORRECAO',%s,'ROBO')""",
+                (hid, id_tar, id_cli,
+                 f"Correção vencida da head {head_antes} redirecionada para {alvo} "
+                 f"(menor carga) — novo retorno {prox.strftime('%d/%m/%Y')}"))
+            movidas += 1
+        conn.commit()
+        if movidas:
+            print(f"correções vencidas redirecionadas para corretores: {movidas}")
+
+
 def main():
     sess = sessao_google()
     hoje = date.today()
@@ -717,6 +786,11 @@ def main():
         sincronizar_agendas(sess)
     except Exception as e:
         print(f"agenda: falhou sem afetar o resto — {e}")
+    # correção que a head não fez no prazo -> corretor de menor carga
+    try:
+        escalar_correcoes_vencidas()
+    except Exception as e:
+        print(f"escalar correções: falhou sem afetar o resto — {e}")
     bater_coracao()
     print(f"ok: {len(linhas_cob)} lançamento(s) da aba '{aba_usada}'")
     return 0
