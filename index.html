@@ -869,7 +869,7 @@ const S = {
       correcao_justif:x.justificativa||"",correcao_data:brHoje(),correcao_data_dt:hojeISO(),
       correcao_retorno:brData(x.retorno),correcao_retorno_dt:x.retorno}).eq("id_tarefa",t.id_tarefa).eq("linha",t.linha));
     await histS(t.id_tarefa,t.id_cliente,"CORRECAO","Enviada para correção → "+x.head+" (retorno "+brData(x.retorno)+")");return{ok:true};},
-  async correcaoPuxar(t){const ret=somaDiasUteis(new Date(),3).toISOString().slice(0,10);
+  async correcaoPuxar(t){const ret=somaDiasUteis(new Date(),1).toISOString().slice(0,10);
     const antes=t.correcao_head||"";
     okS(await supa.from("operacional").update({correcao_head:E.perfil.nome_sistema,
       correcao_data:brHoje(),correcao_data_dt:hojeISO(),
@@ -2169,7 +2169,7 @@ async function painelParaCorrigir(alvoId){
         <span style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
           ${t.correcao_link?(urlPasta(t.correcao_link)?`<a href="${esc(urlPasta(t.correcao_link))}" target="_blank" style="font-size:11px;color:var(--dani)">&#128193; Pasta</a>`:`<span style="font-size:11px;color:var(--gray)" title="${esc(t.correcao_link)}">&#128206; ${/anex/i.test(t.correcao_link)?"anexado na tarefa":"sem link válido"}</span>`):""}
           <button class="btn btp btsm" onclick="devolverCorrecao('${esc(t.id_tarefa)}',${t.linha})">&#8617; Devolver ao assessor</button>
-          ${(E.perfil.head_sim&&d<0)?`<button class="btn bts btsm" onclick="puxarCorrecao('${esc(t.id_tarefa)}',${t.linha})">&#9995; ${String(t.correcao_head||"").toLowerCase()===meu?"Renovar prazo (3d úteis)":"Puxar para mim"}</button>`:""}</span></div>
+          ${(E.perfil.head_sim&&d<0)?`<button class="btn bts btsm" onclick="puxarCorrecao('${esc(t.id_tarefa)}',${t.linha})">&#9995; ${String(t.correcao_head||"").toLowerCase()===meu?"Renovar prazo (1d útil)":"Puxar para mim"}</button>`:""}</span></div>
         ${t.correcao_justif?`<div style="font-size:11px;color:var(--gray);font-style:italic;margin-top:3px">Justificativa: ${esc(t.correcao_justif)}</div>`:""}</div>`;};
   box.innerHTML=`<div class="painel" style="border-color:#D9CEF0;margin-top:14px">
     <div class="bloco-t" style="color:#6B4FBF">&#9999; Para corrigir · ${lista.length}${E.perfil.head_sim?` (${minhas.length} com você)`:""}</div>`+
@@ -3141,11 +3141,11 @@ function abrirCorrecao(){const t=E.atual;
     <input class="fi" id="cr-link" placeholder="https://...sharepoint..." value="${esc(sugLink)}">
     ${sugLink?`<div style="font-size:11px;color:var(--green);margin-top:2px">&#128190; Pasta lembrada deste cliente — confira e ajuste se mudou.</div>`:""}
     <div class="bloco-t">Prazo de retorno</div>
-    <div class="linha-acao"><label><input type="radio" name="cr-pz" value="3" checked onchange="ge('cr-manual').style.display='none'"> Padrão — 3 dias úteis</label>
-    <label><input type="radio" name="cr-pz" value="m" onchange="ge('cr-manual').style.display='block'"> Definir manualmente</label></div>
+    <div class="linha-acao"><label><input type="radio" name="cr-pz" value="1" checked onchange="ge('cr-manual').style.display='none'"> Padrão — 1 dia útil</label>
+    <label><input type="radio" name="cr-pz" value="m" onchange="ge('cr-manual').style.display='block'"> Definir prazo menor</label></div>
     <div id="cr-manual" style="display:none;margin-top:6px">
-      <input class="fsel" id="cr-dias" type="number" min="0" max="30" value="1" style="width:80px"> dias úteis
-      <textarea class="fta" id="cr-justif" style="margin-top:6px" placeholder="Justificativa (obrigatória para prazo diferente de 3)"></textarea></div>
+      <input class="fsel" id="cr-dias" type="number" min="0" max="30" value="0" style="width:80px"> dias úteis <span style="font-size:11px;color:var(--gray)">(0 = ainda hoje)</span>
+      <textarea class="fta" id="cr-justif" style="margin-top:6px" placeholder="Justificativa (obrigatória para prazo diferente de 1 dia)"></textarea></div>
     <button class="btn btp btw" style="margin-top:10px" onclick="enviarCorrecao()">&#9999; Enviar para correção</button>`);}
 function somaDiasUteis(base,n){const d=new Date(base);let add=0;
   while(add<n){d.setDate(d.getDate()+1);const w=d.getDay();if(w!==0&&w!==6)add++;}return d;}
@@ -3156,9 +3156,9 @@ async function enviarCorrecao(){
   if(!urlPasta(link)&&!/^anexo/i.test(link)){
     toast("Isso não é um link válido. Cole o endereço completo (https://...) — ou escreva ANEXO se o material está anexado no cartão.","erro");return;}
   const manual=document.querySelector('input[name="cr-pz"]:checked').value==="m";
-  let dias=3,justif="";
+  let dias=1,justif="";
   if(manual){dias=parseInt(ge("cr-dias").value)||0;justif=(ge("cr-justif").value||"").trim();
-    if(dias!==3&&!justif){toast("Justificativa obrigatória para prazo diferente de 3 dias.","erro");return;}}
+    if(dias!==1&&!justif){toast("Justificativa obrigatória para prazo diferente de 1 dia.","erro");return;}}
   const ret=somaDiasUteis(new Date(),dias).toISOString().slice(0,10);
   try{await DB.correcaoEnviar(t,{head,link,justificativa:justif,retorno:ret});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
