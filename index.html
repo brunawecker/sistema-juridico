@@ -3141,11 +3141,7 @@ function abrirCorrecao(){const t=E.atual;
     <input class="fi" id="cr-link" placeholder="https://...sharepoint..." value="${esc(sugLink)}">
     ${sugLink?`<div style="font-size:11px;color:var(--green);margin-top:2px">&#128190; Pasta lembrada deste cliente — confira e ajuste se mudou.</div>`:""}
     <div class="bloco-t">Prazo de retorno</div>
-    <div class="linha-acao"><label><input type="radio" name="cr-pz" value="1" checked onchange="ge('cr-manual').style.display='none'"> Padrão — 1 dia útil</label>
-    <label><input type="radio" name="cr-pz" value="m" onchange="ge('cr-manual').style.display='block'"> Definir prazo menor</label></div>
-    <div id="cr-manual" style="display:none;margin-top:6px">
-      <input class="fsel" id="cr-dias" type="number" min="0" max="30" value="0" style="width:80px"> dias úteis <span style="font-size:11px;color:var(--gray)">(0 = ainda hoje)</span>
-      <textarea class="fta" id="cr-justif" style="margin-top:6px" placeholder="Justificativa (obrigatória para prazo diferente de 1 dia)"></textarea></div>
+    <div style="font-size:12px;color:var(--gray);background:#F3EEFB;border:1px solid #D8C9F0;border-radius:8px;padding:7px 10px"><b>1 dia útil</b> para a correção voltar. Quando voltar, o assessor tem mais <b>1 dia útil</b> para aplicar. (prazo fixo)</div>
     <button class="btn btp btw" style="margin-top:10px" onclick="enviarCorrecao()">&#9999; Enviar para correção</button>`);}
 function somaDiasUteis(base,n){const d=new Date(base);let add=0;
   while(add<n){d.setDate(d.getDate()+1);const w=d.getDay();if(w!==0&&w!==6)add++;}return d;}
@@ -3155,12 +3151,9 @@ async function enviarCorrecao(){
   if(!link){toast("Cole o link da pasta.","erro");return;}
   if(!urlPasta(link)&&!/^anexo/i.test(link)){
     toast("Isso não é um link válido. Cole o endereço completo (https://...) — ou escreva ANEXO se o material está anexado no cartão.","erro");return;}
-  const manual=document.querySelector('input[name="cr-pz"]:checked').value==="m";
-  let dias=1,justif="";
-  if(manual){dias=parseInt(ge("cr-dias").value)||0;justif=(ge("cr-justif").value||"").trim();
-    if(dias!==1&&!justif){toast("Justificativa obrigatória para prazo diferente de 1 dia.","erro");return;}}
-  const ret=somaDiasUteis(new Date(),dias).toISOString().slice(0,10);
-  try{await DB.correcaoEnviar(t,{head,link,justificativa:justif,retorno:ret});}
+  // prazo fixo: 1 dia útil para a head devolver (sem escolha do assessor)
+  const ret=somaDiasUteis(new Date(),1).toISOString().slice(0,10);
+  try{await DB.correcaoEnviar(t,{head,link,justificativa:"",retorno:ret});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   // link de pasta válido alimenta a ficha do cliente (se ainda vazia) —
   // assim o card SEMPRE mostra "📁 Pasta do cliente" dali em diante
