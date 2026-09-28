@@ -1699,7 +1699,10 @@ function classificar(t){
     else chk="AGUARDANDO_FUTURO";
   }
   t._chk=chk;
-  t._atrasada=!t._concluida&&d!==null&&d<0;
+  // em correção não conta como atraso de quem enviou — o relógio é o prazo de
+  // RETORNO (do corretor); o card mostra isso separado
+  t._atrasada=!t._concluida&&!t._emCorrecao&&d!==null&&d<0;
+  t._corrRetDias=t._emCorrecao?diasAte(t.correcao_retorno_dt):null;
   if(t._delegada)t._g=0;
   else if(chk==="IMEDIATO"&&!t._concluida&&(d===null||d<=0))t._g=1;
   else if(t._atrasada&&chk!=="IMEDIATO")t._g=2;
@@ -1750,6 +1753,7 @@ function cardTarefa(t,mostrarAssessor,mostrarTempo){
     AGUARDANDO_FUTURO:'<span class="tag tm">AGUARDANDO</span>'}[t._chk||t.check_]
     ||(t.check_?`<span class="tag tm">${esc(t.check_)}</span>`:"");
   const es=t._delegada?`<span class="tag" style="background:#1F4E79;color:white">${esc(t.status_tarefa)}</span>`
+    :t._emCorrecao?'<span class="tag" style="background:#6B4FBF;color:white">&#9999; EM CORREÇÃO</span>'
     :t._concluida?'<span class="tag tek">EM DIA</span>':(t._atrasada?'<span class="tag ti">ATRASADO</span>':"");
   const hd=t.advogada==="Danielly"?'<span class="tag tda">Danielly</span>'
     :t.advogada==="Eduarda"?'<span class="tag" style="background:#7B2D8B;color:white">Eduarda</span>'
@@ -1757,7 +1761,9 @@ function cardTarefa(t,mostrarAssessor,mostrarTempo){
   const fin=t._inad?'<span class="tag ti" title="Cobrança vencida">&#128184;</span>'
     :t._pago?'<span class="tag tek" title="Pagou este mês">&#10003;</span>'
     :t._prov?'<span class="tag" style="background:var(--ice);color:var(--dani)" title="Provisionado no mês">&#128176;</span>':"";
-  const dt=t._dias===null?"":t._atrasada?`<span class="tdy ov">${Math.abs(t._dias)}d atraso</span>`:
+  const dt=t._emCorrecao
+    ?`<span class="tdy" style="color:#6B4FBF">&#9999; ${esc(t.correcao_head||"correção")}${t.correcao_retorno_dt?" · retorno "+brData(t.correcao_retorno_dt):""}${(t._corrRetDias!==null&&t._corrRetDias<0)?` (${-t._corrRetDias}d p/ voltar)`:""}</span>`
+    :t._dias===null?"":t._atrasada?`<span class="tdy ov">${Math.abs(t._dias)}d atraso</span>`:
     (t._dias===0&&!t._concluida?`<span class="tdy ov">vence hoje</span>`:`<span class="tdy ok">rev ${brData(t.data_revisao_dt)}</span>`);
   const pf=t._prazoAlerta?`<span class="tag ti">&#9888; ${brData(t.prazo_fatal_dt)}</span>`:"";
   const ass=mostrarAssessor&&t.assessor?`<span class="tco">&#128100; ${esc(t.assessor)}</span>`:"";
