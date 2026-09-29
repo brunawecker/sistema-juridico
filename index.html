@@ -4253,9 +4253,12 @@ async function telaCentral(){
         <span class="bloco-t" style="color:var(--red)">&#128184; Inadimplência — MINHA carteira</span>
         <span style="font-size:12.5px">esta semana: <b style="color:var(--red)">${iSemMeu.n} cliente(s) · ${fmtR$(iSemMeu.v)}</b>
           · em aberto: <b>${iTotMeu.n} · ${fmtR$(iTotMeu.v)}</b> <span style="color:var(--gray);font-size:10px">(toque para abrir a lista)</span></span></summary>
-      <div style="margin-top:6px">${abertas.length?abertas.slice().sort((x,y)=>(+y.valor_bruto||0)-(+x.valor_bruto||0)).map(x=>`
-        <div class="linha-item"><span style="font-size:12px"><b>${esc(x.cliente)}</b> · ${esc(x.produto||"")} · venceu ${esc(x.data_venc||"—")}</span>
-        <b style="color:var(--red)">${fmtR$(+x.valor_bruto||0)}</b></div>`).join("")
+      <div style="margin-top:6px">${abertas.length?abertas.slice().sort((x,y)=>(+y.valor_bruto||0)-(+x.valor_bruto||0)).map(x=>{
+        // clicar no inadimplente abre as tarefas dele aqui mesmo (Bruna, 29/09/2026)
+        const c=cliPorDoc[soDig(x.cnpj_cpf)]||cliPorNome[String(x.cliente||"").trim().toUpperCase()];
+        return `<div class="linha-item"${c?` style="cursor:pointer" title="toque para ver as tarefas deste cliente" onclick='inadVerTarefas(${JSON.stringify(c.id_cliente)},${JSON.stringify(x.cliente)})'`:` title="cliente não encontrado no cadastro — abra pela Gestão de Clientes"`}>
+        <span style="font-size:12px"><b>${esc(x.cliente)}</b> · ${esc(x.produto||"")} · venceu ${esc(x.data_venc||"—")}${c?` <span style="color:var(--dani);font-size:10px">&#128203; ver tarefas</span>`:""}</span>
+        <b style="color:var(--red)">${fmtR$(+x.valor_bruto||0)}</b></div>`;}).join("")
         :'<div class="vazio">Nenhum inadimplente na sua carteira. 🎉</div>'}</div></details></div>
     ${semTarefa.length?`<div class="painel" style="border-left:4px solid var(--red)">
       <div class="bloco-t" style="color:var(--red)">&#129534; Clientes NOVOS que pagaram e estão SEM tarefa ativa (${semTarefa.length})</div>
@@ -6033,6 +6036,23 @@ async function enviarDoc(){
   if(!t.id_cliente){toast("Esta tarefa não tem cliente vinculado.","erro");return;}
   try{await DB.docEnviar(f,t.id_cliente,t.id_tarefa);}catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Documento anexado! (fica na tarefa e no cliente)","ok");carregarDocs(t);}
+// 💸→📋 tarefas do inadimplente direto na central do dia (Bruna, 29/09/2026):
+// abre num modal, sem precisar ir até a Gestão de Clientes
+async function inadVerTarefas(idc,nome){
+  modal2("&#128203; Tarefas de "+esc(nome),"o que está aberto para este cliente",
+    `<div class="carregando"><div class="spin"></div></div>`);
+  let r;try{r=await DB.clienteTarefas(idc);}catch(e){ge("m2-corpo").innerHTML=`<div class="vazio">${esc(e.message)}</div>`;return;}
+  const at=(r.ativas||[]).map(classificar);
+  at.forEach(t=>{if(!E.tarefas.find(x=>x.id_tarefa===t.id_tarefa))E.tarefas.push(t);});
+  ge("m2-corpo").innerHTML=(at.length
+    ?`<div class="bloco-t" style="color:var(--dani)">&#10003; ${nProcSum(at)} ativa(s)${nProcSum(at)!==at.length?` em ${at.length} cards`:""}</div>`
+      +at.map(t=>`<div class="linha-item"><span style="font-size:12.5px"><b>${esc(t.operacao||"")}</b> · ${esc(t.assessor||"")}
+        ${t._delegada?'<span class="tag tm">&#129309; delegada</span>':t._emCorrecao?'<span class="tag" style="background:#EDE7F6;color:#6B4FBF">&#9999;&#65039; em correção</span>':t._atrasada?'<span class="tag td2">em atraso</span>':""}
+        ${t.data_revisao?`<span style="color:var(--gray);font-size:11px"> · revisão ${esc(t.data_revisao)}</span>`:""}</span>
+        <button class="btn bts btsm" onclick='fecharModal2();abrirTarefa(${JSON.stringify(t.id_tarefa)})'>abrir cartão</button></div>`).join("")
+    :`<div class="vazio">Nenhuma tarefa ativa neste cliente.</div>`)
+   +((r.encerradas||[]).length?`<div style="font-size:11px;color:var(--gray);margin-top:6px">&#128193; ${r.encerradas.length} encerrada(s) — os cards completos ficam na Gestão de Clientes.</div>`:"");
+}
 async function verTarefasCliente(id){
   const box=ge("ct-"+id);box.innerHTML=`<div class="carregando"><div class="spin"></div></div>`;
   let r;try{r=await DB.clienteTarefas(id);}catch(e){box.innerHTML=`<div class="vazio">${esc(e.message)}</div>`;return;}
