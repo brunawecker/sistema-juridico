@@ -2336,14 +2336,14 @@ function desenharCard(t,hist){
     <b>&#127963;&#65039; Tarefa por pedido direto de uma das heads</b></label>
     <div style="font-size:11px;color:var(--gray);margin-top:2px">Confirmado por quem criou/delegou esta tarefa.</div></div>`;
   if(t._impulso)h+=`<div class="painel" style="background:#EAF3EA;border-color:#BEDEBE">
-    <div style="font-size:12px;margin-bottom:7px"><b>&#129309; Este é um impulso delegado — três saídas:</b><br>
-      &#128229; <b>Devolver</b>: fez o movimento? Finalize e o retorno vai ao responsável;<br>
-      &#128193; <b>Arquivar de vez</b>: a tarefa acabou? Encerre — fecha o CASO oficial inteiro (reabrível pela head);<br>
-      &#128257; <b>Continuar com você</b>: vai cobrar algo aos poucos (ex.: documentos de um laudo)? Mude a <b>Frequência</b> abaixo para SEMANAL e conclua a rodada — o cartão volta para você até ter tudo e devolver.</div>
-    ${t.id_cliente&&!dispensaGrupo(t)?`<label style="font-size:12px;display:block;margin-bottom:7px"><input type="checkbox" id="imp-grupo" onclick="const a=ge('imp-adv');if(this.checked&&a)a.checked=false"> Confirmo que informei o movimento no <b>grupo de atendimento do WhatsApp</b> *</label>
+    <div style="font-size:12px;margin-bottom:8px"><b>&#129309; Este é um impulso delegado a você.</b> Escolha uma saída:</div>
+    ${t.id_cliente&&!dispensaGrupo(t)?`<label style="font-size:12px;display:block;margin-bottom:7px"><input type="checkbox" id="imp-grupo" onclick="const a=ge('imp-adv');if(this.checked&&a)a.checked=false"> Confirmo que informei o movimento no <b>grupo de atendimento do WhatsApp</b> (só para devolver) *</label>
     ${ehLevantamento(t)?`<label style="font-size:12px;display:block;margin-bottom:7px"><input type="checkbox" id="imp-adv" onclick="const g=ge('imp-grupo');if(this.checked&&g)g.checked=false"> OU: enviei o levantamento <b>direto ao advogado</b> (sem aviso no grupo)</label>`:""}`:""}
-    <div class="linha-acao"><button class="btn btp btsm" onclick="finalizarImpulso('${esc(t.id_tarefa)}')">&#128229; Finalizar impulso e devolver</button>
-    <button class="btn btx btsm" onclick="abrirEncerrar()">&#128193; Encerrar o caso de vez</button></div></div>`;
+    <div class="linha-acao" style="flex-wrap:wrap;gap:7px">
+      <button class="btn btg btsm" onclick="continuarImpulso()" title="Ainda vai cobrar coisas aos poucos — o cartão sai da sua fila e volta para você na data (padrão: 1 semana)">&#128257; Ainda não terminei — continuar comigo</button>
+      <button class="btn btp btsm" onclick="finalizarImpulso('${esc(t.id_tarefa)}')">&#128229; Terminei — devolver ao responsável</button>
+      <button class="btn btx btsm" onclick="abrirEncerrar()">&#128193; Encerrar o caso de vez</button></div>
+    <div style="font-size:11px;color:var(--gray);margin-top:7px">&#128257; <b>Continuar comigo</b>: registre antes um andamento (em "Adicionar andamento") contando o que já fez. Se quiser outro ritmo, ajuste a <b>Frequência</b> em "Atualizar / concluir" antes de clicar. O cartão volta para você na data — só devolva quando tiver tudo.</div></div>`;
   if(t.supervisao)h+=`<div class="bloco"><div class="bloco-t">Orientação da head</div>
     <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:9px;padding:9px 12px;font-size:13px;color:#1E40AF;white-space:pre-line">${esc(t.supervisao)}</div></div>`;
   // andamento
@@ -2395,7 +2395,7 @@ function desenharCard(t,hist){
     <select class="fsel" id="conc-check">${["IMEDIATO","DIÁRIO","SEMANAL","MENSAL"].map(c=>`<option ${t.check_===c?"selected":""}>${c}</option>`).join("")}</select>
     <label style="font-size:11px;color:var(--gray)">ou volta em:</label><input type="date" class="fsel" id="conc-data">
     <button class="btn bts btsm" onclick="salvarFreqData()">&#128190; Salvar</button>
-    <button class="btn btg btsm" onclick="concluirTarefa()">&#10003; Concluir</button></div>
+    ${t._impulso?`<span style="font-size:11px;color:var(--gray)">Para encerrar/devolver, use os botões do quadro verde acima &#11014;&#65039;</span>`:`<button class="btn btg btsm" onclick="concluirTarefa()">&#10003; Concluir</button>`}</div>
     ${t.id_cliente&&!dispensaGrupo(t)?`<label style="display:flex;align-items:center;gap:7px;font-size:12px;margin-top:8px;padding:8px 10px;background:var(--green-lt);border:1px solid var(--green);border-radius:8px;cursor:pointer">
       <input type="checkbox" id="conc-grupo" style="width:16px;height:16px" onclick="const a=ge('conc-adv');if(this.checked&&a)a.checked=false">
       <span>&#128241; Informei o movimento desta tarefa no <b>grupo de atendimento</b> do WhatsApp</span></label>
@@ -3127,6 +3127,26 @@ async function finalizarImpulso(id){
     texto:impGrupo?"📣 Confirmou envio de mensagem no grupo de atendimento (WhatsApp) ao devolver o impulso."
       :"📤 Levantamento enviado direto ao advogado (sem aviso no grupo) ao devolver o impulso."}).catch(()=>{});
   toast("Impulso finalizado! Retorno enviado.","ok");fecharModal();recarregar();}
+async function continuarImpulso(){
+  const t=E.atual;
+  if(!t||!t._impulso)return;
+  const box=ge("nota-texto");
+  if(box&&box.value.trim()){
+    toast("Você escreveu um andamento — clique em 'Salvar andamento' primeiro e depois em 'Continuar comigo'.","erro");
+    box.scrollIntoView({behavior:"smooth",block:"center"});return;}
+  if(!impulsoTemRegistro()){
+    toast("Antes de continuar, registre um andamento (em 'Adicionar andamento') contando o que já fez — o responsável precisa acompanhar.","erro");
+    if(box){box.focus();box.scrollIntoView({behavior:"smooth",block:"center"});}return;}
+  let freq=ge("conc-check").value,prox=ge("conc-data").value;
+  if(!prox){
+    const add={"DIÁRIO":1,"SEMANAL":7,"MENSAL":30}[freq]||7;
+    if(freq==="IMEDIATO")freq="SEMANAL";
+    const d=new Date();d.setDate(d.getDate()+add);prox=d.toISOString().slice(0,10);}
+  try{await DB.tarefaUpdate(t,{campos:{check_:freq},data_revisao:prox,
+    hist_texto:`🔁 Continua com ${meuNome} — ainda cobrando; volta em ${brData(prox)} (frequência ${freq}).`,hist_tipo:"ASSESSOR"});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Certo! O impulso continua com você e volta em "+brData(prox)+".","ok");
+  fecharModal();recarregar();}
 function editarEtapaLaudo(){ge("le-ver").style.display="none";ge("le-ed").style.display="inline-block";}
 async function salvarEtapaLaudo(){
   const t=E.atual,v=ge("le-in").value;
