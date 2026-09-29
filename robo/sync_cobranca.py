@@ -599,7 +599,9 @@ CORRETORES = ["Malu", "Madu", "Ygor"]
 def escalar_correcoes_vencidas():
     """Correção que a HEAD não fez no prazo (1 dia útil) é enviada automaticamente
     para o corretor de MENOR CARGA entre Malu/Madu/Ygor, considerando férias/home
-    office (ausente_ate). Renova o prazo em +1 dia útil e registra no histórico."""
+    office (ausente_ate). Renova o prazo em +1 dia útil e registra no histórico.
+    EXCEÇÃO (Bruna, 29/09/2026): correção da Danielly NUNCA é redirecionada —
+    fica com ela até ela mesma devolver (combinado da central do dia)."""
     hoje = date.today()
     prox = hoje + _td(days=1)
     while prox.weekday() >= 5:            # sábado(5)/domingo(6) -> segunda
@@ -609,6 +611,7 @@ def escalar_correcoes_vencidas():
             """select o.id_tarefa, o.id_cliente, o.correcao_head
                  from juridico.operacional o
                 where coalesce(o.correcao_head,'') <> ''
+                  and o.correcao_head <> 'Danielly'
                   and o.correcao_retorno_dt is not null
                   and o.correcao_retorno_dt < %s
                   and exists (select 1 from juridico.equipe e
