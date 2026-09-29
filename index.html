@@ -6093,11 +6093,13 @@ async function enviarDoc(){
   toast("Documento anexado! (fica na tarefa e no cliente)","ok");carregarDocs(t);}
 // 📊 Relatório semanal ao financeiro + resuminho pré-pagamento (Bruna, 29/09/2026)
 // andamento resumido dos trabalhos de UM cliente, a partir das tarefas já carregadas
-function _andCli(idc){
+function _andCli(idc,porTar){
   const ats=(E.tarefas||[]).filter(t=>t.id_tarefa&&t.id_cliente===idc
     &&!String(t.cliente||"").startsWith("\u{1F4CC}")&&String(t.status_tarefa||"")!=="TAREFA FIXA");
-  if(!ats.length)return {n:0,curto:"sem tarefa ativa",ops:"",ass:"",sit:"SEM TAREFA ATIVA",rev:"",
+  if(!ats.length)return {n:0,curto:"sem tarefa ativa",ops:"",ass:"",sit:"SEM TAREFA ATIVA",rev:"",ult:"",
     texto:"Nenhuma tarefa ativa no momento."};
+  const ults=porTar?ats.map(t=>{const nn=porTar[t.id_tarefa];if(!nn)return null;
+    return `${String(t.operacao||"").trim()||"Tarefa"}: "${nn.tx}" (${nn.data})`;}).filter(Boolean):[];
   const ops=[...new Set(ats.map(t=>{const op=String(t.operacao||"").trim();
     return op?op+((t._nproc||1)>1?` (${t._nproc} processos)`:""):"";}).filter(Boolean))];
   const ass=[...new Set(ats.map(t=>String(t.assessor||"").trim()).filter(Boolean))];
@@ -6105,28 +6107,40 @@ function _andCli(idc){
     deleg=ats.filter(t=>t._delegada).length,n=nProcSum(ats);
   const revs=ats.map(t=>String(t.data_revisao_dt||"").slice(0,10)).filter(Boolean).sort();
   return {n,ops:ops.join(" | "),ass:ass.join(", "),rev:revs[0]?brData(revs[0]):"",
-    sit:atras?"COM ATRASO":"EM DIA",
+    sit:atras?"COM ATRASO":"EM DIA",ult:ults.join(" | "),
     curto:atras?`${n} frente(s), ${atras} em atraso`:`${n} frente(s) em dia`,
     texto:`${n} frente(s) de trabalho ativa(s)`+(n!==ats.length?` em ${ats.length} card(s)`:"")
       +` — ${ops.join("; ")} — com ${ass.join(", ")}. `
       +(atras?`${atras} em atraso. `:"Trabalho em dia. ")
       +(corr?`${corr} em correção interna. `:"")+(deleg?`${deleg} delegada(s) internamente. `:"")
-      +(revs[0]?`Próxima revisão em ${brData(revs[0])}.`:"")};
+      +(revs[0]?`Próxima revisão em ${brData(revs[0])}. `:"")
+      +(ults.length?`Andamento informado pelos assessores — ${ults.join("; ")}`:"")};
 }
 // planilha CSV p/ o financeiro: inadimplentes da MINHA carteira × andamento dos trabalhos
-function relFinanceiro(){
+async function relFinanceiro(){
   const R=E._finRel;if(!R||!R.abertas||!R.abertas.length){toast("Nenhum inadimplente na sua carteira.","erro");return;}
   const cel=v=>{const s=String(v==null?"":v).replace(/"/g,'""');return /[";\n]/.test(s)?'"'+s+'"':s;};
   const dig=v=>String(v||"").replace(/\D/g,"");
+  toast("Montando a planilha — buscando as anotações dos assessores…","ok");
+  // última anotação de ANDAMENTO por tarefa (60 dias) — mesmo filtro da mensagem
+  // do grupo: fora TIMER, robô, avisos "no grupo/whats" e assuntos internos
+  let hist=[];try{hist=await DB.historicoPeriodo(60);}catch(e){}
+  const porTar={};(hist||[]).forEach(h=>{
+    if(h.tipo==="TIMER"||String(h.autor||"")==="Sistema")return;
+    const tx=String(h.texto||"").trim();
+    if(!h.id_tarefa||!tx||_notaInterna(tx))return;
+    const k=String(h.data_dt||"")+"·"+String(h.linha||0).padStart(9,"0");
+    if(!porTar[h.id_tarefa]||k>porTar[h.id_tarefa].k)
+      porTar[h.id_tarefa]={k,tx,data:h.data_dt?brData(String(h.data_dt).slice(0,10)):(h.data||"")};});
   let vTot=0,comTrab=0,semTrab=0;
   const corpo=R.abertas.slice().sort((x,y)=>(+y.valor_bruto||0)-(+x.valor_bruto||0)).map(x=>{
     const c=R.cliPorDoc[dig(x.cnpj_cpf)]||R.cliPorNome[String(x.cliente||"").trim().toUpperCase()];
-    const a=c?_andCli(c.id_cliente):{n:0,ops:"",ass:"",sit:"—",rev:"",
+    const a=c?_andCli(c.id_cliente,porTar):{n:0,ops:"",ass:"",sit:"—",rev:"",ult:"",
       texto:"Cliente não localizado no cadastro do jurídico."};
     vTot+=(+x.valor_bruto||0);if(a.n)comTrab++;else semTrab++;
     return [cel(x.cliente),cel(x.cnpj_cpf||(c&&c.cnpj_cpf)||""),cel(x.produto||""),cel(x.data_venc||""),
       (+x.valor_bruto||0).toFixed(2).replace(".",","),cel(String(x.status_pgto||"").trim()),
-      a.n,cel(a.ops),cel(a.ass),cel(a.sit),cel(a.rev),cel(a.texto)].join(";");});
+      a.n,cel(a.ops),cel(a.ass),cel(a.sit),cel(a.rev),cel(a.ult),cel(a.texto)].join(";");});
   const nCli=new Set(R.abertas.map(x=>x.cliente)).size;
   const li=["RELATÓRIO SEMANAL AO FINANCEIRO — INADIMPLÊNCIA × ANDAMENTO DOS TRABALHOS JURÍDICOS",
     cel(`Emitido por ${R.eu} (head) em ${new Date().toLocaleDateString("pt-BR")} — carteira própria`),
@@ -6135,7 +6149,8 @@ function relFinanceiro(){
     cel('Como ler: "frentes" contam por processo (uma Execução Fiscal com 8 processos = 8 frentes). Valores conforme a planilha de cobrança.'),
     "",
     ["Cliente","CNPJ/CPF","Produto","Venceu em","Valor em aberto (R$)","Situação do débito","Frentes ativas",
-     "Operações em andamento","Assessor(es)","Situação do trabalho","Próxima revisão","Andamento (resumo)"].join(";"),
+     "Operações em andamento","Assessor(es)","Situação do trabalho","Próxima revisão",
+     "Andamento informado pelos assessores","Andamento (resumo)"].join(";"),
     ...corpo];
   const blob=new Blob(["﻿"+li.join("\r\n")],{type:"text/csv;charset=utf-8"});
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);
@@ -6153,6 +6168,10 @@ function _opComercial(op){
 // cada tarefa ativa (ex.: "concluso com o juiz", "execuções seguem suspensas") —
 // a head revisa o texto no modal antes de copiar (nada sai sem passar por ela).
 function _notaInterna(tx){
+  // registros de AVISO ("avisei o andamento no grupo", "atualizado o cliente no
+  // whats") não são andamento do caso — pula e busca o resumo do impulsionamento
+  if(/\bgrupo\b/i.test(tx))return true;
+  if(/\bavis(ei|ad[oa]|o)\b|\batualizad[oa]\b.{0,25}\b(cliente|whats)|\bwhats/i.test(tx))return true;
   return /IMPULSO|correç|corrig|delegad|Tarefa criada|redirecionad|Retorno do impulso|requer|prêmio/i.test(tx)
     ||/^[\u{1F91D}\u{1F4E5}✏⏱\u{1F501}]/u.test(String(tx).trim());}
 async function msgPrePag(i){
