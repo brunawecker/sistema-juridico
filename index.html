@@ -4261,6 +4261,8 @@ async function telaCentral(){
     .sort((a2,b2)=>{const ua=ultMovProp(a2),ub=ultMovProp(b2);return (ua?ua.getTime():0)-(ub?ub.getTime():0);});
   const diasParada=p2=>{const u=ultMovProp(p2);if(!u)return null;
     const h0=new Date();h0.setHours(12,0,0,0);return Math.round((h0-u)/86400000);};
+  // guarda o recorte p/ o relatório do financeiro e o resuminho do grupo (29/09/2026)
+  E._finRel={abertas,prePag:prePag.map(o=>o.x),cliPorDoc,cliPorNome,eu};
   ge("conteudo").innerHTML=`
     ${tarjaMeta("Meta da EQUIPE — "+new Date().toLocaleDateString("pt-BR",{month:"long"})+(mEquipe?" (conjunta, da planilha)":""),metaTot,pagoTot)}
     ${metaMinha?tarjaMeta("MINHA meta",metaMinha,pagoMeu)
@@ -4285,7 +4287,9 @@ async function telaCentral(){
         return `<div class="linha-item"${c?` style="cursor:pointer" title="toque para ver as tarefas deste cliente" onclick='inadVerTarefas(${JSON.stringify(c.id_cliente)},${JSON.stringify(x.cliente)})'`:` title="cliente não encontrado no cadastro — abra pela Gestão de Clientes"`}>
         <span style="font-size:12px"><b>${esc(x.cliente)}</b> · ${esc(x.produto||"")} · venceu ${esc(x.data_venc||"—")}${c?` <span style="color:var(--dani);font-size:10px">&#128203; ver tarefas</span>`:""}</span>
         <b style="color:var(--red)">${fmtR$(+x.valor_bruto||0)}</b></div>`;}).join("")
-        :'<div class="vazio">Nenhum inadimplente na sua carteira. 🎉</div>'}</div></details></div>
+        :'<div class="vazio">Nenhum inadimplente na sua carteira. 🎉</div>'}
+      ${abertas.length?`<div style="margin-top:8px"><button class="btn bts btsm" onclick="relFinanceiro()">&#128202; Emitir planilha semanal p/ financeiro</button>
+        <span style="font-size:10px;color:var(--gray)">baixa um CSV com o andamento dos trabalhos de cada inadimplente — pronto para enviar</span></div>`:""}</div></details></div>
     ${semTarefa.length?`<div class="painel" style="border-left:4px solid var(--red)">
       <div class="bloco-t" style="color:var(--red)">&#129534; Clientes NOVOS que pagaram e estão SEM tarefa ativa (${semTarefa.length})</div>
       <div style="font-size:11px;color:var(--gray);margin-bottom:5px">Contrato novo pago neste mês, mas nenhuma tarefa aberta no cliente — provavelmente falta lançar o parecer/levantamento. O sistema NÃO cria nada sozinho: confira e abra a tarefa se for o caso.</div>
@@ -4294,7 +4298,8 @@ async function telaCentral(){
           ${o.idc?"":'<span class="tag ta">cadastro não encontrado</span>'}</span>
         <span>${o.idc?`<button class="btn btp btsm" onclick="prepCliente('${esc(o.idc)}');telaClientes()">abrir cliente</button>`:""}</span></div>`).join("")}</div>`:""}
     ${prePag.length?`<div class="painel" style="border-left:4px solid var(--amber)">
-      <div class="bloco-t" style="color:var(--amber)">&#128222; Contatos pré-pagamento — MEUS clientes com boleto vencendo em até 2 dias (${prePag.length})</div>
+      <div class="bloco-t" style="color:var(--amber);display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px"><span>&#128222; Contatos pré-pagamento — MEUS clientes com boleto vencendo em até 2 dias (${prePag.length})</span>
+        <button class="btn bts btsm" onclick="resumoPrePag()">&#128172; copiar resuminho p/ grupo</button></div>
       ${prePag.slice(0,12).map(o=>`<div class="linha-item"><span style="font-size:12.5px">
         <b>${esc(o.x.cliente)}</b> · vence ${esc(o.x.data_venc)} · ${fmtR$(+o.x.valor_bruto||0)}
         </span></div>`).join("")}
@@ -6086,6 +6091,75 @@ async function enviarDoc(){
   if(!t.id_cliente){toast("Esta tarefa não tem cliente vinculado.","erro");return;}
   try{await DB.docEnviar(f,t.id_cliente,t.id_tarefa);}catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Documento anexado! (fica na tarefa e no cliente)","ok");carregarDocs(t);}
+// 📊 Relatório semanal ao financeiro + resuminho pré-pagamento (Bruna, 29/09/2026)
+// andamento resumido dos trabalhos de UM cliente, a partir das tarefas já carregadas
+function _andCli(idc){
+  const ats=(E.tarefas||[]).filter(t=>t.id_tarefa&&t.id_cliente===idc
+    &&!String(t.cliente||"").startsWith("\u{1F4CC}")&&String(t.status_tarefa||"")!=="TAREFA FIXA");
+  if(!ats.length)return {n:0,curto:"sem tarefa ativa",ops:"",ass:"",sit:"SEM TAREFA ATIVA",rev:"",
+    texto:"Nenhuma tarefa ativa no momento."};
+  const ops=[...new Set(ats.map(t=>{const op=String(t.operacao||"").trim();
+    return op?op+((t._nproc||1)>1?` (${t._nproc} processos)`:""):"";}).filter(Boolean))];
+  const ass=[...new Set(ats.map(t=>String(t.assessor||"").trim()).filter(Boolean))];
+  const atras=ats.filter(t=>t._atrasada).length,corr=ats.filter(t=>t._emCorrecao).length,
+    deleg=ats.filter(t=>t._delegada).length,n=nProcSum(ats);
+  const revs=ats.map(t=>String(t.data_revisao_dt||"").slice(0,10)).filter(Boolean).sort();
+  return {n,ops:ops.join(" | "),ass:ass.join(", "),rev:revs[0]?brData(revs[0]):"",
+    sit:atras?"COM ATRASO":"EM DIA",
+    curto:atras?`${n} frente(s), ${atras} em atraso`:`${n} frente(s) em dia`,
+    texto:`${n} frente(s) de trabalho ativa(s)`+(n!==ats.length?` em ${ats.length} card(s)`:"")
+      +` — ${ops.join("; ")} — com ${ass.join(", ")}. `
+      +(atras?`${atras} em atraso. `:"Trabalho em dia. ")
+      +(corr?`${corr} em correção interna. `:"")+(deleg?`${deleg} delegada(s) internamente. `:"")
+      +(revs[0]?`Próxima revisão em ${brData(revs[0])}.`:"")};
+}
+// planilha CSV p/ o financeiro: inadimplentes da MINHA carteira × andamento dos trabalhos
+function relFinanceiro(){
+  const R=E._finRel;if(!R||!R.abertas||!R.abertas.length){toast("Nenhum inadimplente na sua carteira.","erro");return;}
+  const cel=v=>{const s=String(v==null?"":v).replace(/"/g,'""');return /[";\n]/.test(s)?'"'+s+'"':s;};
+  const dig=v=>String(v||"").replace(/\D/g,"");
+  let vTot=0,comTrab=0,semTrab=0;
+  const corpo=R.abertas.slice().sort((x,y)=>(+y.valor_bruto||0)-(+x.valor_bruto||0)).map(x=>{
+    const c=R.cliPorDoc[dig(x.cnpj_cpf)]||R.cliPorNome[String(x.cliente||"").trim().toUpperCase()];
+    const a=c?_andCli(c.id_cliente):{n:0,ops:"",ass:"",sit:"—",rev:"",
+      texto:"Cliente não localizado no cadastro do jurídico."};
+    vTot+=(+x.valor_bruto||0);if(a.n)comTrab++;else semTrab++;
+    return [cel(x.cliente),cel(x.cnpj_cpf||(c&&c.cnpj_cpf)||""),cel(x.produto||""),cel(x.data_venc||""),
+      (+x.valor_bruto||0).toFixed(2).replace(".",","),cel(String(x.status_pgto||"").trim()),
+      a.n,cel(a.ops),cel(a.ass),cel(a.sit),cel(a.rev),cel(a.texto)].join(";");});
+  const nCli=new Set(R.abertas.map(x=>x.cliente)).size;
+  const li=["RELATÓRIO SEMANAL AO FINANCEIRO — INADIMPLÊNCIA × ANDAMENTO DOS TRABALHOS JURÍDICOS",
+    cel(`Emitido por ${R.eu} (head) em ${new Date().toLocaleDateString("pt-BR")} — carteira própria`),
+    cel(`Resumo: ${nCli} cliente(s) com débito em aberto, somando R$ ${vTot.toLocaleString("pt-BR",{minimumFractionDigits:2})}. `
+      +`${comTrab} seguem com trabalhos jurídicos em andamento e ${semTrab} estão sem tarefa ativa no momento.`),
+    cel('Como ler: "frentes" contam por processo (uma Execução Fiscal com 8 processos = 8 frentes). Valores conforme a planilha de cobrança.'),
+    "",
+    ["Cliente","CNPJ/CPF","Produto","Venceu em","Valor em aberto (R$)","Situação do débito","Frentes ativas",
+     "Operações em andamento","Assessor(es)","Situação do trabalho","Próxima revisão","Andamento (resumo)"].join(";"),
+    ...corpo];
+  const blob=new Blob(["﻿"+li.join("\r\n")],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);
+  a.download="relatorio_financeiro_inadimplencia_"+R.eu.toLowerCase()+"_"+hojeISO()+".csv";a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+  toast("Planilha baixada ("+nCli+" clientes) — abre direto no Excel, pronta para enviar ao financeiro.","ok");
+}
+// resuminho breve p/ o grupo de atendimento: boletos vencendo em até 2 dias + andamento
+async function resumoPrePag(){
+  const R=E._finRel;const ps=(R&&R.prePag)||[];
+  if(!ps.length){toast("Nenhum boleto vencendo nos próximos 2 dias.","erro");return;}
+  const dig=v=>String(v||"").replace(/\D/g,"");let v=0;
+  const ls=ps.map(x=>{v+=(+x.valor_bruto||0);
+    const c=R.cliPorDoc[dig(x.cnpj_cpf)]||R.cliPorNome[String(x.cliente||"").trim().toUpperCase()];
+    const a=c?_andCli(c.id_cliente):null;
+    return `• *${x.cliente}* — vence ${x.data_venc} · ${fmtR$(+x.valor_bruto||0)}`
+      +(a?` · ${a.curto}${a.ass?" ("+a.ass+")":""}`:"");});
+  const txt=`\u{1F4DE} *Pré-pagamento — carteira ${R.eu} (${new Date().toLocaleDateString("pt-BR")})*\n`
+    +`Boletos vencendo em até 2 dias:\n${ls.join("\n")}\n`
+    +`Total: ${ps.length} boleto(s) · ${fmtR$(v)}`;
+  try{await navigator.clipboard.writeText(txt);toast("Resuminho copiado — cole no grupo de atendimento.","ok");}
+  catch(e){modal2("&#128172; Resuminho pré-pagamento","copie o texto abaixo",
+    `<textarea class="fi" rows="10" style="width:100%">${esc(txt)}</textarea>`);}
+}
 // 💸→📋 tarefas do inadimplente direto na central do dia (Bruna, 29/09/2026):
 // abre num modal, sem precisar ir até a Gestão de Clientes
 async function inadVerTarefas(idc,nome){
