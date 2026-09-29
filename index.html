@@ -5938,7 +5938,10 @@ function prepCliente(id){
 }
 // esteira TAX: muda o status (grava data + histórico) e atualiza o selo
 async function setTaxCli(id,status){
-  const c=E._cli[id];const hoje=hojeISO();status=String(status||"").toUpperCase();
+  // c pode vir do mapa da tela Comercial (E._cli) OU da ficha aberta pela tarefa
+  // (E._cliCard). Sem esse fallback, na ficha E._cli fica vazio e o botão quebrava. (29/09)
+  const c=(E._cli&&E._cli[id])||(E._cliCard&&E._cliCard.id_cliente===id?E._cliCard:null)||{};
+  const hoje=hojeISO();status=String(status||"").toUpperCase();
   const valido=TAX_ROT[status]?status:"";
   try{await DB.clienteUpdate(id,{tax_status:valido||null,tax_status_dt:valido?hoje:null});
     await DB.nota({id_tarefa:"",id_cliente:id,tipo:"HISTORICO",
