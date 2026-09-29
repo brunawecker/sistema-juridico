@@ -328,6 +328,9 @@ function docFormata(v){let d=String(v||"").replace(/\.0$/,"").replace(/\D/g,"");
   return String(v||"").trim();}
 const nrmNome=s=>String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"")
   .toUpperCase().replace(/^[\d\.\s]+/,"").replace(/[^A-Z0-9 ]/g,"").replace(/\s+/g," ").trim();
+// busca \u201csem acento\u201d: min\u00fasculas e sem acentos, para procurar cliente/tarefa
+// digitando "ANTONIA" e encontrar "ANT\u00d4NIA" (evita o caso R4 Constru\u00e7\u00f5es, 29/09)
+const semAc=s=>String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
 // tarefas de parecer n\u00e3o exigem aviso no grupo de WhatsApp (decis\u00e3o da head,
 // 04/08/2026 \u2014 o parecer \u00e9 interno, n\u00e3o \u00e9 movimento para o cliente ver)
 const dispensaGrupo=t=>String((t&&t.operacao)||"").includes("Proposta Comercial");
@@ -680,8 +683,8 @@ const L = {  // modo local (servidor de teste na máquina)
   configSet(tabela,pkCol,pkVal,campos){return this.f("/api/config_set",P({tabela,pk_col:pkCol,pk_val:pkVal,campos}));},
 };
 function P(body){return{method:"POST",body:JSON.stringify(body)};}
-function filtraLocalClientes(cs,q){if(!q)return cs;const t=q.toLowerCase(),dig=q.replace(/\D/g,"");
-  return cs.filter(c=>String(c.nome||"").toLowerCase().includes(t)||String(c.id_cliente||"").toLowerCase().includes(t)
+function filtraLocalClientes(cs,q){if(!q)return cs;const t=semAc(q),dig=q.replace(/\D/g,"");
+  return cs.filter(c=>semAc(c.nome).includes(t)||String(c.id_cliente||"").toLowerCase().includes(t)
     ||(dig.length>=3&&String(c.cnpj_cpf||"").replace(/\D/g,"").includes(dig)));}
 function brHoje(){const d=new Date();return String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+String(d.getFullYear()).slice(-2);}
 function horaAgora(){const d=new Date();return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");}
@@ -2041,7 +2044,7 @@ function desenhaMinhas(){
   const q=(ge("mt-q")?.value||"").toLowerCase(), u=ge("mt-u")?.value||"";
   let lista=E._plano||[];
   if(q)lista=(E._minhasTodas||[]).filter(t=>!t._delegada&&!t._emCorrecao&&
-    (String(t.cliente||"").toLowerCase().includes(q)||String(t.operacao||"").toLowerCase().includes(q)));
+    (semAc(t.cliente).includes(semAc(q))||semAc(t.operacao).includes(semAc(q))));
   if(u)lista=lista.filter(t=>String(t._urg??t._g)===u);
   if(E._vis==="kanban"){alvo.innerHTML=renderKanban(lista);return;}
   const rot={0:"&#9888;&#65039; Prazo fatal",0.5:"&#128204; Fixas do dia",1:"&#128308; Imediatas",2:"&#128992; Em atraso",3:"&#128309; Para hoje",4:"&#128995; Completando capacidade"};
@@ -3629,7 +3632,7 @@ async function telaPainel(){
 function filtraPainel(){
   const q=(ge("pf-q").value||"").toLowerCase(),a=ge("pf-ass").value,st=ge("pf-st").value,hd=ge("pf-hd").value;
   let f=E.tarefas.filter(t=>t.id_tarefa&&!t._delegada&&!t._emCorrecao);
-  if(q)f=f.filter(t=>String(t.cliente||"").toLowerCase().includes(q));
+  if(q)f=f.filter(t=>semAc(t.cliente).includes(semAc(q)));
   if(a)f=f.filter(t=>t.assessor===a);
   if(hd)f=f.filter(t=>t.advogada===hd);
   if(st==="atr")f=f.filter(t=>t._atrasada);
@@ -4112,7 +4115,7 @@ async function buscaLembCli(){
   const q=(ge("lb-cli").value||"").trim().toLowerCase();const box=ge("lb-cli-res");if(!box)return;
   if(q.length<3){box.innerHTML="";return;}
   if(!E._clsTodos||!E._clsTodos.length){try{E._clsTodos=await DB.clientes("");}catch(e){E._clsTodos=[];}}
-  const cs=(E._clsTodos||[]).filter(c=>String(c.nome||"").toLowerCase().includes(q)).slice(0,6);
+  const cs=(E._clsTodos||[]).filter(c=>semAc(c.nome).includes(semAc(q))).slice(0,6);
   box.innerHTML=cs.map(c=>`<div class="linha-item" style="cursor:pointer;font-size:12px" onclick='vincLembCli(${JSON.stringify(c.id_cliente)},${JSON.stringify(c.nome)})'>&#128279; ${esc(c.nome)} <span style="color:var(--gray);font-size:10px">${esc(c.cnpj_cpf||"")}</span></div>`).join("");}
 function vincLembCli(id,nome){E._lbCli={id,nome};ge("lb-cli").value=nome;
   ge("lb-cli-res").innerHTML="";const ok=ge("lb-cli-ok");
@@ -4647,7 +4650,7 @@ async function buscaDobroCli(){
   const q=(ge("fd-cli").value||"").trim().toLowerCase();const box=ge("fd-cli-res");if(!box)return;
   if(q.length<3){box.innerHTML="";return;}
   if(!E._clsTodos||!E._clsTodos.length){try{E._clsTodos=await DB.clientes("");}catch(e){E._clsTodos=[];}}
-  box.innerHTML=(E._clsTodos||[]).filter(c=>String(c.nome||"").toLowerCase().includes(q)).slice(0,6)
+  box.innerHTML=(E._clsTodos||[]).filter(c=>semAc(c.nome).includes(semAc(q))).slice(0,6)
     .map(c=>`<div class="linha-item" style="cursor:pointer;font-size:12px" onclick='vincDobroCli(${JSON.stringify(c.id_cliente)},${JSON.stringify(c.nome)})'>&#128279; ${esc(c.nome)} <span style="color:var(--gray);font-size:10px">${esc(c.cnpj_cpf||"")}</span></div>`).join("");
 }
 function vincDobroCli(id,nome){E._fdCli={id,nome};ge("fd-cli").value=nome;
@@ -5608,7 +5611,7 @@ async function telaCasos(){
 }
 function filtraCasos(){
   const q=(ge("cs-q").value||"").toLowerCase(),m=ge("cs-m").value,hd=ge("cs-h").value,o=ge("cs-o").value;
-  let f=E._casos.filter(c=>(!q||String(c.cliente||"").toLowerCase().includes(q)||String(c.cnpj_cpf||"").includes(q))
+  let f=E._casos.filter(c=>(!q||semAc(c.cliente).includes(semAc(q))||String(c.cnpj_cpf||"").includes(q))
     &&(!m||c.motivo===m)&&(!hd||c.head===hd));
   if(o==="da")f=f.slice().reverse();
   if(o==="na")f=f.slice().sort((a,b)=>String(a.cliente||"").localeCompare(String(b.cliente||"")));
@@ -6103,7 +6106,7 @@ function buscaMescla(id){
   const q=(ge("mg-q-"+id).value||"").trim();const box=ge("mg-res-"+id);
   if(q.length<2){box.innerHTML="";return;}
   const f=Object.values(E._cli||{}).filter(c=>c.id_cliente!==id&&
-    (String(c.nome||"").toLowerCase().includes(q.toLowerCase())||String(c.cnpj_cpf||"").includes(q))).slice(0,8);
+    (semAc(c.nome).includes(semAc(q))||String(c.cnpj_cpf||"").includes(q))).slice(0,8);
   box.innerHTML=f.map(c=>`<div class="linha-item"><span><b>${esc(c.nome)}</b> <span style="color:var(--gray);font-size:11px">${esc(c.id_cliente)} · ${esc(c.cnpj_cpf||"sem doc")}</span></span>
     <button class="btn bts btsm" style="color:#6B4FBF;border-color:#6B4FBF" onclick='mesclarCliente(${JSON.stringify(id)},${JSON.stringify(c.id_cliente)})'>&#128279; Mesclar neste</button></div>`).join("")
     ||`<div style="font-size:12px;color:var(--gray)">Nenhum cliente encontrado.</div>`;}
@@ -6174,7 +6177,7 @@ async function telaCobranca(){
 }
 function desenhaCobranca(){
   const q=(ge("cb-q").value||"").toLowerCase(),st=ge("cb-st").value,hd=ge("cb-hd").value;
-  const f=E._cob.filter(r=>(!q||String(r.cliente||"").toLowerCase().includes(q))
+  const f=E._cob.filter(r=>(!q||semAc(r.cliente).includes(semAc(q)))
     &&(!st||r.status_pgto===st)&&(!hd||String(r.head||"").includes(hd)));
   const cor={PAGO:"tek",PENDENTE:"td2",ATRASADO:"ti"};
   ge("cb-corpo").innerHTML=f.slice(0,400).map(r=>`<tr>
@@ -6259,7 +6262,7 @@ function desenhaProps(){
   const sit=ge("pp-sit")?ge("pp-sit").value:"ativas";
   const casaSit=p=>sit==="todas"?true:sit==="aceitas"?p.status==="Aceita"
     :sit==="recusadas"?p.status==="Recusada":!["Aceita","Recusada"].includes(p.status);
-  let f=base.filter(p=>(!q||String(p.cliente||"").toLowerCase().includes(q))
+  let f=base.filter(p=>(!q||semAc(p.cliente).includes(semAc(q)))
     &&(!st||p.status===st)&&(!or||p.origem===or)&&casaSit(p));
   // recusadas ficam baixadas: vão para o fim da lista (dados preservados)
   f=[...f.filter(p=>p.status!=="Recusada"),...f.filter(p=>p.status==="Recusada")];
