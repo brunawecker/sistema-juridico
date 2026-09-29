@@ -1428,7 +1428,7 @@ function alternarEscopo(){
 function montarMenu(){
   const p=E.perfil, vend=/vendedor|comercial/i.test(p.cargo||"");
   let itens;
-  if(vend) itens=[["meudia","&#127749;","Meu Dia",telaMeuDia],["prop","&#128203;","Propostas",telaPropostas],["com","&#128188;","Comercial",telaComercial],["cli","&#127970;","Buscar Clientes",telaClientes],["agenda","&#128197;","Minha Agenda",telaAgenda]];
+  if(vend) itens=[["meudia","&#127749;","Meu Dia",telaMeuDia],["prop","&#128203;","Propostas",telaPropostas],["com","&#128188;","Comercial",telaComercial],["prem","&#127873;","Meus Prêmios",telaMeusPremios],["cli","&#127970;","Buscar Clientes",telaClientes],["agenda","&#128197;","Minha Agenda",telaAgenda]];
   else if(p.head_sim) itens=[
     ["central","&#127749;","Central do Dia",telaCentral],
     ["agenda","&#128197;","Minha Agenda",telaAgenda],
