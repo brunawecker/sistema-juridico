@@ -6149,20 +6149,51 @@ function relFinanceiro(){
 function _opComercial(op){
   if(/prazo\s*c3/i.test(op))return op.replace(/prazo\s*c3/i,"Acompanhamento de prazos processuais");
   return op;}
+// a base da mensagem é a ÚLTIMA anotação de situação que o assessor deixou em
+// cada tarefa ativa (ex.: "concluso com o juiz", "execuções seguem suspensas") —
+// a head revisa o texto no modal antes de copiar (nada sai sem passar por ela).
+function _notaInterna(tx){
+  return /IMPULSO|correç|corrig|delegad|Tarefa criada|redirecionad|Retorno do impulso|requer|prêmio/i.test(tx)
+    ||/^[\u{1F91D}\u{1F4E5}✏⏱\u{1F501}]/u.test(String(tx).trim());}
 async function msgPrePag(i){
   const R=E._finRel;const x=R&&R.prePag&&R.prePag[i];if(!x)return;
   const dig=v=>String(v||"").replace(/\D/g,"");
   const c=R.cliPorDoc[dig(x.cnpj_cpf)]||R.cliPorNome[String(x.cliente||"").trim().toUpperCase()];
-  const a=c?_andCli(c.id_cliente):null;
-  const frentes=(a&&a.n)?a.ops.split(" | ").map(_opComercial):null;
-  const txt=`Oi, tudo bem? \u{1F60A} Passando aqui para deixar vocês por dentro do que estamos tocando no caso:\n\n`
-    +(frentes
-      ?`\u{1F4CC} *O QUE ESTÁ EM ANDAMENTO*\n${frentes.map(f=>`✅ ${f}`).join("\n")}\n\nA equipe segue firme no caso — qualquer novidade, a gente traz aqui no grupo primeiro. \u{1F64C}\n\n`
-      :`\u{1F4CC} Seguimos acompanhando o caso de vocês de perto — qualquer novidade, a gente traz aqui no grupo primeiro. \u{1F64C}\n\n`)
-    +`\u{1F4B0} *SOBRE O BOLETO*\nSó lembrando que o boleto deste mês vence em ${x.data_venc}. Qualquer coisa, me chama por aqui que a gente resolve junto! \u{1F91D}`;
-  try{await navigator.clipboard.writeText(txt);toast("Mensagem copiada — revise e cole no grupo de atendimento do cliente.","ok");}
-  catch(e){modal2("&#128172; Mensagem p/ o grupo do cliente","copie o texto abaixo",
-    `<textarea class="fi" rows="12" style="width:100%">${esc(txt)}</textarea>`);}
+  modal2("&#128172; Atualização p/ o grupo de "+esc(x.cliente),
+    "montada com a última anotação dos assessores — revise antes de copiar",
+    `<div class="carregando"><div class="spin"></div></div>`);
+  const ats=c?(E.tarefas||[]).filter(t=>t.id_tarefa&&t.id_cliente===c.id_cliente
+    &&!String(t.cliente||"").startsWith("\u{1F4CC}")&&String(t.status_tarefa||"")!=="TAREFA FIXA"):[];
+  let notas=[];if(c){try{notas=await DB.notasCli(c.id_cliente);}catch(e){}}
+  // última anotação "de situação" por tarefa ativa (fora TIMER, robô e assuntos internos)
+  const porTar={};(notas||[]).forEach(h=>{
+    if(h.tipo==="TIMER"||String(h.autor||"")==="Sistema")return;
+    if(!h.id_tarefa||porTar[h.id_tarefa])return;
+    const tx=String(h.texto||"").trim();
+    if(!tx||_notaInterna(tx))return;
+    porTar[h.id_tarefa]={tx,data:h.data_dt?brData(String(h.data_dt).slice(0,10)):(h.data||""),autor:h.autor||""};});
+  const linhas=ats.map(t=>{const n=porTar[t.id_tarefa];
+    return {op:_opComercial(String(t.operacao||"").trim()||"Acompanhamento"),n};});
+  const corpo=linhas.filter(l=>l.n).map(l=>`✅ *${l.op}:* ${l.n.tx}`);
+  const soOps=linhas.filter(l=>!l.n).map(l=>`✅ ${l.op} em andamento`);
+  const txt=`Boa tarde! Passando para atualizar vocês sobre o caso:\n\n`
+    +(corpo.length||soOps.length
+      ?[...corpo,...soOps].join("\n")+`\n\nQualquer novidade, a gente informa aqui no grupo primeiro. \u{1F64C}\n\n`
+      :`Seguimos acompanhando o caso de vocês de perto — qualquer novidade, a gente traz aqui no grupo primeiro. \u{1F64C}\n\n`)
+    +`\u{1F4B0} Só lembrando que o boleto deste mês vence em ${x.data_venc}. Qualquer coisa, me chama por aqui! \u{1F91D}`;
+  ge("m2-corpo").innerHTML=`
+    <textarea class="fi" id="ppg-txt" rows="11" style="width:100%">${esc(txt)}</textarea>
+    <div style="display:flex;gap:8px;margin-top:6px">
+      <button class="btn btp btsm" onclick="copiarMsgPrePag()">&#128203; copiar mensagem</button>
+      <span style="font-size:10px;color:var(--gray);align-self:center">as frases dos assessores entram como estão — ajuste o tom se precisar; nada de atrasos/nomes vai sozinho</span></div>
+    ${Object.keys(porTar).length?`<div class="bloco-t" style="margin-top:10px;font-size:12px">&#128203; Anotações usadas (referência interna — NÃO vai na mensagem)</div>
+      ${linhas.filter(l=>l.n).map(l=>`<div style="font-size:11px;color:var(--gray);margin-bottom:3px"><b>${esc(l.op)}</b> · ${esc(l.n.autor)} em ${esc(l.n.data)}: "${esc(l.n.tx)}"</div>`).join("")}`:
+      `<div style="font-size:11px;color:var(--gray);margin-top:8px">Nenhuma anotação recente de situação dos assessores neste cliente — a mensagem saiu no modelo genérico.</div>`}`;
+}
+async function copiarMsgPrePag(){
+  const v=(ge("ppg-txt")||{}).value||"";
+  try{await navigator.clipboard.writeText(v);toast("Mensagem copiada — cole no grupo de atendimento do cliente.","ok");fecharModal2();}
+  catch(e){toast("Não consegui copiar sozinho — selecione o texto e use Ctrl+C.","erro");}
 }
 // 💸→📋 tarefas do inadimplente direto na central do dia (Bruna, 29/09/2026):
 // abre num modal, sem precisar ir até a Gestão de Clientes
@@ -7770,6 +7801,9 @@ function abrirNovoCliente(){
     <div class="linha-acao"><input class="fi" id="nc-nome" placeholder="Nome / Razão Social *" style="flex:2;margin:0">
       <input class="fi" id="nc-cnpj" placeholder="CNPJ / CPF *" style="flex:1;margin:0" onblur="buscarCNPJ('nc-cnpj','nc-nome','nc-uf','nc-mun')"></div>
     <div style="font-size:10px;color:var(--gray);margin-top:2px">&#128269; Preencheu o CNPJ? Nome, estado e cidade vêm sozinhos da Receita.</div>
+    <div id="nc-extras"></div>
+    <button type="button" class="btn bts btsm" style="margin-top:5px" onclick="ncAddEmpresa()">+ Adicionar outro CNPJ (mesmo dono)</button>
+    <div style="font-size:10px;color:var(--gray);margin-top:2px">&#127970; <b>Mesmo dono com mais de um CNPJ?</b> Adicione as outras empresas: cada uma vira cliente + tarefa, <b>todas com o mesmo assessor</b> e marcadas como grupo do mesmo dono.</div>
     <div class="linha-acao" style="margin-top:6px">
       <select class="fsel" id="nc-head"><option>Danielly</option><option>Bruna</option><option>Eduarda</option></select>
       <select class="fsel" id="nc-sit"><option value="OFICIAL">&#10003; Cliente oficial</option><option value="PROSPECCAO">&#128270; Prospecção</option></select>
@@ -7796,6 +7830,83 @@ function abrirNovoCliente(){
     </div>
     <button class="btn btp btw" style="margin-top:8px" onclick="criarClienteTarefa()">&#10003; Cadastrar</button>`);
   ordenarReceptores("nc-ass");
+}
+// ---- várias empresas do MESMO DONO num pedido só (estilo portal do
+// franqueado — Bruna, 29/09/2026): cada CNPJ vira cliente + tarefa com o
+// MESMO assessor, e a orientação marca o grupo para todos entenderem
+function ncAddEmpresa(){const box=ge("nc-extras");if(!box)return;
+  box.insertAdjacentHTML("beforeend",`<div class="nc-emp-row" style="border:1px solid var(--border);border-radius:9px;padding:7px 9px;margin-top:6px">
+    <div class="linha-acao"><input class="fi nce-nome" placeholder="Nome / Razão Social *" style="flex:2;margin:0">
+      <input class="fi nce-cnpj" placeholder="CNPJ / CPF *" style="flex:1;margin:0" onblur="ncBuscaCNPJ(this)">
+      <button type="button" class="btn bts btsm" style="color:var(--red);border-color:var(--red)" title="remover esta empresa" onclick="this.closest('.nc-emp-row').remove()">&#128465;</button></div>
+    <div class="nce-info" style="font-size:10.5px;color:var(--green);margin-top:3px"></div></div>`);}
+async function ncBuscaCNPJ(el){const row=el.closest(".nc-emp-row");if(!row)return;
+  const dig=String(el.value||"").replace(/\D/g,"");row.dataset.mun="";row.dataset.uf="";
+  const info=row.querySelector(".nce-info");if(dig.length!==14){if(info)info.innerHTML="";return;}
+  let d;try{const r=await fetch("https://brasilapi.com.br/api/cnpj/v1/"+dig);if(!r.ok)return;d=await r.json();}catch(e){return;}
+  row.dataset.mun=d.municipio||"";row.dataset.uf=d.uf||"";
+  const nm=row.querySelector(".nce-nome");
+  if(d.razao_social&&nm&&!(nm.value||"").trim())nm.value=d.razao_social;
+  if(info)info.innerHTML="&#10003; Receita: "+esc(d.razao_social||"")+(d.municipio?" — "+esc(d.municipio)+"/"+esc(d.uf||""):"");}
+function ncEmpresasExtras(){const out=[];
+  for(const row of document.querySelectorAll("#nc-extras .nc-emp-row")){
+    const nome=String((row.querySelector(".nce-nome")||{}).value||"").trim();
+    const cnpj=docFormata((row.querySelector(".nce-cnpj")||{}).value||"");
+    if(!nome&&!cnpj)continue;                        // linha em branco: ignora
+    out.push({nome,cnpj,uf:row.dataset.uf||"",mun:row.dataset.mun||""});}
+  return out;}
+async function criarGrupoMesmoDono(principal,extras){
+  const empresas=[principal,...extras];
+  const dig=s=>String(s||"").replace(/\D/g,"");
+  const vistos=new Set();
+  for(const e2 of empresas){
+    if(!e2.nome){toast("Informe o nome de todas as empresas do grupo.","erro");return;}
+    if(!e2.cnpj){toast("Informe o CNPJ/CPF de todas as empresas do grupo ("+e2.nome+").","erro");return;}
+    const d2=dig(e2.cnpj);
+    if(vistos.has(d2)){toast("Há um CNPJ repetido no grupo: "+e2.cnpj,"erro");return;}
+    vistos.add(d2);}
+  const semTarefa=!!(ge("nc-semtarefa")||{}).checked;
+  let op="",chk="",revISO="",flagNC=false,ecacNC="";
+  if(!semTarefa){
+    op=ge("nc-op").value;if(!op){toast("Selecione a operação da primeira tarefa.","erro");return;}
+    if(op==="Prazo C3"){toast("Prazo C3 pede Nº do processo e prazo fatal — crie um a um pela Nova tarefa.","erro");return;}
+    const ev=ecacValor();if(ev===null)return;ecacNC=ev;
+    if(!alvosCriacao().includes(ge("nc-ass").value)){toast("Você direciona tarefas só para: "+alvosCriacao().join(", ")+".","erro");return;}
+    flagNC=precisaPedidoHead(E.perfil.nome_sistema,ge("nc-ass").value);
+    if(flagNC&&!(ge("nc-headflag")||{}).checked){toast("Para direcionar a "+ge("nc-ass").value+", marque que a tarefa é por pedido direto de uma das heads.","erro");return;}
+    chk=ge("nc-chk").value;
+    const rev=new Date();if(!["IMEDIATO","DIÁRIO"].includes(chk))rev.setDate(rev.getDate()+7);
+    revISO=rev.toISOString().slice(0,10);
+    if(chk==="IMEDIATO"&&ge("nc-ass").value!==E.perfil.nome_sistema){
+      const q=perguntarQuandoDelegar("IMEDIATO");if(q)revISO=q;}}
+  // reaproveita cadastro existente pelo documento — não duplica cliente
+  let todos=E._clsTodos;
+  if(!todos||!todos.length){try{todos=await DB.clientes("");}catch(e){todos=[];}}
+  const grupoNota=`🏢 MESMO DONO — grupo de ${empresas.length} empresas: ${empresas.map(e2=>e2.nome).join(" · ")}. É a mesma pessoa por trás de todas: analise e trate em conjunto.`;
+  const criados=[],reusados=[];let tarefas=0;
+  try{
+    for(let i=0;i<empresas.length;i++){const e2=empresas[i];
+      const ja=(todos||[]).find(x=>dig(x.cnpj_cpf)===dig(e2.cnpj));
+      let idc,nomeCli;
+      if(ja){idc=ja.id_cliente;nomeCli=ja.nome;reusados.push(ja.nome);}
+      else{
+        const rc=await DB.criarCliente({nome:e2.nome,cnpj:e2.cnpj,head:ge("nc-head").value,
+          vertical:vertValor("nc-vert"),inicio:ge("nc-inicio").value,
+          situacao:ge("nc-sit").value,regime:ge("nc-reg").value,
+          municipio:i===0?ge("nc-mun").value:(e2.mun||""),uf:i===0?ge("nc-uf").value:(e2.uf||""),
+          resumo:(ge("nc-res").value||"")+(empresas.length>1?(ge("nc-res").value?"\n":"")+grupoNota:"")});
+        idc=rc.id;nomeCli=e2.nome;criados.push(e2.nome);}
+      if(!semTarefa){
+        if(ecacNC)try{await DB.clienteUpdate(idc,{e_cac:ecacNC});}catch(e){}
+        const rt=await DB.criarTarefa({id_cliente:idc,cliente:nomeCli,cnpj:e2.cnpj,head:ge("nc-head").value,
+          operacao:op,check:chk,assessor:ge("nc-ass").value,
+          supervisao:(flagNC?MARCA_PEDIDO_HEAD+". ":"")+grupoNota+(ge("nc-sup").value?" | "+ge("nc-sup").value:""),
+          revisao:revISO});
+        tarefas++;
+        if(i===0)await enviarDocsCriacao("nc-doc",idc,rt.id);}}
+  }catch(e){toast("Erro no grupo (parte pode ter sido criada — confira): "+e.message,"erro");return;}
+  toast(`✓ Grupo do mesmo dono: ${empresas.length} empresa(s)${criados.length?` (${criados.length} nova(s))`:""}${reusados.length?` · ${reusados.length} já existia(m) e entrou(aram) no grupo`:""}${tarefas?` · ${tarefas} tarefa(s) para ${ge("nc-ass").value}`:" · sem tarefas"}.`,"ok");
+  fecharModal2();recarregar();
 }
 // cliente já existe? migra o que foi preenchido no "Novo cliente" e cria só
 // a tarefa nele (operação, frequência, assessor, orientação e anexos)
@@ -7826,6 +7937,9 @@ async function criarClienteTarefa(){
   const cnpj=docFormata(ge("nc-cnpj").value);
   if(!nome){toast("Informe o nome.","erro");return;}
   if(!cnpj){toast("Informe o CNPJ/CPF.","erro");return;}
+  // mais de um CNPJ do mesmo dono? segue o fluxo de GRUPO (Bruna, 29/09/2026)
+  const extras=ncEmpresasExtras();
+  if(extras.length){await criarGrupoMesmoDono({nome,cnpj,uf:"",mun:""},extras);return;}
   // trava anti-duplicado: mesmo documento bloqueia; mesmo nome pede confirmação
   let todos=E._clsTodos;
   if(!todos||!todos.length){try{todos=await DB.clientes("");}catch(e){todos=[];}}
