@@ -465,12 +465,13 @@ function abrirPremioEditar(id){
       <option value="">(ainda não pago / não se aplica)</option>
       ${["Bruna","Danielly","Eduarda"].map(n=>`<option ${x.pago_por===n?"selected":""}>${n}</option>`).join("")}
       <option value="Rateado entre as heads" ${/ratead/i.test(x.pago_por||"")?"selected":""}>&#129309; Todas — rateado na hora do pagamento</option></select>
-    <div class="bloco-t" style="margin-top:8px">&#128197; Data ${folga?"combinada para usufruir (folga/home/horário)":"de usufruto (se for o caso)"}</div>
-    <input type="date" class="fsel" id="pe-data" value="${x.data_uso||""}">
+    ${folga?`<div class="bloco-t" style="margin-top:8px">&#128197; Data combinada para usufruir (folga/home/horário)</div>
+    <input type="date" class="fsel" id="pe-data" value="${x.data_uso||""}">`
+    :`<div style="font-size:10.5px;color:var(--gray);margin-top:8px">Vale/pix não tem data de usufruto — pagou, pronto (entra no tricount pelo "quem pagou").</div>`}
     <button class="btn btp btw" style="margin-top:10px" onclick="salvarPremioEditar(${id})">&#128190; Salvar</button>`);}
 async function salvarPremioEditar(id){
   const v=numBR((ge("pe-valor").value||"").trim())||null;
-  const quem=ge("pe-quem").value,dt=ge("pe-data").value||null;
+  const quem=ge("pe-quem").value,dt=ge("pe-data")?(ge("pe-data").value||null):null;
   try{await DB.premioEditar(id,v,quem,dt);}catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Salvo!","ok");fecharModal2();telaComercial();}
 async function togglePremio(id){
