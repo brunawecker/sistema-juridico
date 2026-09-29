@@ -4298,11 +4298,11 @@ async function telaCentral(){
           ${o.idc?"":'<span class="tag ta">cadastro não encontrado</span>'}</span>
         <span>${o.idc?`<button class="btn btp btsm" onclick="prepCliente('${esc(o.idc)}');telaClientes()">abrir cliente</button>`:""}</span></div>`).join("")}</div>`:""}
     ${prePag.length?`<div class="painel" style="border-left:4px solid var(--amber)">
-      <div class="bloco-t" style="color:var(--amber);display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px"><span>&#128222; Contatos pré-pagamento — MEUS clientes com boleto vencendo em até 2 dias (${prePag.length})</span>
-        <button class="btn bts btsm" onclick="resumoPrePag()">&#128172; copiar resuminho p/ grupo</button></div>
-      ${prePag.slice(0,12).map(o=>`<div class="linha-item"><span style="font-size:12.5px">
+      <div class="bloco-t" style="color:var(--amber)">&#128222; Contatos pré-pagamento — MEUS clientes com boleto vencendo em até 2 dias (${prePag.length})</div>
+      <div style="font-size:11px;color:var(--gray);margin-bottom:5px">&#128172; "copiar mensagem" monta a atualização COMERCIAL pronta p/ o grupo de atendimento do cliente — só o que está em andamento, sem termos internos, sem atrasos e sem nomes da equipe.</div>
+      ${prePag.slice(0,12).map((o,i)=>`<div class="linha-item"><span style="font-size:12.5px">
         <b>${esc(o.x.cliente)}</b> · vence ${esc(o.x.data_venc)} · ${fmtR$(+o.x.valor_bruto||0)}
-        </span></div>`).join("")}
+        </span><button class="btn bts btsm" onclick="msgPrePag(${i})">&#128172; copiar mensagem</button></div>`).join("")}
       ${prePag.length>12?`<div style="font-size:11px;color:var(--gray)">+${prePag.length-12} boletos seus nos próximos 2 dias</div>`:""}</div>`:""}
     ${(()=>{
       const ta=(cls||[]).filter(c=>String(c.tax_status||"").toUpperCase()==="SOLICITADO"&&String(c.head||"").trim()===eu)
@@ -6143,22 +6143,26 @@ function relFinanceiro(){
   setTimeout(()=>URL.revokeObjectURL(a.href),4000);
   toast("Planilha baixada ("+nCli+" clientes) — abre direto no Excel, pronta para enviar ao financeiro.","ok");
 }
-// resuminho breve p/ o grupo de atendimento: boletos vencendo em até 2 dias + andamento
-async function resumoPrePag(){
-  const R=E._finRel;const ps=(R&&R.prePag)||[];
-  if(!ps.length){toast("Nenhum boleto vencendo nos próximos 2 dias.","erro");return;}
-  const dig=v=>String(v||"").replace(/\D/g,"");let v=0;
-  const ls=ps.map(x=>{v+=(+x.valor_bruto||0);
-    const c=R.cliPorDoc[dig(x.cnpj_cpf)]||R.cliPorNome[String(x.cliente||"").trim().toUpperCase()];
-    const a=c?_andCli(c.id_cliente):null;
-    return `• *${x.cliente}* — vence ${x.data_venc} · ${fmtR$(+x.valor_bruto||0)}`
-      +(a?` · ${a.curto}${a.ass?" ("+a.ass+")":""}`:"");});
-  const txt=`\u{1F4DE} *Pré-pagamento — carteira ${R.eu} (${new Date().toLocaleDateString("pt-BR")})*\n`
-    +`Boletos vencendo em até 2 dias:\n${ls.join("\n")}\n`
-    +`Total: ${ps.length} boleto(s) · ${fmtR$(v)}`;
-  try{await navigator.clipboard.writeText(txt);toast("Resuminho copiado — cole no grupo de atendimento.","ok");}
-  catch(e){modal2("&#128172; Resuminho pré-pagamento","copie o texto abaixo",
-    `<textarea class="fi" rows="10" style="width:100%">${esc(txt)}</textarea>`);}
+// mensagem COMERCIAL pronta p/ o grupo de atendimento do cliente (boleto D-2).
+// Regra da Bruna (29/09/2026): tom positivo, SEM "em atraso" (anotação interna),
+// SEM nomes da equipe — no estilo das mensagens de atualização que ela envia.
+function _opComercial(op){
+  if(/prazo\s*c3/i.test(op))return op.replace(/prazo\s*c3/i,"Acompanhamento de prazos processuais");
+  return op;}
+async function msgPrePag(i){
+  const R=E._finRel;const x=R&&R.prePag&&R.prePag[i];if(!x)return;
+  const dig=v=>String(v||"").replace(/\D/g,"");
+  const c=R.cliPorDoc[dig(x.cnpj_cpf)]||R.cliPorNome[String(x.cliente||"").trim().toUpperCase()];
+  const a=c?_andCli(c.id_cliente):null;
+  const frentes=(a&&a.n)?a.ops.split(" | ").map(_opComercial):null;
+  const txt=`Oi, tudo bem? \u{1F60A} Passando aqui para deixar vocês por dentro do que estamos tocando no caso:\n\n`
+    +(frentes
+      ?`\u{1F4CC} *O QUE ESTÁ EM ANDAMENTO*\n${frentes.map(f=>`✅ ${f}`).join("\n")}\n\nA equipe segue firme no caso — qualquer novidade, a gente traz aqui no grupo primeiro. \u{1F64C}\n\n`
+      :`\u{1F4CC} Seguimos acompanhando o caso de vocês de perto — qualquer novidade, a gente traz aqui no grupo primeiro. \u{1F64C}\n\n`)
+    +`\u{1F4B0} *SOBRE O BOLETO*\nSó lembrando que o boleto deste mês vence em ${x.data_venc}. Qualquer coisa, me chama por aqui que a gente resolve junto! \u{1F91D}`;
+  try{await navigator.clipboard.writeText(txt);toast("Mensagem copiada — revise e cole no grupo de atendimento do cliente.","ok");}
+  catch(e){modal2("&#128172; Mensagem p/ o grupo do cliente","copie o texto abaixo",
+    `<textarea class="fi" rows="12" style="width:100%">${esc(txt)}</textarea>`);}
 }
 // 💸→📋 tarefas do inadimplente direto na central do dia (Bruna, 29/09/2026):
 // abre num modal, sem precisar ir até a Gestão de Clientes
