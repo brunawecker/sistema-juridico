@@ -468,11 +468,14 @@ function abrirPremioEditar(id){
     ${folga?`<div class="bloco-t" style="margin-top:8px">&#128197; Data combinada para usufruir (folga/home/horário)</div>
     <input type="date" class="fsel" id="pe-data" value="${x.data_uso||""}">`
     :`<div style="font-size:10.5px;color:var(--gray);margin-top:8px">Vale/pix não tem data de usufruto — pagou, pronto (entra no tricount pelo "quem pagou").</div>`}
+    <label style="display:flex;gap:7px;align-items:center;font-size:12px;margin-top:10px;padding:8px 10px;background:#F4FAF4;border:1px solid #BFE3C6;border-radius:8px;cursor:pointer">
+      <input type="checkbox" id="pe-tric" style="width:16px;height:16px" ${x.tric?"checked":""}>
+      <span>&#128184; <b>Pagamento individual</b> — lançar como linha no tricount (deixe DESMARCADO se este prêmio veio numa compra em lote já lançada no gasto total)</span></label>
     <button class="btn btp btw" style="margin-top:10px" onclick="salvarPremioEditar(${id})">&#128190; Salvar</button>`);}
 async function salvarPremioEditar(id){
   const v=numBR((ge("pe-valor").value||"").trim())||null;
   const quem=ge("pe-quem").value,dt=ge("pe-data")?(ge("pe-data").value||null):null;
-  try{await DB.premioEditar(id,v,quem,dt);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  try{await DB.premioEditar(id,v,quem,dt,ge("pe-tric")?ge("pe-tric").checked:null);}catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Salvo!","ok");fecharModal2();telaComercial();}
 async function togglePremio(id){
   try{await DB.premioToggle(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
@@ -754,7 +757,7 @@ const S = {
   async premioAdd(sem,p,n,pr){return rpcS("premio_add",{p_semana:sem||null,p_pessoa:p,p_numero:n||null,p_premio:pr});},
   async premioToggle(id){return rpcS("premio_toggle",{p_id:id});},
   async premioApagar(id){return rpcS("premio_apagar",{p_id:id});},
-  async premioEditar(id,v,quem,dt){return rpcS("premio_editar",{p_id:id,p_valor:v,p_pago_por:quem||"",p_data_uso:dt||null});},
+  async premioEditar(id,v,quem,dt,tric){return rpcS("premio_editar",{p_id:id,p_valor:v,p_pago_por:quem||"",p_data_uso:dt||null,p_tric:(tric===undefined?null:!!tric)});},
   async lembretes(){return okS(await supa.rpc("lembretes_listar"))||[];},
   async lembreteAdd(cli,txt,dt,alvo,idCli){return rpcS("lembrete_add",{p_cliente:cli,p_texto:txt,p_data:dt,p_alvo:alvo||"para mim",p_id_cliente:idCli||null});},
   async lembretesCli(id){return okS(await supa.rpc("lembretes_do_cliente",{p_id:id}))||[];},
@@ -4451,7 +4454,7 @@ async function carregarTricount(){
         :g.criado_por===eu?`<span><button class="btn bts btsm" title="editar" onclick="tricEditar(${g.id})">&#9998;</button>
         <button class="btn bts btsm" title="apagar (só quem lançou)" onclick="tricApagar(${g.id})">&#10005;</button></span>`:""}</div>`).join("")}</details>`
     :'<div style="font-size:12px;color:var(--gray)">Nenhum gasto em aberto. Lance o primeiro acima.</div>'}
-    <div style="font-size:10px;color:var(--gray);margin-top:5px">&#128218; O histórico completo (lançamento por lançamento, incluindo acertados) fica em <b>Configurações</b>. Prêmios com valor e pagadora preenchidos no controle da roleta entram sozinhos como &#127918; Jogos.</div>
+    <div style="font-size:10px;color:var(--gray);margin-top:5px">&#128218; O histórico completo (lançamento por lançamento, incluindo acertados) fica em <b>Configurações</b>. Prêmio só vira linha aqui quando marcado como <b>pagamento individual</b> (no vínculo do lançar ou na caixinha do controle da roleta) — compra em lote entra pelo gasto total, sem duplicar.</div>
   </div>`;
 }
 function tricVinculaPremio(){
@@ -4473,7 +4476,7 @@ async function tricAdd(){
   const premSel=ge("tg-premio")&&ge("tg-premio").value;
   try{
     if(premSel){ // vínculo: registra o pagamento NO prêmio — ele vira a linha 🎁 sozinho
-      await DB.premioEditar(+premSel,val,ge("tg-pago").value,null);
+      await DB.premioEditar(+premSel,val,ge("tg-pago").value,null,true);
       toast("Prêmio pago registrado — entrou na lista como 🎁 (divide entre as três).","ok");
     }else{
       await DB.headGastoAdd({desc,valor:val,pago:ge("tg-pago").value,parts:parts.join(", "),cat});
