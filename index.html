@@ -1917,6 +1917,14 @@ async function telaMinhas(){
   // prospecção e follow-up OCUPAM a barra do dia (quem delega vê o mesmo)
   const pct=Math.min(100,Math.round((planejado+reservaPros+reservaFu)/Math.max(1,capDisp)*100));
   E._plano=plano;E._minhasTodas=minhas;
+  // 🥁 TAX que EU solicitei e preciso cobrar hoje (a cada 3 dias úteis) — cartão no topo
+  E._taxCobrar=[];
+  try{const _cls=await DB.clientes(""),_hj=hojeISO();
+    E._taxCobrar=(_cls||[]).filter(c=>String(c.tax_status||"").toUpperCase()==="SOLICITADO"
+      &&ehMeuNome(c.tax_solicitante||"")
+      &&(!c.tax_cobranca_dt||String(c.tax_cobranca_dt).slice(0,10)<=_hj))
+      .sort((a,b)=>String(a.tax_status_dt||"").localeCompare(String(b.tax_status_dt||"")));
+  }catch(e){}
   // ------- monta html
   let h=bannerPrazoFatal(ativas);
   const pctCor=pct>90?"var(--red)":pct>70?"var(--amber)":"var(--green)";
@@ -2039,6 +2047,23 @@ async function telaMinhas(){
   if(E.perfil.head_sim||CORR_HEADS.includes(nome))painelParaCorrigir("mt-corrigir");
   checarResumosPendentes(reun);
 }
+// cartão de cobrança da TAX (no topo do Minhas, junto do Follow-up) — o assessor
+// que solicitou cobra o contador; some quando o cálculo voltar. (Bruna, 29/09)
+function taxCobrarCardHtml(){
+  const lst=E._taxCobrar||[];if(!lst.length)return "";
+  const linhas=lst.map(c=>{
+    const dias=c.tax_status_dt?Math.round((Date.now()-new Date(String(c.tax_status_dt).slice(0,10)+"T12:00:00"))/86400000):null;
+    const cor=dias!=null&&dias>=5?"var(--red)":"#7F6000";
+    return `<div class="linha-item" style="align-items:center;flex-wrap:wrap;gap:6px">
+      <span style="font-size:12.5px"><b>${esc(c.nome)}</b>${dias!=null?` <b style="color:${cor}">· há ${dias}d</b>`:""}</span>
+      <span style="display:flex;gap:5px">
+        <button class="btn btp btsm" onclick="taxCobrei('${esc(c.id_cliente)}')">&#128222; Cobrei — +3 dias</button>
+        <button class="btn btg btsm" onclick="taxVoltou('${esc(c.id_cliente)}')">&#10003; Voltou</button></span></div>`;}).join("");
+  return `<div class="painel" style="border-left:4px solid #7F6000;background:#FBFAF5">
+    <div class="bloco-t" style="color:#7F6000">&#129518; TAX — cobrar o retorno do cálculo (${lst.length})</div>
+    <div style="font-size:11px;color:var(--gray);margin-bottom:6px">Você solicitou o cálculo. Cobre o contador parceiro e registre — volta a lembrar a cada 3 dias úteis, e some quando o cálculo voltar.</div>
+    ${linhas}</div>`;
+}
 function desenhaMinhas(){
   const alvo=ge("mt-lista");if(!alvo)return;
   const q=(ge("mt-q")?.value||"").toLowerCase(), u=ge("mt-u")?.value||"";
@@ -2053,6 +2078,7 @@ function desenhaMinhas(){
   // 📞 o follow-up é o "COMECE POR AQUI" — abre o dia acima de tudo,
   // inclusive dos prazos fatais (decisão da Bruna, 19/09/2026)
   if(E._fuCard&&(!u||u==="1")){h+=fuCardHtml();algum=true;}
+  if(!u){const _tx=taxCobrarCardHtml();if(_tx){h+=_tx;algum=true;}}
   [0,0.5,1,2,3,4].forEach(k=>{
     if(!g[k].length)return;algum=true;
     h+=`<div class="grupo-t"><span>${rot[k]}</span><span class="qt">${nProcSum(g[k])}${nProcSum(g[k])!==g[k].length?` (${g[k].length} cards)`:""} · ~${g[k].reduce((s,t)=>s+t._tempo,0)}min</span></div>`
@@ -2564,10 +2590,10 @@ function taxCardHTML(c){
     :`<span class="tag tm">&#129518; TAX: não solicitada</span>`;
   let btns="";
   if(!TAX_ROT[s])btns=`<button class="btn btp btsm" onclick="setTaxCard('SOLICITADO')">&#129518; Solicitei o cálculo da TAX</button>`;
-  else if(s==="SOLICITADO")btns=`<button class="btn btg btsm" onclick="setTaxCard('CALCULADO')">&#10003; Cálculo voltou (Calculado)</button>`;
+  else if(s==="SOLICITADO")btns=`<button class="btn btp btsm" onclick="taxCobrei('${esc(c.id_cliente)}')">&#128222; Cobrei — +3 dias</button> <button class="btn btg btsm" onclick="setTaxCard('CALCULADO')">&#10003; Cálculo voltou</button>`;
   else if(s==="CALCULADO")btns=`<button class="btn btg btsm" onclick="setTaxCard('FECHADO')">TAX fechado</button> <button class="btn bts btsm" onclick="setTaxCard('SEM_POSSIBILIDADE')">sem possibilidade</button>`;
   return `<div style="width:100%;margin-top:5px;padding:7px 10px;background:#FBFAF5;border:1px solid #E6D9AE;border-radius:9px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-    ${selo}${s==="SOLICITADO"?'<span style="font-size:11px;color:#7F6000">&#9202; cobre o retorno do cálculo e atualize aqui</span>':""}
+    ${selo}${s==="SOLICITADO"?`<span style="font-size:11px;color:#7F6000">&#9202; cobre o retorno do cálculo${c.tax_cobranca_dt?` · próxima cobrança ${brData(String(c.tax_cobranca_dt).slice(0,10))}`:""}</span>`:""}
     <span>${btns}</span></div>`;
 }
 async function setTaxCard(status){const c=E._cliCard;if(!c)return;
@@ -5946,13 +5972,37 @@ async function setTaxCli(id,status){
   const c=(E._cli&&E._cli[id])||(E._cliCard&&E._cliCard.id_cliente===id?E._cliCard:null)||{};
   const hoje=hojeISO();status=String(status||"").toUpperCase();
   const valido=TAX_ROT[status]?status:"";
-  try{await DB.clienteUpdate(id,{tax_status:valido||null,tax_status_dt:valido?hoje:null});
+  // ao SOLICITAR: guarda quem pediu e agenda a 1ª cobrança em 3 dias úteis.
+  // ao sair de SOLICITADO (calculado/fechado/removido): limpa a cobrança. (29/09)
+  const ehSolic=valido==="SOLICITADO";
+  const solic=ehSolic?E.perfil.nome_sistema:null;
+  const prox=ehSolic?somaDiasUteis(new Date(),3).toISOString().slice(0,10):null;
+  try{await DB.clienteUpdate(id,{tax_status:valido||null,tax_status_dt:valido?hoje:null,
+      tax_solicitante:solic,tax_cobranca_dt:prox});
     await DB.nota({id_tarefa:"",id_cliente:id,tipo:"HISTORICO",
       texto:"🧮 TAX: "+(valido?TAX_ROT[valido]:"removida")+" — por "+E.perfil.nome_sistema});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
-  c.tax_status=valido;c.tax_status_dt=valido?hoje:null;
+  c.tax_status=valido;c.tax_status_dt=valido?hoje:null;c.tax_solicitante=solic;c.tax_cobranca_dt=prox;
   const el=ge("taxselo-"+id);if(el)el.innerHTML=taxSeloInner(c);
   toast("Status da TAX atualizado.","ok");carregarNotasCli(id);
+}
+// "Cobrei o contador" — empurra a próxima cobrança +3 dias úteis e registra
+async function taxCobrei(id){
+  const prox=somaDiasUteis(new Date(),3).toISOString().slice(0,10);
+  try{await DB.clienteUpdate(id,{tax_cobranca_dt:prox});
+    await DB.nota({id_tarefa:"",id_cliente:id,tipo:"HISTORICO",
+      texto:"📞 TAX: cobrei o retorno do cálculo — próxima cobrança "+brData(prox)+" — por "+E.perfil.nome_sistema});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  if(E._cli&&E._cli[id])E._cli[id].tax_cobranca_dt=prox;
+  if(E._cliCard&&E._cliCard.id_cliente===id)E._cliCard.tax_cobranca_dt=prox;
+  toast("Combinado — lembro de novo em "+brData(prox)+".","ok");
+  if(E._cliCard&&E._cliCard.id_cliente===id&&E.atual)carregarCliExtra(E.atual);
+  else recarregar();
+}
+// "Cálculo voltou" a partir do cartão de cobrança (Minhas Tarefas)
+async function taxVoltou(id){
+  await setTaxCli(id,"CALCULADO");
+  if(!(E._cliCard&&E._cliCard.id_cliente===id))recarregar();
 }
 // anexa o cálculo da TAX aos documentos do cliente
 async function anexarCalcTax(id){
