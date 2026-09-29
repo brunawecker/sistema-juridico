@@ -7350,7 +7350,14 @@ function pedirResumoReuniao(id,restantes){
        ${temCli?`<div style="font-size:12px;margin-bottom:6px">&#9989; Cliente: <b>${esc(r.cliente||"—")}</b></div>`
          :`<input class="fi" id="res-q" placeholder="&#128269; Vincular ao cliente da reunião (2+ letras)..." oninput="buscaResCli()">
            <div id="res-res" style="max-height:120px;overflow:auto"></div>
-           <div id="res-sel" style="font-size:12px;color:var(--navy);margin:2px 0"></div>`}
+           <div id="res-sel" style="font-size:12px;color:var(--navy);margin:2px 0"></div>
+           <label style="font-size:12px;display:flex;gap:6px;align-items:center;margin:4px 0;cursor:pointer"><input type="checkbox" id="res-novo" onchange="toggleResNovo()"> &#127381; O cliente <b>ainda não está no sistema</b> — cadastrar agora</label>
+           <div id="res-novo-w" style="display:none;border:1px solid var(--border);border-radius:9px;padding:8px 9px;margin-bottom:4px">
+             <div class="linha-acao"><input class="fi" id="res-nnome" placeholder="Nome / Razão Social *" style="flex:2;margin:0">
+               <input class="fi" id="res-ncnpj" placeholder="CNPJ / CPF *" style="flex:1;margin:0" onblur="resBuscaCNPJ()"></div>
+             <div id="res-ninfo" style="font-size:10.5px;color:var(--green);margin-top:3px"></div>
+             <select class="fsel" id="res-nhead" style="width:100%;margin-top:5px"><option value="">Head da carteira deste cliente *</option><option>Danielly</option><option>Bruna</option><option>Eduarda</option></select>
+             <div style="font-size:10px;color:var(--gray);margin-top:3px">Nasce como <b>prospecção</b> na carteira dessa head — o resumo já fica gravado nele; depois é só lançar a proposta.</div></div>`}
        <textarea class="fta" id="res-txt" rows="4" placeholder="Narre um breve histórico do que foi ajustado na reunião, informações que o cliente passou e de onde veio essa reunião (franqueado, funil específico etc.)">${esc(jaTexto)}</textarea></div>
      <button class="btn btp btw" style="margin-top:8px" onclick="salvarResumoReuniao('${esc(id)}')">&#128190; Salvar</button>
      <div style="text-align:center;margin-top:6px"><a href="javascript:marcarReuniaoNaoAconteceu('${esc(id)}')" style="font-size:11px;color:var(--gray)">a reunião não aconteceu / foi cancelada</a></div>`);
@@ -7368,6 +7375,20 @@ function escolherResCli(id){E._resCli=id;const c=(E._cli||{})[id];
   ge("res-res").innerHTML="";if(ge("res-q"))ge("res-q").value=c?c.nome:"";
   if(ge("res-sel"))ge("res-sel").innerHTML=c?"&#9989; Vinculado a: <b>"+esc(c.nome)+"</b>":"";}
 function toggleSemCli(){const cb=ge("res-semcli"),w=ge("res-cli-w");if(w)w.style.display=(cb&&cb.checked)?"none":"block";}
+// cliente da reunião ainda não existe no sistema → cadastra dali mesmo
+// (caso do Nicholas — Bruna, 29/09/2026)
+function toggleResNovo(){const cb=ge("res-novo"),w=ge("res-novo-w");
+  if(w)w.style.display=(cb&&cb.checked)?"block":"none";
+  if(cb&&cb.checked){E._resCli="";if(ge("res-sel"))ge("res-sel").innerHTML="";if(ge("res-res"))ge("res-res").innerHTML="";}}
+async function resBuscaCNPJ(){
+  const dig=String((ge("res-ncnpj")||{}).value||"").replace(/\D/g,"");
+  E._resNovoUF="";E._resNovoMun="";const info=ge("res-ninfo");
+  if(dig.length!==14){if(info)info.innerHTML="";return;}
+  let d;try{const r=await fetch("https://brasilapi.com.br/api/cnpj/v1/"+dig);if(!r.ok)return;d=await r.json();}catch(e){return;}
+  E._resNovoUF=d.uf||"";E._resNovoMun=d.municipio||"";
+  const nm=ge("res-nnome");
+  if(d.razao_social&&nm&&!(nm.value||"").trim())nm.value=d.razao_social;
+  if(info)info.innerHTML="&#10003; Receita: "+esc(d.razao_social||"")+(d.municipio?" — "+esc(d.municipio)+"/"+esc(d.uf||""):"");}
 async function salvarResumoReuniao(id){
   const r=(E._reuMap||{})[id];if(!r)return;
   // sem cliente envolvido → resolve sem exigir resumo (interno/pessoal)
@@ -7380,10 +7401,32 @@ async function salvarResumoReuniao(id){
   }
   const txt=(ge("res-txt").value||"").trim();
   if(!txt){toast("Escreva o resumo — ou marque 'sem cliente envolvido'.","erro");return;}
-  const idc=r.id_cliente||E._resCli||"";
+  let idc=r.id_cliente||E._resCli||"";
+  // cadastrar o cliente novo dali mesmo (caso do Nicholas — Bruna, 29/09/2026)
+  if(!r.id_cliente&&(ge("res-novo")||{}).checked){
+    const nnome=((ge("res-nnome")||{}).value||"").trim();
+    const ncnpj=docFormata((ge("res-ncnpj")||{}).value||"");
+    const nhead=(ge("res-nhead")||{}).value||"";
+    if(!nnome){toast("Informe o nome do cliente novo.","erro");return;}
+    if(!ncnpj){toast("Informe o CNPJ/CPF do cliente novo.","erro");return;}
+    if(!nhead){toast("Escolha a head da carteira do cliente novo.","erro");return;}
+    // anti-duplicado pelo documento: se já existe, vincula ao existente
+    let todos=E._clsTodos;
+    if(!todos||!todos.length){try{todos=await DB.clientes("");E._clsTodos=todos;}catch(e){todos=[];}}
+    const dg=s=>String(s||"").replace(/\D/g,"");
+    const ja=(todos||[]).find(x=>dg(x.cnpj_cpf)===dg(ncnpj));
+    if(ja){idc=ja.id_cliente;toast("Este documento já era do cliente "+ja.nome+" — vinculei a reunião a ele.","ok");}
+    else{
+      try{const rc=await DB.criarCliente({nome:nnome,cnpj:ncnpj,head:nhead,vertical:"PROSPECÇÃO",
+        situacao:"PROSPECCAO",municipio:E._resNovoMun||"",uf:E._resNovoUF||"",
+        resumo:"Cadastrado pelo resumo de reunião de "+E.perfil.nome_sistema+(r.data?" ("+r.data+")":"")});
+        idc=rc.id;E._clsTodos=null;   // lista local fica velha — recarrega na próxima busca
+        toast("✓ Cliente novo "+rc.id+" cadastrado (prospecção, carteira "+nhead+").","ok");}
+      catch(e){toast("Erro ao cadastrar o cliente: "+e.message,"erro");return;}}}
   if(!idc){toast("Vincule o cliente da reunião — ou marque 'sem cliente envolvido'.","erro");return;}
   const campos={resumo:txt,resumo_dt:hojeISO(),resumo_por:E.perfil.nome_sistema,sem_cliente:false};
-  if(!r.id_cliente){campos.id_cliente=idc;const c=(E._cli||{})[idc];if(c)campos.cliente=c.nome;}
+  if(!r.id_cliente){campos.id_cliente=idc;const c=(E._cli||{})[idc];
+    campos.cliente=c?c.nome:(((ge("res-novo")||{}).checked?((ge("res-nnome")||{}).value||"").trim():"")||r.cliente||"");}
   try{await DB.reuniaoResumo(id,campos);
     await DB.nota({id_tarefa:"",id_cliente:idc,tipo:"HISTORICO",
       texto:"📝 Resumo de reunião"+(r.data?" ("+r.data+")":"")+" por "+E.perfil.nome_sistema+": "+txt});}
