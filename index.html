@@ -368,6 +368,7 @@ function tempoPlanoDe(assessor,op){
 }
 const CORR_HEADS=["Danielly","Bruna","Eduarda","Ygor","Madu","Malu"];
 const AUTORIZADOS_DELEGAR=["Malu","Ygor","Madu","Bruna","Danielly","Eduarda"];
+const OPERA_TUDO=[]; // pode_operar_tudo (config_permissoes): abre/anota qualquer card — ex.: Raquel
 // para quem cada autorizado pode delegar (Configurações; vazio = todos)
 const DELEGA_PARA={};
 // ⚡ exceção pontual (Bruna, 22/09/2026): a regra geral proíbe impulso IMEDIATO,
@@ -1369,8 +1370,9 @@ async function carregarConfig(){
   try{const cf=await DB.config();
     (cf.cap||[]).forEach(r=>{CAP[r.nome]=r.minutos;});
     (cf.tmp||[]).forEach(r=>{TEMPOS_PADRAO[r.operacao==="_PADRAO"?"_default":r.operacao]=r.minutos;});
-    if((cf.per||[]).length){CORR_HEADS.length=0;AUTORIZADOS_DELEGAR.length=0;
+    if((cf.per||[]).length){CORR_HEADS.length=0;AUTORIZADOS_DELEGAR.length=0;OPERA_TUDO.length=0;
       cf.per.forEach(r=>{if(r.pode_corrigir)CORR_HEADS.push(r.nome);if(r.pode_delegar)AUTORIZADOS_DELEGAR.push(r.nome);
+        if(r.pode_operar_tudo)OPERA_TUDO.push(r.nome);
         DELEGA_PARA[r.nome]=String(r.delega_para||"").split(",").map(s=>s.trim()).filter(Boolean);
         PROSPEC[r.nome]=parseInt(r.prospeccao_min)||0;
         PROSPEC_SEMPRE[r.nome]=!!r.prospeccao_sempre;
@@ -2234,7 +2236,8 @@ async function removerReuniao(id){
 
 // =================================================== CARD DA TAREFA
 function podeAgirNa(t){return E.perfil.head_sim||ehMeuNome(t.assessor)
-  ||AUTORIZADOS_DELEGAR.includes(E.perfil.nome_sistema);}
+  ||AUTORIZADOS_DELEGAR.includes(E.perfil.nome_sistema)
+  ||OPERA_TUDO.includes(E.perfil.nome_sistema);}
 async function abrirTarefa(id){
   esconderDock();
   if(typeof marcarAtividade==="function")marcarAtividade();
