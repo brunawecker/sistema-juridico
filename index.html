@@ -5672,6 +5672,11 @@ async function verCaso(id,linha){const c=E._casos.find(x=>x.id_encerrado===id&&x
   ge("modal").classList.add("aberto");clearInterval(E.timerInt);E.atual=null;E.timerIni=null;
   let ent=[];
   if(c.id_tarefa_origem){try{ent=await DB.historico(c.id_tarefa_origem);}catch(e){ent=[];}}
+  // 📎 anexos também no caso encerrado (Bruna, 30/09/2026): os arquivos ficam
+  // guardados no cliente/tarefa de origem — o card só não os listava
+  let docs=[];if(c.id_cliente){try{docs=await DB.docsDe(c.id_cliente);}catch(e){docs=[];}}
+  const docsTar=docs.filter(d=>c.id_tarefa_origem&&d.id_tarefa===c.id_tarefa_origem);
+  const docsOutros=docs.filter(d=>!docsTar.includes(d));
   const dados=`<div class="bloco"><div class="bloco-t">Dados do caso</div><div class="dados">
       <div><b>Operação:</b> ${esc(c.operacao||"—")}</div><div><b>Assessor:</b> ${esc(c.assessor||"—")}</div>
       <div><b>Head:</b> ${esc(c.head||"—")}</div><div><b>CNPJ/CPF:</b> ${esc(c.cnpj_cpf||"—")}</div>
@@ -5693,7 +5698,11 @@ async function verCaso(id,linha){const c=E._casos.find(x=>x.id_encerrado===id&&x
     hist=`<div class="bloco-t">Histórico (${ls.length})</div>`+
       (ls.length?ls.map(l=>`<div class="hentrada"><div class="hbola enc"></div><div class="htexto">${esc(l)}</div></div>`).join(""):`<div class="vazio">Sem histórico.</div>`);
   }
-  ge("m-corpo").innerHTML=dados+nota+hist;
+  const anexos=`<div class="bloco"><div class="bloco-t">&#128206; Anexos desta tarefa (${docsTar.length})</div>
+    ${docsTar.length?docsTar.map(d=>linhaDoc(d)).join(""):`<div style="font-size:12px;color:var(--gray)">Nenhum anexo nesta tarefa.</div>`}
+    ${docsOutros.length?`<div class="bloco-t" style="margin-top:8px">&#128206; Outros documentos do cliente (${docsOutros.length})</div>`
+      +docsOutros.map(d=>linhaDoc(d)).join(""):""}</div>`;
+  ge("m-corpo").innerHTML=dados+nota+anexos+hist;
 }
 function abrirReabrir(id,linha){
   // escolher para QUEM o caso volta — primeiro da lista é quem estava com
