@@ -237,6 +237,10 @@ def main():
                         print(f"4. fixa '{titulo}' fora da janela → dorme até {alvo}")
             if not deve:
                 continue
+            # tempo configurado vira meta ABSOLUTA do cartão em TODA fixa
+            # (não só janela) — editar a fixa reflete no dia (Bruna, 01/10/2026)
+            if "[meta:" not in superv:
+                superv = (superv + " " if superv else "") + f"[meta:{tempo}min]"
             # cartão pendente da MESMA fixa? reaproveita (puxa a data para
             # hoje) — nunca duplica; a Malu chegou a acumular 7 cópias
             cur.execute("""select id_tarefa from juridico.operacional
@@ -245,8 +249,14 @@ def main():
             aberto = cur.fetchone()
             if aberto:
                 cur.execute("""update juridico.operacional set check_ = %s,
-                    data_revisao = %s, data_revisao_dt = %s where id_tarefa = %s""",
-                    (check, hoje_br, hoje, aberto[0]))
+                    data_revisao = %s, data_revisao_dt = %s,
+                    supervisao = case
+                      when coalesce(supervisao,'') ~ '\\[meta:\\d+min\\]'
+                        then regexp_replace(supervisao, '\\[meta:\\d+min\\]', %s)
+                      else trim(coalesce(supervisao,'') || ' ' || %s) end
+                    where id_tarefa = %s""",
+                    (check, hoje_br, hoje, f"[meta:{tempo}min]",
+                     f"[meta:{tempo}min]", aberto[0]))
             else:
                 oid = novo_id(cur, "OP", 4)
                 cur.execute("""insert into juridico.operacional
