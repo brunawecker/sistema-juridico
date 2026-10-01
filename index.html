@@ -916,6 +916,7 @@ const S = {
     okS(await supa.from("clientes").insert({id_cliente:cl,nome:d.nome,cnpj_cpf:docFormata(d.cnpj)||"",head:d.head||"",
       vertical:d.vertical||"A PREENCHER",regime:d.regime||"",municipio:d.municipio||"",uf:d.uf||"",
       resumo_da_venda:d.resumo||"",situacao:d.situacao||"OFICIAL",
+      prazo_simples:/^\d{4}-\d{2}-\d{2}$/.test(String(d.prazo_simples||""))?d.prazo_simples:null,
       data_inicio:ini?brData(ini):null,data_inicio_dt:ini}));return{ok:true,id:cl};},
   async criarProposta(d){let idc=d.id_cliente||"";
     if(d.novo_cliente&&d.cliente){
@@ -8085,6 +8086,7 @@ async function criarGrupoMesmoDono(principal,extras){
           vertical:vertValor("nc-vert"),inicio:ge("nc-inicio").value,
           situacao:ge("nc-sit").value,regime:ge("nc-reg").value,
           municipio:i===0?ge("nc-mun").value:(e2.mun||""),uf:i===0?ge("nc-uf").value:(e2.uf||""),
+          prazo_simples:i===0&&ge("nc-simples")?ge("nc-simples").value:"",
           resumo:(ge("nc-res").value||"")+(empresas.length>1?(ge("nc-res").value?"\n":"")+grupoNota:"")});
         idc=rc.id;nomeCli=e2.nome;criados.push(e2.nome);}
       if(!semTarefa){
@@ -8154,7 +8156,7 @@ async function criarClienteTarefa(){
     const ecacST=ecacValor();if(ecacST===null)return;
     try{const rc=await DB.criarCliente({nome,cnpj,head:ge("nc-head").value,vertical:vertValor("nc-vert"),inicio:ge("nc-inicio").value,
       situacao:ge("nc-sit").value,regime:ge("nc-reg").value,municipio:ge("nc-mun").value,uf:ge("nc-uf").value,
-      resumo:ge("nc-res").value});
+      resumo:ge("nc-res").value,prazo_simples:ge("nc-simples")?ge("nc-simples").value:""});
       if(ecacST)await DB.clienteUpdate(rc.id,{e_cac:ecacST});
       toast(`✓ Cliente ${rc.id} cadastrado (sem tarefa).`,"ok");}
     catch(e){toast("Erro: "+e.message,"erro");return;}
@@ -8172,7 +8174,7 @@ async function criarClienteTarefa(){
   try{
     const rc=await DB.criarCliente({nome,cnpj,head:ge("nc-head").value,vertical:vertValor("nc-vert"),inicio:ge("nc-inicio").value,
       situacao:ge("nc-sit").value,regime:ge("nc-reg").value,municipio:ge("nc-mun").value,uf:ge("nc-uf").value,
-      resumo:ge("nc-res").value});
+      resumo:ge("nc-res").value,prazo_simples:ge("nc-simples")?ge("nc-simples").value:""});
     if(ecacNC)await DB.clienteUpdate(rc.id,{e_cac:ecacNC});
     const rt=await DB.criarTarefa({id_cliente:rc.id,cliente:nome,cnpj,head:ge("nc-head").value,
       operacao:op,check:chk,assessor:ge("nc-ass").value,
