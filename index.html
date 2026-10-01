@@ -987,6 +987,9 @@ const S = {
       head_clientes:d.head||"",tempo_min:String(d.tempo||20),tempo_min_num:d.tempo||20,ativo:"SIM",
       criado_por:E.perfil.nome_sistema}));return{ok:true,id:fx};},
   async fixaToggle(id,ativo){okS(await supa.from("tarefas_fixas").update({ativo:ativo?"SIM":"NAO"}).eq("id_fixa",id));return{ok:true};},
+  async fixaEditar(id,d){okS(await supa.from("tarefas_fixas").update({titulo:d.titulo,frequencia:d.freq,
+    assessor:d.assessor,head_clientes:d.head||"",tempo_min:String(d.tempo),tempo_min_num:d.tempo}).eq("id_fixa",id));return{ok:true};},
+  async fixaTempos(titulo,assessor){return okS(await supa.rpc("fixa_tempo_hist",{p_titulo:titulo,p_assessor:assessor}))||[];},
   async fixaDel(id){const r=await supa.from("tarefas_fixas").delete().eq("id_fixa",id).select();okS(r);
     if(!(r.data||[]).length)throw new Error("Apagar tarefa fixa é ação de head.");return{ok:true};},
   async reuniaoAdd(d){
@@ -7089,6 +7092,7 @@ async function coroarAgora(){
 async function telaFixas(){
   setNav("fix","Tarefas Fixas"); carregando();
   let fx;try{fx=await DB.tarefasFixas();}catch(e){return erro(e.message);}
+  E._fixas=fx||[];
   const podeTodas=E.perfil.head_sim||E.perfil.admin_sim;
   const minhas=podeTodas?fx:(fx||[]).filter(f=>f.assessor===E.perfil.nome_sistema);
   const rot={DIARIA:"&#128197; Todo dia útil",MENSAL_1DIA_UTIL:"&#128197; 1º dia útil do mês",
@@ -7115,6 +7119,7 @@ async function telaFixas(){
       <div><div style="font-weight:700;color:var(--navy)">${esc(f.titulo)}</div>
         <div style="font-size:11px;color:var(--gray);margin-top:3px">${rot[f.frequencia]||esc(f.frequencia)} · &#128100; ${esc(f.assessor)}${f.head_clientes?" · Head: "+esc(f.head_clientes):""} · &#9201; ${esc(f.tempo_min||"?")}min · ${ativo?'<b style="color:var(--green)">✓ Ativa</b>':"○ Desativada"}${f.ultima_execucao?" · última: "+esc(f.ultima_execucao):""}</div></div>
       <span style="display:flex;gap:6px">
+      ${podeTodas?`<button class="btn bts btsm" onclick='editarFixa(${JSON.stringify(f.id_fixa)})'>&#9999;&#65039; Editar</button>`:""}
       ${(podeTodas||f.assessor===E.perfil.nome_sistema)?`<button class="btn ${ativo?"bts":"btp"} btsm" onclick='alternaFixa(${JSON.stringify(f.id_fixa)},${!ativo})'>${ativo?"Desativar":"Reativar"}</button>`:""}
       ${podeTodas?`<button class="btn btsm" style="border:1px solid var(--red);color:var(--red);background:white" onclick='apagarFixa(${JSON.stringify(f.id_fixa)},${JSON.stringify(f.titulo)})'>&#128465;</button>`:""}</span></div>`;}).join("")
     ||`<div class="vazio">Nenhuma tarefa fixa.</div>`);
@@ -7138,6 +7143,46 @@ async function criarFixa(){
   try{await DB.fixaAdd({...base,assessor:ass});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Tarefa fixa criada!","ok");telaFixas();
+}
+// ✏️ edição completa pelas heads (Bruna, 01/10/2026) com o tempo REAL que os
+// cards desta fixa têm levado (TIMERs dos '📌 titulo'), para calibrar a meta
+async function editarFixa(id){
+  const f=(E._fixas||[]).find(x=>x.id_fixa===id);if(!f)return;
+  modal2("&#9999;&#65039; Editar tarefa fixa",esc(f.id_fixa),`<div class="carregando"><div class="spin"></div></div>`);
+  let tempos=[];try{tempos=await DB.fixaTempos(f.titulo,f.assessor);}catch(e){}
+  const med=tempos.length?Math.round(tempos.reduce((s,r)=>s+(+r.minutos||0),0)/tempos.length):null;
+  const cfg=parseInt(f.tempo_min_num||f.tempo_min)||20;
+  const histBox=tempos.length
+    ?`<div style="background:${med>cfg*1.3?"var(--amber-lt)":"var(--ice)"};border-radius:9px;padding:8px 11px;font-size:12px;margin-bottom:8px">
+       &#9201; <b>Na prática este card tem levado ~${med} min</b> (média de ${tempos.length} dia(s) com tempo registrado; configurado: ${cfg} min${med>cfg*1.3?' — <b style="color:var(--amber)">bem acima do configurado</b>':med<cfg*0.6?" — abaixo do configurado":""}).<br>
+       Últimos dias: ${tempos.slice(0,7).map(r=>`${brData(r.dia)}: <b>${r.minutos}min</b>`).join(" · ")}</div>`
+    :`<div style="background:var(--gray-lt);border-radius:9px;padding:8px 11px;font-size:12px;margin-bottom:8px">&#9201; Ainda sem tempo registrado nos cards desta fixa.</div>`;
+  const freqs=[["DIARIA","Todo dia útil"],["SEMANAL_SEG","Toda segunda"],["SEMANAL_TER","Toda terça"],
+    ["SEMANAL_QUA","Toda quarta"],["SEMANAL_QUI","Toda quinta"],["SEMANAL_SEX","Toda sexta"],
+    ["MENSAL_1DIA_UTIL","1º dia útil do mês"],["JANELA_FIM_MES","Janela fim de mês (~18 a 27, um por dia)"]];
+  const asses=[...new Set([...OPERACIONAIS,f.assessor].filter(Boolean))];
+  ge("m2-corpo").innerHTML=`${histBox}
+    <label style="font-size:11px">Descrição</label>
+    <input class="fi" id="fe-tit" value="${esc(f.titulo)}">
+    <div style="font-size:10px;color:var(--gray);margin:-4px 0 6px">&#9888; mudar a descrição desliga o histórico de tempos acima (os cards antigos ficam com o nome antigo)</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
+      <div><label style="font-size:11px">Frequência</label>
+        <select class="fsel" id="fe-freq" style="width:100%;margin-bottom:6px">${freqs.map(([v,r])=>`<option value="${v}" ${f.frequencia===v?"selected":""}>${r}</option>`).join("")}</select></div>
+      <div><label style="font-size:11px">Assessor</label>
+        <select class="fsel" id="fe-ass" style="width:100%;margin-bottom:6px">${asses.map(a=>`<option ${f.assessor===a?"selected":""}>${esc(a)}</option>`).join("")}</select></div>
+      <div><label style="font-size:11px">Head (clientes)</label>
+        <select class="fsel" id="fe-head" style="width:100%;margin-bottom:6px"><option value="">—</option>${["Danielly","Bruna","Eduarda"].map(n=>`<option ${f.head_clientes===n?"selected":""}>${n}</option>`).join("")}</select></div>
+      <div><label style="font-size:11px">&#9201; Tempo da atividade (min/dia)</label>
+        <input class="fsel" id="fe-tempo" type="number" min="5" max="480" value="${cfg}" style="width:100%;margin-bottom:6px"></div></div>
+    <button class="btn btp btw" onclick='salvarFixaEdit(${JSON.stringify(id)})'>&#10003; Salvar alterações</button>`;
+}
+async function salvarFixaEdit(id){
+  const tit=(ge("fe-tit").value||"").trim();if(!tit){toast("Descreva a tarefa.","erro");return;}
+  const d={titulo:tit,freq:ge("fe-freq").value,assessor:ge("fe-ass").value,
+    head:ge("fe-head").value,tempo:parseInt(ge("fe-tempo").value)||20};
+  try{await DB.fixaEditar(id,d);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Fixa atualizada — vale a partir do próximo cartão que o robô criar.","ok");
+  fecharModal2();telaFixas();
 }
 async function alternaFixa(id,ativo){
   try{await DB.fixaToggle(id,ativo);}catch(e){toast("Erro: "+e.message,"erro");return;}
