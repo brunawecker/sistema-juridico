@@ -987,8 +987,8 @@ const S = {
       head_clientes:d.head||"",tempo_min:String(d.tempo||20),tempo_min_num:d.tempo||20,ativo:"SIM",
       criado_por:E.perfil.nome_sistema}));return{ok:true,id:fx};},
   async fixaToggle(id,ativo){okS(await supa.from("tarefas_fixas").update({ativo:ativo?"SIM":"NAO"}).eq("id_fixa",id));return{ok:true};},
-  async fixaEditar(id,d){okS(await supa.from("tarefas_fixas").update({titulo:d.titulo,frequencia:d.freq,
-    assessor:d.assessor,head_clientes:d.head||"",tempo_min:String(d.tempo),tempo_min_num:d.tempo}).eq("id_fixa",id));return{ok:true};},
+  async fixaEditar(id,d){return rpcS("fixa_editar_total",{p_id:id,p_titulo:d.titulo,p_freq:d.freq,
+    p_assessor:d.assessor,p_head:d.head||"",p_tempo:d.tempo});},
   async fixaTempos(titulo,assessor){return okS(await supa.rpc("fixa_tempo_hist",{p_titulo:titulo,p_assessor:assessor}))||[];},
   async fixaDel(id){const r=await supa.from("tarefas_fixas").delete().eq("id_fixa",id).select();okS(r);
     if(!(r.data||[]).length)throw new Error("Apagar tarefa fixa é ação de head.");return{ok:true};},
@@ -7180,8 +7180,9 @@ async function salvarFixaEdit(id){
   const tit=(ge("fe-tit").value||"").trim();if(!tit){toast("Descreva a tarefa.","erro");return;}
   const d={titulo:tit,freq:ge("fe-freq").value,assessor:ge("fe-ass").value,
     head:ge("fe-head").value,tempo:parseInt(ge("fe-tempo").value)||20};
-  try{await DB.fixaEditar(id,d);}catch(e){toast("Erro: "+e.message,"erro");return;}
-  toast("Fixa atualizada — vale a partir do próximo cartão que o robô criar.","ok");
+  let n=0;try{n=await DB.fixaEditar(id,d);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast(n>0?"Fixa atualizada — o cartão de HOJE do responsável já mudou junto (título, assessor e tempo)."
+           :"Fixa atualizada — sem cartão aberto hoje; vale a partir do próximo que o robô criar.","ok");
   fecharModal2();telaFixas();
 }
 async function alternaFixa(id,ativo){
