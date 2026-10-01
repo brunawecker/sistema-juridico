@@ -581,7 +581,7 @@ const alvosDelegacao=nome=>{const l=DELEGA_PARA[nome]||[];
     ?OPERACIONAIS.filter(a=>a!==nome):l.filter(a=>a!==nome);};
 const PROP_PRODUTOS=["MANDADO DE SEGURANÇA","MS MIGRAÇÃO","TIS","ÊXITO TRANSAÇÃO","HT","HT MUNICIPAL","LAUDO CAPAG","GARANTIAS","SCORE","ASSESSORIA","TAX","FGTS","BANCÁRIO","CONTABILIZE","RENEGOCIAÇÃO"];
 const PROP_VERTICAIS=["REGULARIZE","AUDITE","BACARIZE","CONCILIE","CONTABILIZE","RECUPERE","RENEGOCIE","RNC","VILLELA IP","VBB"];
-const VERTICAIS_CLIENTE=["REGULARIZE","RECUPERE","RENEGOCIE","GOLDEN","CONCILIE","CONTABILIZE","A PREENCHER"];
+const VERTICAIS_CLIENTE=["REGULARIZE","RECUPERE","RENEGOCIE","GOLDEN","CONCILIE","CONTABILIZE","VENDA CONJUGADA","A PREENCHER"];
 // cliente pode ter mais de um tipo de contrato (Bruna, 22/09/2026): checkboxes,
 // guarda como lista separada por vírgula no campo vertical.
 const VERT_OPC=VERTICAIS_CLIENTE.filter(v=>v!=="A PREENCHER");
@@ -7750,11 +7750,11 @@ async function buscarCNPJ(cnpjId,nomeId,ufId,munId){
 // ou se informa em qual e-CAC está liberado, ou que ainda NÃO está — e a
 // resposta grava na ficha do cliente (aparece em todos os cards dele).
 const OP_EXIGE_ECAC=op=>/Levantamento|Proposta Comercial/.test(String(op||""));
-function ecacBlocoHTML(pref){
+function ecacBlocoHTML(pref,sempre){
   pref=String(pref||"").trim();
   const lib=pref&&!/^N[ÃA]O LIBERADO$/i.test(pref);
-  return `<div id="ec-w" style="display:none;margin-top:6px;background:var(--amber-lt);border-radius:9px;padding:8px 10px">
-    <div class="bloco-t" style="color:#7F6000">&#128273; Situação do e-CAC deste cliente *</div>
+  return `<div id="ec-w" data-sempre="${sempre?1:0}" style="display:${sempre?"block":"none"};margin-top:6px;background:var(--amber-lt);border-radius:9px;padding:8px 10px">
+    <div class="bloco-t" style="color:#7F6000">&#128273; Situação do e-CAC deste cliente${sempre?"":" *"}</div>
     <div class="linha-acao">
       <select class="fsel" id="ec-st" onchange="ge('ec-qual').style.display=this.value==='LIB'?'block':'none'">
         <option value=""${pref?"":" selected"}>— escolher —</option>
@@ -7762,16 +7762,21 @@ function ecacBlocoHTML(pref){
         <option value="NAO"${pref&&!lib?" selected":""}>&#128683; Ainda NÃO liberado</option></select>
       <input class="fsel" id="ec-qual" placeholder="Em qual? Ex: 07-95, GOV" value="${esc(lib?pref:"")}" style="flex:1;display:${lib?"block":"none"}">
     </div>
-    <div style="font-size:10px;color:var(--gray);margin-top:3px">Grava na ficha do cliente e aparece em todos os cards dele.</div></div>`;
+    <div style="font-size:10px;color:var(--gray);margin-top:3px">${sempre?"Opcional — mas obrigatório se a tarefa for levantamento/parecer. ":""}Grava na ficha do cliente e aparece em todos os cards dele.</div></div>`;
 }
 function ecacToggle(opSelId){const w=ge("ec-w");if(!w)return;
   if(E._ntCli&&E._ntCli.interna){w.style.display="none";return;}
+  if(w.getAttribute("data-sempre")==="1"){w.style.display="block";return;} // cadastro novo: sempre visível
   w.style.display=OP_EXIGE_ECAC(ge(opSelId).value)?"block":"none";}
-// devolve: "" = não exigido · texto = gravar · null = faltou preencher (já avisou)
-function ecacValor(){
+// devolve: "" = não exigido/opcional vazio · texto = gravar · null = faltou preencher (já avisou)
+// opSelId: id do select de operação — se informado, só EXIGE quando a operação pede e-CAC
+function ecacValor(opSelId){
   const w=ge("ec-w");if(!w||w.style.display==="none")return "";
   const st=ge("ec-st").value;
-  if(!st){toast("Informe a situação do e-CAC — obrigatório para levantamento/parecer.","erro");return null;}
+  const exige=opSelId&&ge(opSelId)?OP_EXIGE_ECAC(ge(opSelId).value):(w.getAttribute("data-sempre")!=="1");
+  if(!st){
+    if(exige){toast("Informe a situação do e-CAC — obrigatório para levantamento/parecer.","erro");return null;}
+    return "";} // opcional e deixado em branco
   if(st==="NAO")return "NÃO LIBERADO";
   const q=(ge("ec-qual").value||"").trim();
   if(!q){toast("Diga em qual e-CAC está liberado (ex: 07-95, GOV).","erro");return null;}
@@ -7845,7 +7850,7 @@ async function criarTarefaNova(){
   if(op==="Prazo C3"){
     if(!(ge("nt-proc").value||"").trim()){toast("Prazo C3 exige o Nº do processo — preencha o campo do processo.","erro");return;}
     if(!ge("nt-pf").value){toast("Prazo C3 exige o prazo fatal — é ele que coloca a tarefa na parte de prazos.","erro");return;}}
-  const ecacNT=ecacValor();if(ecacNT===null)return;
+  const ecacNT=ecacValor("nt-op");if(ecacNT===null)return;
   // Prazo C3 nunca entra como imediata: vive no balde ⚠️ Prazo fatal
   // (AGUARDANDO + prazo fatal fica no topo até o prazo ser cumprido)
   const chk=op==="Prazo C3"?"AGUARDANDO":ge("nt-chk").value;
@@ -7888,6 +7893,7 @@ function abrirNovoCliente(){
       ${selUF("nc-uf","","nc-mun","width:70px")}
       <select class="fsel" id="nc-mun" disabled style="flex:1"><option value="">— escolha o estado antes —</option></select></div>
     <textarea class="fta" id="nc-res" style="margin-top:6px" placeholder="Resumo inicial (opcional)"></textarea>
+    ${ecacBlocoHTML("",true)}
     <label style="font-size:12px;display:flex;gap:7px;align-items:center;margin-top:8px;cursor:pointer">
       <input type="checkbox" id="nc-semtarefa" style="width:15px;height:15px" onchange="ge('nc-tarefa-w').style.display=this.checked?'none':'block'">
       Cadastrar <b>só o cliente</b>, sem lançar tarefa agora</label>
@@ -7897,7 +7903,6 @@ function abrirNovoCliente(){
       <select class="fsel" id="nc-chk">${["IMEDIATO","DIÁRIO","SEMANAL","MENSAL"].map(x=>`<option>${x}</option>`).join("")}</select>
       <select class="fsel" id="nc-ass">${alvosCriacao().map(a=>`<option>${a}</option>`).join("")}</select></div>
     <textarea class="fta" id="nc-sup" style="margin-top:6px" placeholder="Orientação inicial (opcional)"></textarea>
-    ${ecacBlocoHTML("")}
     ${EXIGE_PEDIDO_HEAD.includes(E.perfil.nome_sistema)?`<label style="font-size:12px;display:flex;gap:7px;align-items:center;margin-top:6px;cursor:pointer"><input type="checkbox" id="nc-headflag" style="width:15px;height:15px"> &#127963;&#65039; Tarefa por <b>pedido direto de uma das heads</b> <span style="color:var(--gray)">(obrigatório se for para ${EXIGE_PEDIDO_HEAD.filter(x=>x!==E.perfil.nome_sistema).join(" ou ")})</span></label>`:""}
     <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px">&#128206; Documentos iniciais (opcional — pode selecionar v&aacute;rios):</label>
       <input type="file" id="nc-doc" class="fsel" multiple style="max-width:240px"></div>
@@ -7944,7 +7949,7 @@ async function criarGrupoMesmoDono(principal,extras){
   if(!semTarefa){
     op=ge("nc-op").value;if(!op){toast("Selecione a operação da primeira tarefa.","erro");return;}
     if(op==="Prazo C3"){toast("Prazo C3 pede Nº do processo e prazo fatal — crie um a um pela Nova tarefa.","erro");return;}
-    const ev=ecacValor();if(ev===null)return;ecacNC=ev;
+    const ev=ecacValor("nc-op");if(ev===null)return;ecacNC=ev;
     if(!alvosCriacao().includes(ge("nc-ass").value)){toast("Você direciona tarefas só para: "+alvosCriacao().join(", ")+".","erro");return;}
     flagNC=precisaPedidoHead(E.perfil.nome_sistema,ge("nc-ass").value);
     if(flagNC&&!(ge("nc-headflag")||{}).checked){toast("Para direcionar a "+ge("nc-ass").value+", marque que a tarefa é por pedido direto de uma das heads.","erro");return;}
@@ -7990,7 +7995,7 @@ async function criarTarefaParaExistente(cli){
   if(flagNC&&!(ge("nc-headflag")||{}).checked){toast("Para direcionar a "+ge("nc-ass").value+", marque que a tarefa é por pedido direto de uma das heads.","erro");return;}
   const op=ge("nc-op").value;if(!op){toast("Selecione a operação da primeira tarefa.","erro");return;}
   if(op==="Prazo C3"){toast("Prazo C3 pede Nº do processo e prazo fatal: cadastre o cliente com outra operação (ou nenhuma) e crie o Prazo C3 pela Nova tarefa.","erro");return;}
-  const ecacEx=ecacValor();if(ecacEx===null)return;
+  const ecacEx=ecacValor("nc-op");if(ecacEx===null)return;
   const chk=ge("nc-chk").value;
   const rev=new Date();if(!["IMEDIATO","DIÁRIO"].includes(chk))rev.setDate(rev.getDate()+7);
   let revISO=rev.toISOString().slice(0,10);
@@ -8034,15 +8039,17 @@ async function criarClienteTarefa(){
     return;}
   // cadastro sem tarefa (pedido da Bruna, 19/08/2026)
   if(semTarefa){
+    const ecacST=ecacValor();if(ecacST===null)return;
     try{const rc=await DB.criarCliente({nome,cnpj,head:ge("nc-head").value,vertical:vertValor("nc-vert"),inicio:ge("nc-inicio").value,
       situacao:ge("nc-sit").value,regime:ge("nc-reg").value,municipio:ge("nc-mun").value,uf:ge("nc-uf").value,
       resumo:ge("nc-res").value});
+      if(ecacST)await DB.clienteUpdate(rc.id,{e_cac:ecacST});
       toast(`✓ Cliente ${rc.id} cadastrado (sem tarefa).`,"ok");}
     catch(e){toast("Erro: "+e.message,"erro");return;}
     fecharModal2();recarregar();return;}
   const op=ge("nc-op").value;if(!op){toast("Selecione a operação da primeira tarefa.","erro");return;}
   if(op==="Prazo C3"){toast("Prazo C3 pede Nº do processo e prazo fatal: cadastre o cliente com outra operação (ou nenhuma) e crie o Prazo C3 pela Nova tarefa.","erro");return;}
-  const ecacNC=ecacValor();if(ecacNC===null)return;
+  const ecacNC=ecacValor("nc-op");if(ecacNC===null)return;
   if(!alvosCriacao().includes(ge("nc-ass").value)){toast("Você direciona tarefas só para: "+alvosCriacao().join(", ")+".","erro");return;}
   const flagNC2=precisaPedidoHead(E.perfil.nome_sistema,ge("nc-ass").value);
   if(flagNC2&&!(ge("nc-headflag")||{}).checked){toast("Para direcionar a "+ge("nc-ass").value+", marque que a tarefa é por pedido direto de uma das heads.","erro");return;}
