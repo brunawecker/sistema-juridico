@@ -1949,6 +1949,9 @@ async function telaMinhas(){
   }catch(e){}
   // ------- monta html
   let h=bannerPrazoFatal(ativas);
+  if(P.exclusivo)h+=`<div class="painel" style="border-left:4px solid var(--roxo);background:#EDE9FE">
+    <div class="bloco-t" style="color:var(--roxo)">&#128274; HOJE É DIA EXCLUSIVO — FECHAMENTO MENSAL</div>
+    <div style="font-size:13px;line-height:1.5">Seu dia inteiro é uma tarefa só: <b>ajustar a planilha do próximo mês, conferir os pagamentos e enviar os boletos</b>. As demais tarefas estão seguras na fila e a agenda do dia está travada — tudo libera na hora em que você clicar <b>"&#9989; Finalizei o fechamento"</b> dentro do card abaixo.</div></div>`;
   const pctCor=pct>90?"var(--red)":pct>70?"var(--amber)":"var(--green)";
   h+=`<div class="painel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
     <b style="color:var(--navy)">&#128202; Capacidade do dia</b>
@@ -2324,6 +2327,12 @@ function aplicarModoConsulta(t){
   corpo.insertAdjacentHTML("afterbegin",
     `<div class="aviso info" style="margin-bottom:10px">&#128065; <b>Modo consulta</b> — esta tarefa é de <b>${esc(t.assessor||"—")}</b>. Você vê tudo para se atualizar do cliente; quem age nela é o dono, as heads e quem pode delegar. Viu uma oportunidade? Avise a head ou quem delega.</div>`);
 }
+async function fechamentoConcluir(id){
+  if(!confirm("Confirmar que terminou TUDO?\n\n• Planilha do próximo mês ajustada\n• Pagamentos conferidos\n• Boletos do próximo mês enviados\n\nOK = finalizar e liberar meu dia"))return;
+  try{await rpcS("fechamento_concluir",{p_id:id});}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Fechamento registrado — seu dia está liberado! 🎉","ok");
+  fecharModal();(E.view==="minhas"?telaMinhas:telaCentral)();
+}
 function desenharCard(t,hist){
   const isHead=E.perfil.head_sim, meuNome=E.perfil.nome_sistema;
   const vis=hist.filter(h=>h.tipo!=="TIMER");
@@ -2332,6 +2341,13 @@ function desenharCard(t,hist){
     .reduce((s,h)=>s+parseInt((String(h.texto||"").match(/(\d+)\s*min/)||[0,0])[1]),0);
   const followUps=vis.filter(en=>/follow-?up|cobrei|AGUARDANDO/i.test(en.texto||"")).length;
   let h="";
+  // 🔒 dia exclusivo: botão de finalizar bem no topo do card
+  if(/DIA EXCLUSIVO/i.test(t.supervisao||"")&&!t._consulta){
+    h+=`<div class="painel" style="border-left:4px solid var(--roxo)">
+      <div class="bloco-t" style="color:var(--roxo)">&#128274; Dia exclusivo — fechamento mensal</div>
+      <div style="font-size:12.5px;margin-bottom:7px">Hoje o seu dia é só esta tarefa: planilha do PRÓXIMO mês ajustada, pagamentos conferidos e boletos enviados. Terminou TUDO? Clique abaixo — suas tarefas e agenda liberam na hora.</div>
+      <button class="btn btg btw" onclick='fechamentoConcluir(${JSON.stringify(t.id_tarefa)})'>&#9989; Finalizei o fechamento — liberar meu dia</button></div>`;
+  }
   if(isHead&&(tot>0||minHoje>0))h+=`<div class="painel" style="padding:8px 12px;display:flex;gap:16px">
     <span class="bloco-t" style="margin:0">&#9201; Tempo investido</span>
     <span style="font-size:13px">Hoje: <b>${fmtMin(minHoje)}</b></span>
@@ -4189,6 +4205,11 @@ async function salvarLembrete(){
   if(!txt){toast("Escreva o combinado.","erro");return;}
   if(!dt){toast("Escolha a data.","erro");return;}
   const idCli=(E._lbCli&&E._lbCli.nome===cli)?E._lbCli.id:null;
+  // 🔒 dia exclusivo: lembrete também não entra no dia travado
+  const txl=tarefaDiaExclusivo(E.perfil.nome_sistema,E.tarefas||[],dt);
+  if(txl&&!E.perfil.head_sim){
+    const dEx=diaExclusivoData(txl),lim=hojeISO()>dEx?hojeISO():dEx;
+    if(dt<=lim){toast("Dia "+brData(dt)+" é exclusivo do FECHAMENTO MENSAL — finalize essa tarefa no card antes de agendar qualquer coisa.","erro");return;}}
   try{await DB.lembreteAdd(cli,txt,dt,alvo,idCli);}catch(e){toast("Erro: "+e.message,"erro");return;}
   rascunhoLimpa("lb:novo");
   toast("Guardado — aparece na sua agenda em "+brData(dt)+".","ok");fecharModal2();
@@ -7545,7 +7566,13 @@ async function salvarReuniao(){
     if(!j){toast("Sem justificativa, ajuste a duração para até 30 min.","erro");return;}
     obsExtra=" ⏱ Mais de 30 min — justificativa: "+j;
   }
-  try{await DB.reuniaoAdd({titulo:t,data:ge("re-data").value||hojeISO(),
+  const dataAg=ge("re-data").value||hojeISO();
+  // 🔒 dia exclusivo: nada entra na agenda do dia travado até finalizar o card
+  const tx=tarefaDiaExclusivo(E.perfil.nome_sistema,E.tarefas||[],dataAg);
+  if(tx&&!E.perfil.head_sim){
+    const dEx=diaExclusivoData(tx),lim=hojeISO()>dEx?hojeISO():dEx;
+    if(dataAg<=lim){toast("Dia "+brData(dataAg)+" é exclusivo do FECHAMENTO MENSAL — finalize essa tarefa no card ('Finalizei o fechamento') antes de agendar qualquer coisa.","erro");return;}}
+  try{await DB.reuniaoAdd({titulo:t,data:dataAg,
     horario:ge("re-hora").value,duracao:dur,
     cliente:ge("re-cli").value,obs:(ge("re-obs").value||"")+obsExtra,escopo});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
@@ -7974,6 +8001,7 @@ function abrirNovoCliente(){
       <select class="fsel" id="nc-reg"><option value="">Regime</option>${REGIMES.map(r=>`<option>${r}</option>`).join("")}</select>
       ${selUF("nc-uf","","nc-mun","width:70px")}
       <select class="fsel" id="nc-mun" disabled style="flex:1"><option value="">— escolha o estado antes —</option></select></div>
+    <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px;display:flex;align-items:center;gap:5px">&#9203; Prazo do Simples <span style="color:var(--gray)">(se o cliente precisa se reenquadrar)</span>:<input type="date" class="fsel" id="nc-simples" style="width:150px"></label></div>
     <textarea class="fta" id="nc-res" style="margin-top:6px" placeholder="Resumo inicial (opcional)"></textarea>
     ${ecacBlocoHTML("",true)}
     <label style="font-size:12px;display:flex;gap:7px;align-items:center;margin-top:8px;cursor:pointer">
