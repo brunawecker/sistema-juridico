@@ -7737,14 +7737,38 @@ async function carregarCidades(ufId,munId,preSel){
   m.disabled=false;
 }
 const selUF=(id,val,munId,st)=>`<select class="fsel" id="${id}" style="${st||""}" onchange="carregarCidades('${id}','${munId}')"><option value="">UF</option>${UFS.map(u=>`<option${u===String(val||"").toUpperCase().trim()?" selected":""}>${u}</option>`).join("")}</select>`;
-// CNPJ preenchido -> consulta a Receita (BrasilAPI) e preenche o resto
-async function buscarCNPJ(cnpjId,nomeId,ufId,munId){
+// CNPJ preenchido -> 1º tenta o NOSSO banco (instantâneo), senão a Receita (BrasilAPI)
+async function buscarCNPJ(cnpjId,nomeId,ufId,munId,statusId){
   const dig=String((ge(cnpjId)||{}).value||"").replace(/\D/g,"");
-  if(dig.length!==14)return;
-  let d;try{const r=await fetch("https://brasilapi.com.br/api/cnpj/v1/"+dig);if(!r.ok)return;d=await r.json();}catch(e){return;}
+  const st=statusId?ge(statusId):null;
+  if(dig.length!==14){if(st&&!dig.length)st.innerHTML="";return;}
+  // 1) nosso banco primeiro: puxa o nome na hora e avisa se já é cliente
+  const meu=(E._clsTodos||[]).find(c=>String(c.cnpj_cpf||"").replace(/\D/g,"")===dig);
+  if(meu){
+    if(ge(nomeId)&&!(ge(nomeId).value||"").trim())ge(nomeId).value=meu.nome;
+    if(st)st.innerHTML=`&#9888;&#65039; Já existe no sistema: <b>${esc(meu.nome)}</b> (${esc(meu.id_cliente)})`;
+    else toast("⚠️ Esse CNPJ já é do cliente "+meu.nome+" ("+meu.id_cliente+").","erro");
+    return;}
+  // 2) Receita (BrasilAPI): pode demorar — mostra aviso de carregando
+  if(st)st.innerHTML="&#9203; Buscando o nome na Receita…";
+  let d;
+  try{const r=await fetch("https://brasilapi.com.br/api/cnpj/v1/"+dig);
+    if(!r.ok){if(st)st.innerHTML="Não encontrei na Receita — pode preencher o nome à mão.";return;}
+    d=await r.json();}
+  catch(e){if(st)st.innerHTML="Sem resposta da Receita agora — preencha o nome à mão.";return;}
   if(d.razao_social&&ge(nomeId)&&!(ge(nomeId).value||"").trim())ge(nomeId).value=d.razao_social;
   if(d.uf&&ge(ufId)){ge(ufId).value=d.uf;await carregarCidades(ufId,munId,d.municipio||"");}
-  toast("✓ Receita: "+(d.razao_social||"")+(d.municipio?" — "+d.municipio+"/"+(d.uf||""):""),"ok");
+  if(st)st.innerHTML=`&#9989; Receita: <b>${esc(d.razao_social||"")}</b>${d.municipio?" — "+esc(d.municipio)+"/"+esc(d.uf||""):""}`;
+  else toast("✓ Receita: "+(d.razao_social||"")+(d.municipio?" — "+d.municipio+"/"+(d.uf||""):""),"ok");
+}
+// dispara a busca assim que os 14 dígitos são digitados/colados (com pequeno atraso)
+function buscarCNPJvivo(cnpjId,nomeId,ufId,munId,statusId){
+  const dig=String((ge(cnpjId)||{}).value||"").replace(/\D/g,"");
+  clearTimeout(E._cnpjTO);
+  const st=statusId?ge(statusId):null;
+  if(dig.length!==14){if(st&&dig.length<14)st.innerHTML=dig.length?"Faltam dígitos do CNPJ…":"";E._cnpjUltimo="";return;}
+  if(E._cnpjUltimo===dig)return;
+  E._cnpjTO=setTimeout(()=>{E._cnpjUltimo=dig;buscarCNPJ(cnpjId,nomeId,ufId,munId,statusId);},300);
 }
 // ===== e-CAC obrigatório ao SOLICITAR levantamento/parecer (Bruna, 15/09/26):
 // ou se informa em qual e-CAC está liberado, ou que ainda NÃO está — e a
@@ -7877,9 +7901,9 @@ async function criarTarefaNova(){
 // ---- novo cliente + tarefa
 function abrirNovoCliente(){
   modal2("&#128100; Novo cliente + tarefa","Cadastro mínimo obrigatório · extras opcionais",`
-    <div class="linha-acao"><input class="fi" id="nc-nome" placeholder="Nome / Razão Social *" style="flex:2;margin:0">
-      <input class="fi" id="nc-cnpj" placeholder="CNPJ / CPF *" style="flex:1;margin:0" onblur="buscarCNPJ('nc-cnpj','nc-nome','nc-uf','nc-mun')"></div>
-    <div style="font-size:10px;color:var(--gray);margin-top:2px">&#128269; Preencheu o CNPJ? Nome, estado e cidade vêm sozinhos da Receita.</div>
+    <div class="linha-acao"><input class="fi" id="nc-cnpj" placeholder="CNPJ / CPF * — digite para puxar o nome" style="flex:1;margin:0" oninput="buscarCNPJvivo('nc-cnpj','nc-nome','nc-uf','nc-mun','nc-cnpj-st')" onblur="buscarCNPJvivo('nc-cnpj','nc-nome','nc-uf','nc-mun','nc-cnpj-st')">
+      <input class="fi" id="nc-nome" placeholder="Nome / Razão Social *" style="flex:2;margin:0"></div>
+    <div id="nc-cnpj-st" style="font-size:11px;color:var(--gray);margin-top:2px">&#128269; Comece pelo CNPJ — o nome, estado e cidade vêm sozinhos.</div>
     <div id="nc-extras"></div>
     <button type="button" class="btn bts btsm" style="margin-top:5px" onclick="ncAddEmpresa()">+ Adicionar outro CNPJ (mesmo dono)</button>
     <div style="font-size:10px;color:var(--gray);margin-top:2px">&#127970; <b>Mesmo dono com mais de um CNPJ?</b> Adicione as outras empresas: cada uma vira cliente + tarefa, <b>todas com o mesmo assessor</b> e marcadas como grupo do mesmo dono.</div>
@@ -7909,6 +7933,8 @@ function abrirNovoCliente(){
     </div>
     <button class="btn btp btw" style="margin-top:8px" onclick="criarClienteTarefa()">&#10003; Cadastrar</button>`);
   ordenarReceptores("nc-ass");
+  // carrega nossos clientes em segundo plano para a busca instantânea por CNPJ
+  if(!E._clsTodos||!E._clsTodos.length)DB.clientes("").then(cs=>{E._clsTodos=cs;E._cli={};cs.forEach(c=>E._cli[c.id_cliente]=c);}).catch(()=>{});
 }
 // ---- várias empresas do MESMO DONO num pedido só (estilo portal do
 // franqueado — Bruna, 29/09/2026): cada CNPJ vira cliente + tarefa com o
