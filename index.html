@@ -1819,6 +1819,15 @@ async function carregarFinanceiro(){
 // (pedido da Bruna, 16/09/2026: "o que o sistema cobra hoje × fila").
 // Entradas já carregadas: ativas (classificadas, sem delegada/correção),
 // reuniões, histórico de HOJE e propostas. carregarTemposReais antes.
+// 🔒 DIA EXCLUSIVO (Bruna, 01/10/2026): tarefa com "DIA EXCLUSIVO dd/mm/aaaa"
+// no supervisao fecha o dia do assessor — o plano mostra SÓ ela (todo o resto
+// espera na fila) e a agenda do dia fica travada, até ele finalizar pelo botão
+// do card (fechamento_concluir arquiva a tarefa de vez; não volta pelo robô).
+function diaExclusivoData(t){const m=String(t.supervisao||"").match(/DIA EXCLUSIVO (\d{2})\/(\d{2})\/(\d{4})/i);
+  return m?`${m[3]}-${m[2]}-${m[1]}`:null;}
+function tarefaDiaExclusivo(nome,lista,diaISO){
+  return (lista||[]).find(t=>t.id_tarefa&&loginDe(t.assessor||"")===nome&&!t._concluida&&!t._delegada
+    &&/DIA EXCLUSIVO/i.test(t.supervisao||"")&&(diaExclusivoData(t)||"9999")<=diaISO)||null;}
 function montarPlanoDia(nome,ativas,reun,histHoje,props){
   const hjBR2=brHoje(), hjISO2=hojeISO();
   const meetings=(reun||[]).filter(r=>r.assessor===nome&&(r.data===hjBR2||String(r.data_dt||"").slice(0,10)===hjISO2));
@@ -7760,6 +7769,32 @@ async function buscarCNPJ(cnpjId,nomeId,ufId,munId,statusId){
   if(d.uf&&ge(ufId)){ge(ufId).value=d.uf;await carregarCidades(ufId,munId,d.municipio||"");}
   if(st)st.innerHTML=`&#9989; Receita: <b>${esc(d.razao_social||"")}</b>${d.municipio?" — "+esc(d.municipio)+"/"+esc(d.uf||""):""}`;
   else toast("✓ Receita: "+(d.razao_social||"")+(d.municipio?" — "+d.municipio+"/"+(d.uf||""):""),"ok");
+  aplicarSimplesNC(d,st); // regime + resumo automáticos pela situação do Simples
+}
+// Lê a situação do Simples/MEI da resposta da Receita e preenche regime + resumo
+// do form de cliente novo (sem sobrescrever o que já estiver preenchido). Bruna, 01/10
+function aplicarSimplesNC(d,st){
+  const reg=ge("nc-reg"),res=ge("nc-res");
+  if(!reg&&!res)return; // só no formulário de cliente novo
+  const brD=s=>{const m=String(s||"").match(/^(\d{4})-(\d{2})-(\d{2})/);return m?`${m[3]}/${m[2]}/${m[1]}`:"";};
+  let nota="",curto="";
+  if(d.opcao_pelo_mei){
+    if(reg&&!reg.value)reg.value="MEI";
+    const de=brD(d.data_opcao_pelo_mei);
+    nota=`MEI (Simples Nacional)${de?" desde "+de:""}.`;curto="MEI";
+  }else if(d.opcao_pelo_simples){
+    if(reg&&!reg.value)reg.value="Simples Nacional";
+    const de=brD(d.data_opcao_pelo_simples),ate=brD(d.data_exclusao_do_simples);
+    nota=`Optante do Simples Nacional${de?" desde "+de:""}${ate?" (houve exclusão em "+ate+")":""}.`;curto="Simples ✓";
+  }else{
+    nota="Não enquadrada no SN - informar regime.";curto="não é Simples";
+    const de=brD(d.data_opcao_pelo_simples),ate=brD(d.data_exclusao_do_simples);
+    if(de||ate)nota+=` (Foi optante do Simples${de?" de "+de:""}${ate?" até "+ate:""}.)`;
+  }
+  if(res&&nota){const atual=(res.value||"").trim();
+    if(!atual)res.value="🧾 "+nota;
+    else if(!atual.includes(nota))res.value=atual+"\n🧾 "+nota;}
+  if(st&&curto)st.innerHTML+=` · <b>${esc(curto)}</b>`;
 }
 // dispara a busca assim que os 14 dígitos são digitados/colados (com pequeno atraso)
 function buscarCNPJvivo(cnpjId,nomeId,ufId,munId,statusId){
