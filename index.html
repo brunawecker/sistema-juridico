@@ -1839,6 +1839,17 @@ function montarPlanoDia(nome,ativas,reun,histHoje,props){
   const jaTrab=(histHoje||[]).filter(r=>r.tipo==="TIMER"&&loginDe(r.autor)===nome)
     .reduce((s,r)=>s+(parseInt((String(r.texto||"").match(/(\d+)\s*min/)||[])[1])||0),0);
   const cap=capDe(nome), capDia=Math.max(60,cap-minReu), capDisp=Math.max(0,capDia-jaTrab);
+  // 🔒 dia exclusivo: o dia inteiro é UMA tarefa; nada mais entra até finalizar
+  const excl=tarefaDiaExclusivo(nome,ativas,hjISO2);
+  if(excl){
+    excl._urg=0;excl._tempo=excl._meta||capDia;
+    const filaX=ativas.filter(t=>t!==excl&&t.id_tarefa&&!t._concluida);
+    filaX.sort((a,b)=>atrasoDias(b)-atrasoDias(a)||((a._dias??9)-(b._dias??9)));
+    return {plano:[excl],fila:filaX,fatal:[],fixasDia:[],imed:[],atr:[],diar:[],hoje0:[],
+            semanal:[],mensal:[],meetings,minReu,jaTrab,cap,capDia,capDisp,
+            reservaPros:0,reservaFu:0,planejado:excl._tempo,
+            filaMin:filaX.reduce((s,t)=>s+(t._tempo||0),0),propsFu:[],exclusivo:excl};
+  }
   // topo do dia (Bruna, 19/09/2026): PRAZO FATAL sempre na frente de tudo;
   // depois as FIXAS no dia delas; só então imediatas e o resto. O follow-up
   // continua sendo o cartão "Comece por aqui", acima até do fatal.
@@ -2711,19 +2722,19 @@ async function salvarRetomadaFatal(){
 function abrirProxFreq(){
   const t=E.atual;
   modal2("&#9203; Andamento registrado — e agora?",esc(t.cliente)+" — imediata é só o que foi exigido para o dia",`
-    <div style="font-size:12.5px;margin-bottom:8px">Você deu andamento nesta <b>imediata</b>. Pela regra da banca, ela sai do imediato agora — escolha quando o cartão volta:</div>
+    <div style="font-size:12.5px;margin-bottom:8px">Você deu andamento nesta <b>imediata</b>. Pela regra da banca ela <b>sai do imediato agora</b> (sem exceção) — escolha quando o cartão volta:</div>
     <select class="fsel" id="pf-freq" style="width:100%" onchange="ge('pf-data-w').style.display=this.value==='AGUARDANDO'?'block':'none'">
       <option value="DIÁRIO">&#128337; DIÁRIO — volta amanhã</option>
       <option value="SEMANAL">&#128197; SEMANAL — volta em 7 dias</option>
       <option value="MENSAL">&#128198; MENSAL — volta em 30 dias</option>
-      <option value="AGUARDANDO">&#9203; AGUARDANDO — escolher a data de retorno</option>
-      <option value="IMEDIATO">&#9889; ainda falta algo HOJE — continua imediata</option></select>
+      <option value="AGUARDANDO">&#9203; AGUARDANDO — escolher a data de retorno</option></select>
     <div id="pf-data-w" style="display:none;margin-top:6px"><input type="date" class="fsel" id="pf-data" min="${hojeISO()}" style="width:100%"></div>
     <button class="btn btp btw" style="margin-top:8px" onclick="salvarProxFreq()">&#10003; Confirmar</button>`);
 }
 async function salvarProxFreq(){
   const t=E.atual,f=ge("pf-freq").value;
-  if(f==="IMEDIATO"){fecharModal2();toast("Segue imediata para hoje.","ok");abrirTarefa(t.id_tarefa);return;}
+  // regra da Bruna (01/10/2026): deu andamento → NUNCA permanece imediata
+  if(f==="IMEDIATO"){toast("Depois do andamento a tarefa não permanece imediata — escolha DIÁRIO, SEMANAL, MENSAL ou AGUARDANDO.","erro");return;}
   let prox;
   if(f==="AGUARDANDO"){prox=ge("pf-data").value;if(!prox){toast("Escolha a data de retorno.","erro");return;}}
   else{const d=new Date();d.setDate(d.getDate()+(f==="SEMANAL"?7:f==="MENSAL"?30:1));
@@ -2750,6 +2761,11 @@ function travaImpedimento(t){
 async function salvarFreqData(){
   const t=E.atual,check=ge("conc-check").value,dm=ge("conc-data").value;
   if(travaImpedimento(t))return;
+  // regra da Bruna (01/10/2026): tarefa que ESTÁ imediata e já tem andamento
+  // do assessor não pode ser salva de novo como imediata ("manter")
+  if(check==="IMEDIATO"&&String(t.check_||"").toUpperCase()==="IMEDIATO"
+     &&(E._hist||[]).some(h=>!h._daOrigem&&h.tipo==="ASSESSOR")){
+    toast("Esta imediata já tem andamento — ela não permanece imediata: escolha DIÁRIO, SEMANAL ou MENSAL (ou conclua).","erro");return;}
   let notaImp=null;
   if(t._impulso){
     if(!impulsoTemRegistro()){
@@ -2842,6 +2858,10 @@ async function concluirTarefa(){
     if(!impulsoTemRegistro()){
       toast("Antes de reagendar o impulso, registre um andamento — o dono precisa saber o que está acontecendo.","erro");return;}
   }
+  // regra da Bruna (01/10/2026): concluir NUNCA devolve o cartão como
+  // imediata — a pessoa é obrigada a escolher a próxima frequência
+  if(check==="IMEDIATO"){
+    toast("Concluiu = o dia desta tarefa terminou. Mude a FREQUÊNCIA em 'Atualizar / concluir' (diário, semanal ou mensal) — ela não permanece imediata.","erro");return;}
   if(t._impedimento&&!t.queda_impedimento_dt){
     toast("Antes de concluir, informe a data de queda do impedimento (campo no topo do cartão).","erro");
     editarQueda();return;}
@@ -3179,12 +3199,15 @@ async function continuarImpulso(){
     toast("Antes de continuar, registre um andamento (em 'Adicionar andamento') contando o que já fez — o responsável precisa acompanhar.","erro");
     if(box){box.focus();box.scrollIntoView({behavior:"smooth",block:"center"});}return;}
   let freq=ge("conc-check").value,prox=ge("conc-data").value;
+  // regra da Bruna (01/10/2026): deu andamento, NUNCA permanece imediata —
+  // vale para impulso e tarefa mãe
+  if(freq==="IMEDIATO"){freq="SEMANAL";
+    toast("Imediata não permanece imediata depois do andamento — ajustei para SEMANAL (mude em 'Atualizar / concluir' se quiser outro ritmo).","ok");}
   if(!prox){
     const add={"DIÁRIO":1,"SEMANAL":7,"MENSAL":30}[freq]||7;
-    if(freq==="IMEDIATO")freq="SEMANAL";
     const d=new Date();d.setDate(d.getDate()+add);prox=d.toISOString().slice(0,10);}
   try{await DB.tarefaUpdate(t,{campos:{check_:freq},data_revisao:prox,
-    hist_texto:`🔁 Continua com ${meuNome} — ainda cobrando; volta em ${brData(prox)} (frequência ${freq}).`,hist_tipo:"ASSESSOR"});}
+    hist_texto:`🔁 Continua com ${E.perfil.nome_sistema} — ainda cobrando; volta em ${brData(prox)} (frequência ${freq}).`,hist_tipo:"ASSESSOR"});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Certo! O impulso continua com você e volta em "+brData(prox)+".","ok");
   fecharModal();recarregar();}
