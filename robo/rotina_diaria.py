@@ -160,11 +160,14 @@ def main():
         # aparecendo fora da janela (caso da Laura, 16/09/2026: DARFs). Some
         # com eles todo dia; o cartão oficial nasce/acorda no passo 4.
         # Impulsos delegados (copiam o título 📌) são preservados.
+        # (02/10/2026: dia exclusivo é intocável — a limpeza comeu o fechamento
+        # mensal da Malu/Ygor criado com 📌 e status AGUARDANDO)
         cur.execute("""delete from juridico.operacional
             where cliente like '📌%%'
               and status_tarefa <> 'TAREFA FIXA'
               and coalesce(status_tarefa,'') not like 'DELEGADA%%'
-              and coalesce(supervisao,'') not like '%%IMPULSO de%%'""")
+              and coalesce(supervisao,'') not like '%%IMPULSO de%%'
+              and coalesce(supervisao,'') not like '%%DIA EXCLUSIVO%%'""")
         print(f"3z. cartões-zumbi de fixa removidos: {cur.rowcount}")
 
         # 3z2) fixa DESATIVADA ou reescrita (título novo) deixava o cartão
