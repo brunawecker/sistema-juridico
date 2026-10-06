@@ -2285,6 +2285,12 @@ async function devolverCorrecao(id,linha){
   toast("Devolvida ao assessor (imediato)!","ok");recarregar();
 }
 async function removerReuniao(id){
+  // compromisso espelhado da agenda Google: apagar aqui é inútil — o robô
+  // recria em minutos (caso Madu/Perfurações, 06/10/2026). O caminho certo
+  // é remover NO GOOGLE (quem criou) — o espelho some sozinho no próximo giro.
+  if(String(id).startsWith("GCAL-")){
+    alert("Este compromisso vem da agenda Google — apagar aqui não resolve (o robô traria de volta em minutos).\n\nPara removê-lo: quem criou o evento apaga lá no Google Calendar (ou tira você dos convidados). Em até 5 minutos ele some daqui sozinho.\n\nSe o evento não é seu e continua aparecendo, avise a Bruna.");
+    return;}
   try{await DB.reuniaoDel(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Removido","ok");recarregar();
 }
