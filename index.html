@@ -277,6 +277,15 @@ const E = { perfil:null, emailTeste:null, view:null, tarefas:[], atual:null,
 const ge=id=>document.getElementById(id), ce=t=>document.createElement(t);
 const esc=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 function toast(m,t){const e=ge("toast");e.textContent=m;e.className="mostra "+(t||"");setTimeout(()=>e.className="",3200);}
+// trava anti-clique-duplo nas gravações (caso ALGEMAS da Madu, 06/10/2026:
+// dois cliques em "Criar" = duas tarefas). Enquanto uma gravação roda, o
+// segundo clique é ignorado com aviso.
+let _gravando=false;
+async function umaVez(fn){
+  if(_gravando){toast("Um instante — ainda estou gravando o clique anterior…","erro");return;}
+  _gravando=true;
+  try{await fn();}finally{_gravando=false;}
+}
 // data de HOJE no fuso local (nunca toISOString aqui: é UTC e vira "amanhã" depois das 21h)
 function hojeISO(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
 function brData(iso){if(!iso)return"";const p=String(iso).slice(0,10).split("-");return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:String(iso);}
@@ -3122,7 +3131,7 @@ function abrirDelegar(){const t=E.atual;
     <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px">&#128206; Anexo (opcional — print, certificado, documento):</label>
     <input type="file" id="dg-file" class="fsel" style="max-width:240px"></div>
     ${htmlPacote(E._pacoteExtras,"dg-pac")}
-    <button class="btn btp btw" style="margin-top:8px" onclick="confirmarDelegar()">&#129309; Enviar impulso</button>`);
+    <button class="btn btp btw" style="margin-top:8px" onclick="umaVez(confirmarDelegar)">&#129309; Enviar impulso</button>`);
   rascunhoLiga("dg-txt","dg:"+t.id_tarefa);
   carregarCargaDelegar();}
 // escolheu "imediato" no impulso? em geral avisa e devolve para DIÁRIO — se é
@@ -7512,7 +7521,7 @@ function pedirResumoReuniao(id,restantes){
              <select class="fsel" id="res-nhead" style="width:100%;margin-top:5px"><option value="">Head da carteira deste cliente *</option><option>Danielly</option><option>Bruna</option><option>Eduarda</option></select>
              <div style="font-size:10px;color:var(--gray);margin-top:3px">Nasce como <b>prospecção</b> na carteira dessa head — o resumo já fica gravado nele; depois é só lançar a proposta.</div></div>`}
        <textarea class="fta" id="res-txt" rows="4" placeholder="Narre um breve histórico do que foi ajustado na reunião, informações que o cliente passou e de onde veio essa reunião (franqueado, funil específico etc.)">${esc(jaTexto)}</textarea></div>
-     <button class="btn btp btw" style="margin-top:8px" onclick="salvarResumoReuniao('${esc(id)}')">&#128190; Salvar</button>
+     <button class="btn btp btw" style="margin-top:8px" onclick="umaVez(()=>salvarResumoReuniao('${esc(id)}'))">&#128190; Salvar</button>
      <div style="text-align:center;margin-top:6px"><a href="javascript:marcarReuniaoNaoAconteceu('${esc(id)}')" style="font-size:11px;color:var(--gray)">a reunião não aconteceu / foi cancelada</a></div>`);
 }
 function buscaResCli(){
@@ -7988,7 +7997,7 @@ function formNTCorpo(resp,interna){
     ${EXIGE_PEDIDO_HEAD.includes(E.perfil.nome_sistema)?`<label style="font-size:12px;display:flex;gap:7px;align-items:center;margin-top:6px;cursor:pointer"><input type="checkbox" id="nt-headflag" style="width:15px;height:15px"> &#127963;&#65039; Tarefa por <b>pedido direto de uma das heads</b> <span style="color:var(--gray)">(obrigatório se for para ${EXIGE_PEDIDO_HEAD.filter(x=>x!==E.perfil.nome_sistema).join(" ou ")})</span></label>`:""}
     <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px">&#128206; Documentos iniciais (opcional — pode selecionar v&aacute;rios):</label>
       <input type="file" id="nt-doc" class="fsel" multiple style="max-width:240px"></div>
-    <button class="btn btp btw" style="margin-top:8px" onclick="criarTarefaNova()">&#10003; Criar tarefa</button>`;
+    <button class="btn btp btw" style="margin-top:8px" onclick="umaVez(criarTarefaNova)">&#10003; Criar tarefa</button>`;
   if(!interna)ordenarReceptores("nt-ass");
   if(E.perfil.head_sim)atualizarImedNT();
 }
@@ -8086,7 +8095,7 @@ function abrirNovoCliente(){
     <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px">&#128206; Documentos iniciais (opcional — pode selecionar v&aacute;rios):</label>
       <input type="file" id="nc-doc" class="fsel" multiple style="max-width:240px"></div>
     </div>
-    <button class="btn btp btw" style="margin-top:8px" onclick="criarClienteTarefa()">&#10003; Cadastrar</button>`);
+    <button class="btn btp btw" style="margin-top:8px" onclick="umaVez(criarClienteTarefa)">&#10003; Cadastrar</button>`);
   ordenarReceptores("nc-ass");
   // carrega nossos clientes em segundo plano para a busca instantânea por CNPJ
   if(!E._clsTodos||!E._clsTodos.length)DB.clientes("").then(cs=>{E._clsTodos=cs;E._cli={};cs.forEach(c=>E._cli[c.id_cliente]=c);}).catch(()=>{});
@@ -8303,7 +8312,7 @@ async function abrirProposta(){
       <label style="font-size:11px">Data:</label><input type="date" class="fsel" id="pr-data" value="${hojeISO()}">
       <label style="font-size:11px" title="Se já combinou a reunião de apresentação com o cliente, informe — vai para a agenda de quem conduz a venda">&#128197; Reunião de apresentação:</label><input type="date" class="fsel" id="pr-reuniao"></div>
     <textarea class="fta" id="pr-obs" style="margin-top:6px" placeholder="Observações (opcional)"></textarea>
-    <button class="btn btp btw" style="margin-top:8px" onclick="lancarProposta()">&#128221; Lançar proposta</button>`);
+    <button class="btn btp btw" style="margin-top:8px" onclick="umaVez(lancarProposta)">&#128221; Lançar proposta</button>`);
 }
 function buscaPrCli(){
   const q=(ge("pr-q").value||"").trim();const box=ge("pr-res");
