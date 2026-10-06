@@ -1352,6 +1352,15 @@ async function entrou(){
   vigiarVersao();
   coroaViva();
 }
+// erro inesperado em QUALQUER clique: em vez de botão mudo, mostra a
+// mensagem real — os relatos "deu erro" passam a vir com o texto exato
+// (caso Laura, 06/10/2026)
+window.onerror=function(msg){try{toast("Erro inesperado: "+msg+" — tire um print desta mensagem e mande no suporte.","erro");}catch(e){}return false;};
+window.addEventListener("unhandledrejection",function(ev){
+  try{const m=String((ev&&ev.reason&&(ev.reason.message||ev.reason))||"");
+    // oscilação de internet não é defeito — silencia o ruído de rede
+    if(!m||/failed to fetch|load failed|networkerror|aborted|TypeError: cancelled/i.test(m))return;
+    toast("Erro inesperado: "+m+" — tire um print desta mensagem e mande no suporte.","erro");}catch(e){}});
 // página aberta há dias = código velho + regras novas do banco = erro que
 // parece defeito. A cada 10 min confere o carimbo publicado; mudou → faixa.
 async function vigiarVersao(){
@@ -1759,6 +1768,16 @@ function tagLanc(t){
   const hojeBr=brData(hojeISO());
   return `<span class="tag ${d===hojeBr?"tz":"ti"}" title="Imediata deve ser cumprida no dia do lançamento">lançada ${d}</span>`;
 }
+// o par "original DELEGADA + cartinho de impulso" é UMA atividade só aos
+// olhos da equipe (caso Bruno Garcia — Eduarda/Laura, 06/10/2026): nas
+// listagens, o original delegado sai quando o cartinho do impulso está na
+// mesma lista; o cartinho ganha a etiqueta "🤝 impulso de Fulano"
+function semDuplicataImpulso(lista){
+  const origens=new Set();
+  (lista||[]).forEach(t=>{if(!t._impulso)return;
+    const m=String(t.supervisao||"").match(/Origem:\s*(OP-\d+)/);if(m)origens.add(m[1]);});
+  return (lista||[]).filter(t=>!(t._delegada&&origens.has(t.id_tarefa)));
+}
 function cardTarefa(t,mostrarAssessor,mostrarTempo){
   const ec={IMEDIATO:'<span class="tag ti">IMEDIATO</span>',"DIÁRIO":'<span class="tag td2">DIÁRIO</span>',
     DIARIO:'<span class="tag td2">DIÁRIO</span>',SEMANAL:'<span class="tag ts">SEMANAL</span>',
@@ -1783,7 +1802,7 @@ function cardTarefa(t,mostrarAssessor,mostrarTempo){
   const tmp=mostrarTempo?`<span class="tco" style="font-family:'DM Mono'">&#9201;${t._tempo}min</span>`:"";
   return `<div class="tc ${t._urg===0?"uF":t._urg===0.5?"uP":"u"+(t._g||5)}" onclick="abrirTarefa('${esc(t.id_tarefa)}')"><div style="flex:1;min-width:0">
     <div class="tcc">${esc(t.cliente)}${fin}</div>
-    <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${t._nproc>1?` <span class="tag ts" title="execução com vários processos — o tempo do dia já conta ×${t._nproc}">&#9878; ${t._nproc} proc.</span>`:""}${t.numero_processual?` <span class="tco" style="font-family:'DM Mono';font-size:10px">${esc(t.numero_processual)}</span>`:""}${ec}${tagLanc(t)}${es}${hd}${pf}${ass}${tmp}</div></div>
+    <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${t._nproc>1?` <span class="tag ts" title="execução com vários processos — o tempo do dia já conta ×${t._nproc}">&#9878; ${t._nproc} proc.</span>`:""}${t.numero_processual?` <span class="tco" style="font-family:'DM Mono';font-size:10px">${esc(t.numero_processual)}</span>`:""}${ec}${t._impulso?(()=>{const de=(String(t.supervisao||"").match(/IMPULSO de ([^|]+)\|/)||[])[1];return ` <span class="tag" style="background:#1F4E79;color:white" title="Cartinho de impulso — devolve ao dono quando finalizar">&#129309; impulso${de?" de "+esc(String(de).trim()):""}</span>`;})():""}${tagLanc(t)}${es}${hd}${pf}${ass}${tmp}</div></div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">${dt}${t.prazo_fatal_dt?`<span class="tdy ov" style="font-weight:700">FATAL: ${brData(t.prazo_fatal_dt)}</span>`:""}${t.simples_prazo_dt?`<span class="tdy ov" style="font-weight:700;background:#7B2D8B">&#9203; SIMPLES: ${brData(String(t.simples_prazo_dt).slice(0,10))}</span>`:""}${t.prazo_fatal_dt&&t.retomada_fatal_dt&&String(t.retomada_fatal_dt).slice(0,10)>hojeISO()?`<span class="tdy ok" title="Andamento do dia cumprido — dorme até a retomada">&#9203; retoma ${brData(t.retomada_fatal_dt)}</span>`:""}</div></div>`;
 }
 // Banner de prazos fatais desta semana (clicável)
@@ -3218,7 +3237,8 @@ async function continuarImpulso(){
   if(!impulsoTemRegistro()){
     toast("Antes de continuar, registre um andamento (em 'Adicionar andamento') contando o que já fez — o responsável precisa acompanhar.","erro");
     if(box){box.focus();box.scrollIntoView({behavior:"smooth",block:"center"});}return;}
-  let freq=ge("conc-check").value,prox=ge("conc-data").value;
+  // leitura defensiva: se a seção não desenhou, segue com a frequência atual
+  let freq=(ge("conc-check")||{}).value||String(t.check_||"SEMANAL"),prox=(ge("conc-data")||{}).value||"";
   // regra da Bruna (01/10/2026): deu andamento, NUNCA permanece imediata —
   // vale para impulso e tarefa mãe
   if(freq==="IMEDIATO"){freq="SEMANAL";
@@ -3720,6 +3740,7 @@ function filtraPainel(){
   if(st==="imed")f=f.filter(t=>t._g===1);
   if(st==="dia")f=f.filter(t=>!t._atrasada);
   f.sort((x,y)=>(x._dias??9999)-(y._dias??9999));
+  f=semDuplicataImpulso(f);
   ge("pf-lista").innerHTML=f.length?f.slice(0,150).map(t=>cardTarefa(t,true)).join("")
     +(f.length>150?`<div class="vazio">… e mais ${f.length-150} (use os filtros)</div>`:"")
     :`<div class="vazio">Nenhuma tarefa.</div>`;
@@ -5937,9 +5958,9 @@ function buscaPorOperacao(){
   const op=ge("cl-opsel").value;if(!op)return;
   const alvo=op.toLowerCase();
   const adv=(ge("cl-opadv")?.value||"").trim();
-  const f=(E.tarefas||[]).filter(t=>t.id_tarefa&&String(t.operacao||"").toLowerCase().includes(alvo)
+  const f=semDuplicataImpulso((E.tarefas||[]).filter(t=>t.id_tarefa&&String(t.operacao||"").toLowerCase().includes(alvo)
       &&(!adv||String(t.advogada||"").trim()===adv))
-    .sort((a,b)=>(a._dias??9999)-(b._dias??9999));
+    .sort((a,b)=>(a._dias??9999)-(b._dias??9999)));
   ge("cl-lista").innerHTML=`<p style="font-size:12px;color:var(--gray);margin-bottom:8px">${f.length} tarefa(s) de "${esc(op)}"${adv?` · advogada <b>${esc(adv)}</b>`:""} em andamento</p>`
     +(f.length?f.map(t=>cardTarefa(t,true)).join(""):`<div class="vazio">Nenhuma${adv?` de ${esc(adv)}`:""}.</div>`);
 }
@@ -6305,8 +6326,9 @@ async function verTarefasCliente(id){
   let r;try{r=await DB.clienteTarefas(id);}catch(e){box.innerHTML=`<div class="vazio">${esc(e.message)}</div>`;return;}
   // propostas do cliente (a visão mascarada aplica o sigilo sozinha)
   let propsCli=[];try{propsCli=((await DB.propostas())||[]).filter(p=>p.id_cliente===id);}catch(e){}
-  const at=(r.ativas||[]).map(classificar);
-  at.forEach(t=>{if(!E.tarefas.find(x=>x.id_tarefa===t.id_tarefa))E.tarefas.push(t);});
+  const at0=(r.ativas||[]).map(classificar);
+  at0.forEach(t=>{if(!E.tarefas.find(x=>x.id_tarefa===t.id_tarefa))E.tarefas.push(t);});
+  const at=semDuplicataImpulso(at0);
   let h=at.length?`<div class="bloco-t" style="color:var(--dani)">&#10003; ${nProcSum(at)} ativa(s)${nProcSum(at)!==at.length?` em ${at.length} cards`:""}</div>`+at.map(t=>cardTarefa(t,true)).join("")
     :`<div style="font-size:12px;color:var(--gray)">Sem tarefas ativas.</div>`;
   if((r.encerradas||[]).length){
