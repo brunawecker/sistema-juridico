@@ -2912,6 +2912,11 @@ async function concluirTarefa(){
     if(!impulsoTemRegistro()){
       toast("Antes de reagendar o impulso, registre um andamento — o dono precisa saber o que está acontecendo.","erro");return;}
   }
+  // tarefa-mãe DELEGADA não se conclui (caso COMACIO, 06/10/2026: concluir
+  // por cima apagava o status e o par mãe+impulso virava "duplicata" ativa)
+  if(t._delegada){
+    const paraQuem=(String(t.status_tarefa||"").split("→")[1]||"um colega").trim();
+    toast("Esta tarefa está DELEGADA via impulso a "+paraQuem+" — o cartão volta sozinho quando o impulso for finalizado. Precisa fechar agora? Peça a "+paraQuem+" para finalizar o impulso, ou use 'Encerrar o caso'.","erro");return;}
   // regra da Bruna (01/10/2026): concluir NUNCA devolve o cartão como
   // imediata — a pessoa é obrigada a escolher a próxima frequência
   if(check==="IMEDIATO"){
@@ -6343,9 +6348,18 @@ async function verTarefasCliente(id){
   let propsCli=[];try{propsCli=((await DB.propostas())||[]).filter(p=>p.id_cliente===id);}catch(e){}
   const at0=(r.ativas||[]).map(classificar);
   at0.forEach(t=>{if(!E.tarefas.find(x=>x.id_tarefa===t.id_tarefa))E.tarefas.push(t);});
+  // mãe delegada NÃO conta como ativa (Bruna, 06/10/2026): na ficha, o que
+  // está em andamento é SÓ o impulso; a mãe aparece embaixo, apagadinha e
+  // marcada como pausada — fim da dúvida "está duplicado?"
   const at=semDuplicataImpulso(at0);
+  const pausadas=at0.filter(t=>!at.includes(t));
   let h=at.length?`<div class="bloco-t" style="color:var(--dani)">&#10003; ${nProcSum(at)} ativa(s)${nProcSum(at)!==at.length?` em ${at.length} cards`:""}</div>`+at.map(t=>cardTarefa(t,true)).join("")
     :`<div style="font-size:12px;color:var(--gray)">Sem tarefas ativas.</div>`;
+  if(pausadas.length)h+=`<div class="bloco-t" style="color:var(--gray);margin-top:8px">&#9208;&#65039; ${pausadas.length} tarefa(s)-mãe pausada(s) — inativa(s) para o dono</div>`
+    +pausadas.map(t=>{const para=(String(t.status_tarefa||"").split("→")[1]||"colega").trim();
+      return `<div class="tc u5" style="opacity:.55;cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')">
+      <div style="flex:1;min-width:0"><div class="tcc">&#9208;&#65039; ${esc(t.operacao||"")} — tarefa-mãe de ${esc(t.assessor||"—")}</div>
+      <div class="tco">PAUSADA: o andamento desta atividade é o &#129309; impulso com <b>${esc(para)}</b> (card acima). Volta ao dono quando o impulso for finalizado — não é duplicata.</div></div></div>`;}).join("");
   if((r.encerradas||[]).length){
     // deixa os casos disponíveis para o card completo (verCaso) fora da
     // tela de Casos Encerrados — pedido da Bruna, 21/08/2026
