@@ -298,7 +298,7 @@ function primeiroNome(n){return String(n||"").split(" ")[0];}
 const CAP={Ygor:450,Thiago:450,Madu:450,Malu:360,Laura:360,"João":360,Mateus:420,
   Danielly:480,Bruna:480,Eduarda:480};
 const capDe=n=>CAP[n]||420;
-const OPERACIONAIS=["Ygor","Thiago","Madu","Malu","Laura","João","Mateus"];
+const OPERACIONAIS=["Ygor","Thiago","Madu","Malu","Laura","João","Mateus","Raquel"];
 // Cores por assessor — mesmas do sistema antigo (renderPrevisaoMensal)
 const CORES_ASSESSOR={
   "Ygor":  {bg:"#E3F2F8",border:"#447F98",text:"#2C5F75",dot:"#447F98"},
@@ -2540,7 +2540,8 @@ async function carregarProcs(t){
   const box=ge("procs-box");if(!box)return;
   let ps=[];try{ps=okS(await supa.from("tarefa_processos").select("*").eq("id_tarefa",t.id_tarefa).order("id"))||[];}catch(e){}
   E._procsCard=ps;
-  const ehExec=/Execução Fiscal/i.test(t.operacao||"");
+  // Monitoramento também acompanha N execuções num card só (Bruna, 07/10/2026)
+  const ehExec=/Execução Fiscal|Monitoramento/i.test(t.operacao||"");
   if(!ps.length&&!ehExec){box.innerHTML="";return;}
   const chip={ATIVO:["tek","ativo"],SUSPENSO:["td2","suspenso"],BAIXADO:["tm","baixado"]};
   box.innerHTML=`<div class="bloco" style="margin-top:10px"><div class="bloco-t">&#9878; Processos desta tarefa (${ps.filter(p=>p.status==="ATIVO").length} ativos${ps.length!==ps.filter(p=>p.status==="ATIVO").length?` · ${ps.length} no total`:""})</div>
