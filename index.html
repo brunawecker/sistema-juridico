@@ -8044,10 +8044,10 @@ function formNTCorpo(resp,interna){
 function ntAddExtra(){
   E._ntExtraN=(E._ntExtraN||0)+1;const i=E._ntExtraN;
   ge("nt-extras").insertAdjacentHTML("beforeend",
-    `<div class="linha-acao nt-ex" id="nt-ex-${i}" style="margin-top:6px;background:var(--ice);border-radius:9px;padding:7px 9px">
-      <select class="fsel nt-ex-op" style="min-width:180px"><option value="">Tipo da outra tarefa *</option>${OPERACOES.filter(o=>o!=="Prazo C3").map(o=>`<option>${esc(o)}</option>`).join("")}</select>
-      <input class="fsel nt-ex-sup" placeholder="Resuminho desta tarefa (opcional)" style="flex:1">
-      <button class="btn bts btsm" title="remover esta linha" onclick="ge('nt-ex-${i}').remove()">&#10005;</button></div>`);
+    `<div class="nt-ex" id="nt-ex-${i}" style="margin-top:6px;background:var(--ice);border-radius:9px;padding:8px 10px">
+      <div class="linha-acao"><select class="fsel nt-ex-op" style="flex:1"><option value="">Tipo da outra tarefa *</option>${OPERACOES.filter(o=>o!=="Prazo C3").map(o=>`<option>${esc(o)}</option>`).join("")}</select>
+        <button class="btn bts btsm" title="remover esta tarefa extra" onclick="ge('nt-ex-${i}').remove()">&#10005;</button></div>
+      <textarea class="fta nt-ex-sup" rows="3" style="margin-top:6px" placeholder="Orientação/resumo desta tarefa (opcional) — escreva à vontade, igual ao campo da tarefa principal"></textarea></div>`);
 }
 // envia os anexos escolhidos na criação (um a um; avisa o que subiu e o que não)
 async function enviarDocsCriacao(inputId,idCli,idTar){
