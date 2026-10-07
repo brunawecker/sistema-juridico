@@ -5957,6 +5957,16 @@ async function telaClientes(){
   (ops||[]).forEach(t=>{if(t.id_cliente&&ehMeuNome(t.criado_por))E._lanceiCli[t.id_cliente]=true;});
   try{(await DB.clientesQueLancei()).forEach(id=>E._lanceiCli[id]=true);}catch(e){}
   E.tarefas=(ops||[]).map(classificar);
+  // 👤 quem está com as tarefas de cada cliente (Bruna, 07/10/2026): dono da
+  // tarefa-mãe; delegada mostra "dono 🤝→ delegado"; impulsos (subs) e fixas fora
+  E._assPorCli={};
+  (ops||[]).forEach(t=>{
+    if(!t.id_cliente||!t.id_tarefa)return;
+    if(String(t.cliente||"").startsWith("📌")||String(t.status_tarefa||"")==="TAREFA FIXA")return;
+    if(/IMPULSO de/.test(t.supervisao||""))return;
+    const dono=String(t.assessor||"").trim();if(!dono)return;
+    const del=(String(t.status_tarefa||"").match(/DELEGADA[^→]*→\s*(.+)$/)||[])[1];
+    (E._assPorCli[t.id_cliente]=E._assPorCli[t.id_cliente]||new Set()).add(del?dono+" 🤝→ "+del.trim():dono);});
   const pill=(grupo,val,rot)=>`<button class="btn ${E["_f"+grupo]===val?"btp":"bts"} btsm" onclick="E._f${grupo}='${val}';E._clPag=0;desenhaClientes()">${rot}</button>`;
   ge("conteudo").innerHTML=`
     <div class="painel">
@@ -5965,6 +5975,7 @@ async function telaClientes(){
     <div class="linha-acao" style="margin-bottom:10px">
       <button class="btn btp btsm" id="tabcli" onclick="modoClientes('cli')">&#128101; Por Cliente</button>
       <button class="btn bts btsm" id="tabop" onclick="modoClientes('op')">&#128203; Por Tipo de Operação</button>
+      <button class="btn bts btsm" id="tabass" onclick="modoClientes('ass')">&#128100; Por Assessor</button>
       ${E.perfil.head_sim?`<button class="btn bts btsm" onclick="exportarClientesPlanilha()" title="Baixa a planilha de todos os clientes com situação, head, franqueado e nº de tarefas ativas — abre no Excel">&#11015;&#65039; Exportar planilha</button>`:""}</div>
     <div id="cl-oparea" style="display:none" class="painel">
       <div style="font-size:12px;color:var(--gray);margin-bottom:6px">Todas as tarefas <b>em andamento</b> de um tipo:</div>
@@ -5972,6 +5983,10 @@ async function telaClientes(){
         <option value="">Escolha o tipo de operação...</option>${OPERACOES.map(o=>`<option>${esc(o)}</option>`).join("")}</select>
       <select class="fsel" id="cl-opadv" onchange="buscaPorOperacao()">
         <option value="">&#9878; Todas as advogadas</option>${[...new Set((E.tarefas||[]).map(t=>String(t.advogada||"").trim()).filter(Boolean))].sort((x,y)=>x.localeCompare(y)).map(n=>`<option>${esc(n)}</option>`).join("")}</select></div></div>
+    <div id="cl-assarea" style="display:none" class="painel">
+      <div style="font-size:12px;color:var(--gray);margin-bottom:6px">Todas as tarefas <b>em andamento</b> de um assessor (delegadas aparecem com o dono):</div>
+      <select class="fsel" id="cl-asssel" style="width:100%" onchange="buscaPorAssessor()">
+        <option value="">Escolha o assessor...</option>${OPERACIONAIS.map(a=>`<option>${esc(a)}</option>`).join("")}</select></div>
     <div id="cl-lista"></div>`;
   desenhaPills();desenhaClientes();
 }
@@ -6000,9 +6015,22 @@ function desenhaPills(){
 function modoClientes(m){
   ge("tabcli").className="btn "+(m==="cli"?"btp":"bts")+" btsm";
   ge("tabop").className="btn "+(m==="op"?"btp":"bts")+" btsm";
+  const ta=ge("tabass");if(ta)ta.className="btn "+(m==="ass"?"btp":"bts")+" btsm";
   ge("cl-oparea").style.display=m==="op"?"block":"none";
+  const aa=ge("cl-assarea");if(aa)aa.style.display=m==="ass"?"block":"none";
   if(m==="cli")desenhaClientes();
-  else ge("cl-lista").innerHTML=`<div class="vazio">Escolha um tipo de operação acima.</div>`;
+  else ge("cl-lista").innerHTML=`<div class="vazio">${m==="op"?"Escolha um tipo de operação acima.":"Escolha um assessor acima."}</div>`;
+}
+// 👤 Por Assessor (Bruna, 07/10/2026): tudo que está na mesa de alguém,
+// mais urgente primeiro — delegadas contam no DONO da tarefa-mãe
+function buscaPorAssessor(){
+  const a=ge("cl-asssel").value;if(!a)return;
+  const f=semDuplicataImpulso((E.tarefas||[]).filter(t=>t.id_tarefa
+      &&loginDe(t.assessor||"")===a
+      &&!/IMPULSO de/.test(t.supervisao||"")))
+    .sort((x,y)=>(x._dias??9999)-(y._dias??9999));
+  ge("cl-lista").innerHTML=`<p style="font-size:12px;color:var(--gray);margin-bottom:8px">${nProcSum(f)} tarefa(s) com <b>${esc(a)}</b>${nProcSum(f)!==f.length?` em ${f.length} cards`:""} — delegadas aparecem aqui com o dono</p>`
+    +(f.length?f.map(t=>cardTarefa(t,true)).join(""):`<div class="vazio">Nada ativo com ${esc(a)}.</div>`);
 }
 function buscaPorOperacao(){
   const op=ge("cl-opsel").value;if(!op)return;
@@ -6050,7 +6078,9 @@ function desenhaClientes(){
       <div style="flex:1;min-width:0"><div style="font-weight:700;color:var(--navy)">${esc(c.nome)} ${tag(c)}
         ${E._temTarefa[c.id_cliente]?'<span class="tag tek">com tarefa</span>':'<span class="tag ti">sem tarefa ativa</span>'}${String(c.assessor_responsavel||"").trim()===""?'<span class="tag" style="background:var(--red);color:white">&#9888; sem responsável</span>':""}${(E._minhaQtd||{})[c.id_cliente]?`<span class="tag" style="background:var(--ice);color:var(--dani)">&#128100; ${E._minhaQtd[c.id_cliente]} sua(s)</span>`:""}${prazoSNbadge(c)}</div>
       <div style="font-size:11px;color:var(--gray)">${esc(c.cnpj_cpf||"")} · ${esc(c.head||"—")}${c.vertical?" · "+esc(c.vertical):""}${c.regime?" · "+esc(c.regime):""}</div></div>
-      ${c.head?`<span class="tag tda">${esc(c.head)}</span>`:""}</summary>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+        ${c.head?`<span class="tag tda">${esc(c.head)}</span>`:""}
+        ${(E._assPorCli&&E._assPorCli[c.id_cliente])?`<span class="tag" style="background:var(--gray-lt);color:var(--navy)" title="assessor(es) com as tarefas ativas deste cliente">&#128100; ${esc([...E._assPorCli[c.id_cliente]].sort().join(" · "))}</span>`:""}</div></summary>
       <div style="padding:4px 12px 12px" id="cb-${esc(c.id_cliente)}"></div></details>`).join("")+
     (fim<f.length?`<div style="text-align:center;margin:10px 0"><button class="btn btp" onclick="E._clPag++;desenhaClientes()">Carregar mais ${Math.min(PAG,f.length-fim)} (faltam ${f.length-fim})</button></div>`:"");
 }
