@@ -2609,7 +2609,9 @@ async function mesclarCom(origem){
 // prazo do Simples Nacional: dias até o prazo (negativo = vencido) e a cor
 function prazoSNDias(d){if(!d)return null;const h=new Date();h.setHours(0,0,0,0);
   const p=new Date(String(d).slice(0,10)+"T00:00:00");if(isNaN(p))return null;return Math.round((p-h)/86400000);}
-function prazoSNtagHTML(c){const d=c&&c.prazo_simples,dd=prazoSNDias(d);
+function prazoSNtagHTML(c){
+  if(c&&c.simples_na)return `<span class="tag tm" style="cursor:pointer" onclick="editarPrazoSimplesCard()" title="Marcado como fora do Simples Nacional — clique para rever">&#128683; Simples: não se aplica &#9998;</span>`;
+  const d=c&&c.prazo_simples,dd=prazoSNDias(d);
   const bg=dd===null?"#EEEEEE":dd<=7?"#FDECEA":dd<=30?"#FFF3DF":"#E6F4EA";
   const fg=dd===null?"#666":dd<=7?"#B23B2E":dd<=30?"#8A5B00":"#1E8449";
   const lbl=d?brData(String(d).slice(0,10))+(dd<0?` (${-dd}d vencido)`:dd===0?" (hoje)":` (${dd}d)`):"—";
@@ -2622,7 +2624,21 @@ function editarPrazoSimplesCard(){const c=E._cliCard;if(!c)return;
     <div style="font-size:12px;color:var(--gray);margin-bottom:6px">Prazo máximo para <b>regularização</b> para o enquadramento no <b>Simples Nacional</b> (deixe em branco se não se aplica).</div>
     <input type="date" class="fsel" id="m2-prazosn" style="width:100%" value="${c.prazo_simples?String(c.prazo_simples).slice(0,10):""}">
     <button class="btn btp btw" style="margin-top:10px" onclick="salvarPrazoSimplesCard(false)">&#128190; Salvar no cadastro</button>
-    ${c.prazo_simples?`<button class="btn bts btsm" style="margin-top:6px;width:100%" onclick="salvarPrazoSimplesCard(true)">Limpar prazo</button>`:""}`);}
+    ${c.prazo_simples?`<button class="btn bts btsm" style="margin-top:6px;width:100%" onclick="salvarPrazoSimplesCard(true)">Limpar prazo</button>`:""}
+    ${c.simples_na
+      ?`<div class="aviso info" style="margin-top:8px">&#128683; Este cliente está marcado como <b>NÃO é caso do Simples Nacional</b> — o sistema não pergunta mais o prazo.</div>
+        <button class="btn bts btsm" style="margin-top:6px;width:100%" onclick="marcarSimplesNA(false)">&#128260; Voltar a acompanhar o Simples deste cliente</button>`
+      :`<button class="btn bts btsm" style="margin-top:6px;width:100%;color:var(--red);border-color:var(--red)" onclick="marcarSimplesNA(true)">&#128683; NÃO é caso do Simples Nacional</button>`}`);}
+async function marcarSimplesNA(v){const c=E._cliCard;if(!c)return;
+  try{await DB.clienteUpdate(c.id_cliente,v?{simples_na:true,prazo_simples:null}:{simples_na:false});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  c.simples_na=v;if(v)c.prazo_simples=null;
+  // a tarefa aberta não precisa mais do gate
+  if(v&&E.atual&&E.atual.id_cliente===c.id_cliente){
+    try{await DB.tarefaUpdate(E.atual,{campos:{simples_respondido:true}});}catch(e){}
+    E.atual.simples_respondido=true;E._snGateOk=true;}
+  toast(v?"Anotado: não é caso do Simples Nacional — o sistema para de perguntar.":"Voltamos a acompanhar o Simples deste cliente.","ok");
+  fecharModal2();if(E.atual)carregarCliExtra(E.atual);}
 async function salvarPrazoSimplesCard(limpar){const c=E._cliCard;
   const v=limpar?null:(ge("m2-prazosn").value||null);
   try{await DB.clienteUpdate(c.id_cliente,{prazo_simples:v});}catch(e){toast("Erro: "+e.message,"erro");return;}
@@ -2669,7 +2685,7 @@ async function carregarNotasCard(id){
   if(!notas.length){box.innerHTML="";return;}
   box.innerHTML=`<div style="background:#FFFDF5;border:1px solid #E6D9AE;border-radius:9px;padding:7px 10px;font-size:12px">
     <b style="color:#7F6000">&#128221; Notas sobre o cliente (${notas.length})</b>`
-    +notas.slice(0,6).map(n=>`<div style="padding:3px 0;border-top:1px solid #EFE6C8">${esc(String(n.texto).replace(/^📝 Nota — /,""))} <span style="color:var(--gray);font-size:10px">${esc(String(n.data||"").slice(0,10))}</span></div>`).join("")
+    +notas.slice(0,6).map(n=>`<div style="padding:3px 0;border-top:1px solid #EFE6C8;white-space:pre-wrap;line-height:1.5">${esc(String(n.texto).replace(/^📝 Nota — /,""))} <span style="color:var(--gray);font-size:10px">${esc(String(n.data||"").slice(0,10))}</span></div>`).join("")
     +(notas.length>6?`<div style="font-size:10px;color:var(--gray)">+${notas.length-6} nota(s) mais antigas</div>`:"")+`</div>`;
 }
 // caixa da TAX no cartão da tarefa de Proposta Comercial (Bruna, 22/09/2026):
@@ -2954,7 +2970,7 @@ async function concluirTarefa(){
   // laudo: concluir exige confirmar/atualizar a FASE (Bruna, 17/09/2026)
   if(t._laudo&&!E._laudoGateOk){E._laudoDepois="concluir";abrirGateLaudo();return;}
   // Simples Nacional: cada tarefa de cliente informa se envolve enquadramento
-  if(t.id_cliente&&!t.simples_respondido&&!E._snGateOk){E._snDepois="concluir";abrirGateSimples();return;}
+  if(t.id_cliente&&!t.simples_respondido&&!E._snGateOk&&!(E._cliCard&&E._cliCard.simples_na)){E._snDepois="concluir";abrirGateSimples();return;}
   let prox;if(dm)prox=dm;else{const d=new Date();d.setDate(d.getDate()+(/SEMANAL/.test(check)?7:/MENSAL/.test(check)?30:1));
     while(d.getDay()===0||d.getDay()===6)d.setDate(d.getDate()+1);   // fim de semana não conta: rola p/ segunda
     prox=d.toISOString().slice(0,10);}
@@ -3345,7 +3361,7 @@ function abrirEncerrar(){const t=E.atual;
   // laudo: arquivar também exige a fase final (alimenta a taxa de deferimento)
   if(t._laudo&&!E._laudoGateOk){E._laudoDepois="encerrar";abrirGateLaudo();return;}
   // Simples Nacional: também pergunta ao encerrar
-  if(t.id_cliente&&!t.simples_respondido&&!E._snGateOk){E._snDepois="encerrar";abrirGateSimples();return;}
+  if(t.id_cliente&&!t.simples_respondido&&!E._snGateOk&&!(E._cliCard&&E._cliCard.simples_na)){E._snDepois="encerrar";abrirGateSimples();return;}
   modal2("&#128193; Encerrar: "+esc(t.cliente),"Esta ação move para Casos Encerrados",`
     <div class="bloco-t">Motivo *</div>
     <select class="fsel" id="en-mot" style="width:100%">${["CONCLUÍDO","RENÚNCIA","PREJUDICADO","CANCELADO","MONITORAMENTO"].map(m=>`<option>${m}</option>`).join("")}</select>
@@ -6156,7 +6172,7 @@ async function carregarNotasCli(id){
   let ns=[];try{ns=await DB.notasCli(id);}catch(e){return;}
   const notas=(ns||[]).filter(n=>String(n.texto||"").startsWith("📝 Nota"));
   if(!notas.length){box.innerHTML='<div style="font-size:11px;color:var(--gray)">Nenhuma nota ainda.</div>';return;}
-  box.innerHTML=notas.slice(0,15).map(n=>`<div style="font-size:12px;padding:4px 0;border-top:1px solid var(--gray-lt)">
+  box.innerHTML=notas.slice(0,15).map(n=>`<div style="font-size:12px;padding:4px 0;border-top:1px solid var(--gray-lt);white-space:pre-wrap;line-height:1.5">
     <span style="color:var(--gray);font-size:10px">${esc(String(n.data||"").slice(0,10))}</span> ${esc(String(n.texto||"").replace(/^📝 Nota — /,""))}</div>`).join("")
     +(notas.length>15?`<div style="font-size:10px;color:var(--gray)">+${notas.length-15} nota(s) mais antigas</div>`:"");
 }
