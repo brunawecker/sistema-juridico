@@ -8027,6 +8027,9 @@ function formNTCorpo(resp,interna){
     <div class="linha-acao"><input class="fsel" id="nt-proc" placeholder="Nº processual (opcional)" style="flex:1">
       <input class="fsel" id="nt-uf" placeholder="UF" style="width:64px"></div>
     <textarea class="fta" id="nt-sup" style="margin-top:6px" placeholder="Orientação inicial para o assessor (opcional)"></textarea>
+    <div id="nt-extras"></div>
+    <button type="button" class="btn bts btsm" style="margin-top:5px" onclick="ntAddExtra()">&#10133; Lançar OUTRA tarefa junto (mesmo cliente e assessor)</button>
+    <div style="font-size:10px;color:var(--gray);margin-top:2px">Ex.: o contrato fechou MS de impedimento + garantias — cada linha vira um card próprio, todos com o mesmo assessor e a mesma frequência, num preenchimento só.</div>
     ${ecacBlocoHTML((E._ntCli&&E._ntCli.e_cac)||"")}
     ${EXIGE_PEDIDO_HEAD.includes(E.perfil.nome_sistema)?`<label style="font-size:12px;display:flex;gap:7px;align-items:center;margin-top:6px;cursor:pointer"><input type="checkbox" id="nt-headflag" style="width:15px;height:15px"> &#127963;&#65039; Tarefa por <b>pedido direto de uma das heads</b> <span style="color:var(--gray)">(obrigatório se for para ${EXIGE_PEDIDO_HEAD.filter(x=>x!==E.perfil.nome_sistema).join(" ou ")})</span></label>`:""}
     <div class="linha-acao" style="margin-top:6px"><label style="font-size:11px">&#128206; Documentos iniciais (opcional — pode selecionar v&aacute;rios):</label>
@@ -8034,6 +8037,17 @@ function formNTCorpo(resp,interna){
     <button class="btn btp btw" style="margin-top:8px" onclick="umaVez(criarTarefaNova)">&#10003; Criar tarefa</button>`;
   if(!interna)ordenarReceptores("nt-ass");
   if(E.perfil.head_sim)atualizarImedNT();
+}
+// ➕ várias tarefas do mesmo cliente num preenchimento só (Bruna, 07/10/2026):
+// linhas extras de operação + resuminho; todas nascem com o mesmo assessor.
+// Prazo C3 fica de fora das extras (exige processo + prazo fatal próprios).
+function ntAddExtra(){
+  E._ntExtraN=(E._ntExtraN||0)+1;const i=E._ntExtraN;
+  ge("nt-extras").insertAdjacentHTML("beforeend",
+    `<div class="linha-acao nt-ex" id="nt-ex-${i}" style="margin-top:6px;background:var(--ice);border-radius:9px;padding:7px 9px">
+      <select class="fsel nt-ex-op" style="min-width:180px"><option value="">Tipo da outra tarefa *</option>${OPERACOES.filter(o=>o!=="Prazo C3").map(o=>`<option>${esc(o)}</option>`).join("")}</select>
+      <input class="fsel nt-ex-sup" placeholder="Resuminho desta tarefa (opcional)" style="flex:1">
+      <button class="btn bts btsm" title="remover esta linha" onclick="ge('nt-ex-${i}').remove()">&#10005;</button></div>`);
 }
 // envia os anexos escolhidos na criação (um a um; avisa o que subiu e o que não)
 async function enviarDocsCriacao(inputId,idCli,idTar){
@@ -8056,6 +8070,11 @@ async function criarTarefaNova(){
   const flagNT=precisaPedidoHead(E.perfil.nome_sistema,ge("nt-ass").value);
   if(flagNT&&!(ge("nt-headflag")||{}).checked){toast("Para direcionar a "+ge("nt-ass").value+", marque que a tarefa é por pedido direto de uma das heads.","erro");return;}
   const op=ge("nt-op").value;if(!op){toast("Selecione a operação.","erro");return;}
+  // linhas extras: resuminho sem tipo escolhido = esquecimento — trava antes de criar
+  const extras=[...document.querySelectorAll("#nt-extras .nt-ex")].map(w=>({
+    op:(w.querySelector(".nt-ex-op")||{}).value||"",sup:((w.querySelector(".nt-ex-sup")||{}).value||"").trim()}));
+  if(extras.some(x=>!x.op&&x.sup)){toast("Tem uma tarefa extra com resuminho mas SEM o tipo de operação — escolha o tipo ou remova a linha.","erro");return;}
+  const extrasOk=extras.filter(x=>x.op);
   // 🚫 anti-duplicata de TAREFA (Bruna, 21/09/2026): o cliente já tem tarefa
   // ATIVA da mesma operação? (a trava antiga só evitava CLIENTE repetido).
   if(!c.interna&&c.id_cliente){
@@ -8092,6 +8111,17 @@ async function criarTarefaNova(){
     revisao:revISO});
     toast("✓ Tarefa criada: "+r.id+(pfReal&&pfCad!==pfReal?` · prazo fatal cadastrado ${brData(pfCad)} (D-2 do real ${brData(pfReal)})`:""),"ok");}
   catch(e){toast("Erro: "+e.message,"erro");return;}
+  // extras: mesmos cliente/assessor/frequência; prazo fatal e nº processual só no card principal
+  const idsExtras=[],falhasEx=[];
+  for(const x of extrasOk){
+    try{const r2=await DB.criarTarefa({id_cliente:c.id_cliente,cliente:c.nome,cnpj:c.cnpj_cpf,head:c.head||"",
+      operacao:x.op,check:chk,assessor:ge("nt-ass").value,prazo_fatal:"",
+      numero_proc:"",estado:ge("nt-uf").value||"",
+      supervisao:(flagNT?MARCA_PEDIDO_HEAD+". ":"")+x.sup,revisao:revISO});
+      idsExtras.push(r2.id+" ("+x.op+")");}
+    catch(e){falhasEx.push(x.op+": "+e.message);}}
+  if(idsExtras.length)toast("✓ +"+idsExtras.length+" tarefa(s) junto, mesmo assessor: "+idsExtras.join(", "),"ok");
+  if(falhasEx.length)toast("Não criadas: "+falhasEx.join("; "),"erro");
   await enviarDocsCriacao("nt-doc",c.id_cliente||"INTERNO",r.id);
   fecharModal2();recarregar();
 }
