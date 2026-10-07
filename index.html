@@ -4100,6 +4100,7 @@ async function telaDiario(dia){
         <div class="bloco-t" style="color:var(--dani)">&#128233; Franqueados aguardando resposta no portal (${solF.length})</div>`+
         (prontasF.length?`<div style="font-size:12px;font-weight:700;color:var(--red);margin:2px 0 4px">&#9989; ${prontasF.length} com parecer PRONTO — só falta vocês enviarem:</div>`+
           prontasF.map(s=>`<div class="linha-item"><span style="font-size:12.5px"><b>${esc(s.franqueado)}</b> · ${esc(s.empresa)}
+            ${s.head?(s.head===eu?`<span class="tag tek">&#9878; adv: você</span>`:`<span class="tag tda">&#9878; adv: ${esc(s.head)}</span>`):""}
             ${urgReun(s)?`<span class="tag ti">&#128197; reunião ${brR(s)} — enviar JÁ</span>`:s.data_reuniao?`<span class="tag td2">reunião ${brR(s)}</span>`:""}</span>
             <span style="font-size:11px;color:var(--gray)">assessor ${esc(s.assessor||"—")}</span></div>`).join(""):"")+
         emProd.slice(0,6).map(s=>`<div class="linha-item"><span style="font-size:12.5px"><b>${esc(s.franqueado)}</b> pede <b>parecer</b> · ${esc(s.empresa)}</span>
