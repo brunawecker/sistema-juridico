@@ -298,7 +298,10 @@ function primeiroNome(n){return String(n||"").split(" ")[0];}
 const CAP={Ygor:450,Thiago:450,Madu:450,Malu:360,Laura:360,"João":360,Mateus:420,
   Danielly:480,Bruna:480,Eduarda:480};
 const capDe=n=>CAP[n]||420;
-const OPERACIONAIS=["Ygor","Thiago","Madu","Malu","Laura","João","Mateus","Raquel"];
+// preenchida no login a partir do CADASTRO da equipe (Bruna, 07/10/2026):
+// colaborador novo ATIVO entra sozinho nos acompanhamentos, sem editar código.
+// Esta lista é só o plano B se o cadastro não carregar.
+const OPERACIONAIS=["Ygor","Thiago","Madu","Malu","Laura","João","Raquel"];
 // Cores por assessor — mesmas do sistema antigo (renderPrevisaoMensal)
 const CORES_ASSESSOR={
   "Ygor":  {bg:"#E3F2F8",border:"#447F98",text:"#2C5F75",dot:"#447F98"},
@@ -1389,6 +1392,15 @@ async function vigiarVersao(){
 // corrige/delega). Head edita na tela "Configurações" — sem republicar o
 // site. Se o banco não responder, seguem os padrões embutidos no código.
 async function carregarConfig(){
+  // 👥 OPERACIONAIS dinâmica: todo ATIVO que não é head nem "Outro Time"
+  // (inclui o Nicholas). Quem vira INATIVO sai sozinho dos painéis.
+  try{const eq=await DB.equipe();
+    const din=(eq||[]).filter(m=>String(m.status||"").toUpperCase()==="ATIVO"
+        &&!/head|outro time/i.test(m.cargo||""))
+      .map(m=>String(m.nome_sistema||"").trim()).filter(Boolean)
+      .sort((a,b)=>a.localeCompare(b));
+    if(din.length){OPERACIONAIS.length=0;din.forEach(n=>OPERACIONAIS.push(n));}
+  }catch(e){/* segue com o plano B fixo acima */}
   try{const cf=await DB.config();
     (cf.cap||[]).forEach(r=>{CAP[r.nome]=r.minutos;});
     (cf.tmp||[]).forEach(r=>{TEMPOS_PADRAO[r.operacao==="_PADRAO"?"_default":r.operacao]=r.minutos;});
