@@ -947,7 +947,9 @@ const S = {
       responsavel:d.quem_pediu||d.executor||"",
       quem_pediu:d.quem_pediu||"",cliente:d.cliente||"",id_cliente:idc,
       prospeccao:d.novo_cliente?"SIM":"NÃO",produtos:d.produtos||"",verticais:d.verticais||"",
-      valor:String(d.valor||0),valor_num:d.valor||0,cond_pagamento:d.cond||"",origem:d.origem||"",
+      valor:String(d.valor||0),valor_num:d.valor||0,
+      valor_mes:d.valor_mes||null,data_pagto_prevista:d.data_pagto||null,
+      cond_pagamento:d.cond||"",origem:d.origem||"",
       forma_contato:d.contato||"",forma_parecer:d.parecer||"",link_sharepoint:d.sharepoint||"",
       tempo_min:String(d.tempo||0),tempo_min_num:d.tempo||0,status:d.status||"Proposta enviada",obs:d.obs||"",fechada:"NÃO",data_reuniao:d.data_reuniao||null}));
     if(idc)await histS("",idc,"PROPOSTA","Proposta "+pr+" lançada — R$ "+(d.valor||0)+" ("+(d.status||"Proposta enviada")+")");
@@ -2033,7 +2035,7 @@ async function telaMinhas(){
     E._propMap=E._propMap||{};ordFu.forEach(p=>{E._propMap[p.id_proposta]=p;});
     E._fuCard={min:reservaFu,naRua:propsFu.length,
       fila:ordFu.map(p=>({id:p.id_proposta,cliente:p.cliente,valor:p.valor,status:p.status,
-        ret:p.data_retorno,venc:!!(pBR(p.data_retorno)&&pBR(p.data_retorno)<=hj0)}))};
+        vmes:p.valor_mes||"",ret:p.data_retorno,venc:!!(pBR(p.data_retorno)&&pBR(p.data_retorno)<=hj0)}))};
   }
   // quem pode delegar (e não é head) vê a fila do seu grupo — pedido do Ygor:
   // "preciso saber quem recebe" (head já tem isso no Painel)
@@ -2218,7 +2220,7 @@ function abrirFollowupDia(){
     `${fmtMin(f.min)} reservados · ${f.naRua} proposta(s) na rua sob sua responsabilidade`,
     `<div style="font-size:12px;color:var(--gray);margin-bottom:6px">Mais paradas primeiro. Clique na proposta para registrar a rodada (próximo passo + data de retorno obrigatórios). Ligue o relógio: o tempo conta na sua produtividade e aparece para as heads em "Em Andamento Agora".</div>`
     +f.fila.map(x=>`<div class="linha-item" style="cursor:pointer" onclick='abrirNegociacao(${JSON.stringify(x.id)})'>
-      <span><b>${esc(x.cliente||"")}</b> · R$ ${esc(x.valor||"0")} · ${esc(x.status||"")}</span>
+      <span><b>${esc(x.cliente||"")}</b> · ${x.vmes?`<b style="color:var(--green)">R$ ${esc(x.vmes)} no mês</b> <span style="font-size:10px;color:var(--gray)">(contrato R$ ${esc(x.valor||"0")})</span>`:`R$ ${esc(x.valor||"0")} <span class="tag td2" title="quanto entra NESTE mês? informe na rodada de negociação">&#128181; parcela do mês?</span>`} · ${esc(x.status||"")}</span>
       <span style="font-size:11px;color:${x.venc?"var(--red)":"var(--gray)"}">${x.ret?"retorno "+esc(x.ret):"sem retorno combinado"}</span></div>`).join("")
     +`<button class="btn btp btw" style="margin-top:10px" onclick="fecharModal2();iniciarFollowup()">&#128222; Começar follow-up (liga o relógio)</button>`);
 }
@@ -4497,7 +4499,7 @@ async function telaCentral(){
         ${apVisiveis.map(n=>{const d2=fuAp[n];return `<br>&#8226; <b>${esc(n)}</b>: ${d2?`${fmtMin(d2.min)} em ${d2.dias.size} dia(s) — média ${fmtMin(Math.round(d2.min/Math.max(1,d2.dias.size)))}/dia ativo`:"ainda sem medições (16 dias)"}`;}).join("")}</div>
       ${minhasProps.length?minhasProps.slice(0,10).map(p2=>{const dp=diasParada(p2);
         return `<div class="linha-item" style="cursor:pointer" onclick='abrirNegociacao(${JSON.stringify(p2.id_proposta)})'>
-        <span><b>${esc(p2.cliente)}</b> · R$ ${esc(p2.valor||"0")} · ${esc(p2.status||"")}</span>
+        <span><b>${esc(p2.cliente)}</b> · ${p2.valor_mes?`<b style="color:var(--green)">R$ ${esc(p2.valor_mes)} no mês</b> <span style="font-size:10px;color:var(--gray)">(contrato R$ ${esc(p2.valor||"0")})</span>`:`R$ ${esc(p2.valor||"0")} <span class="tag td2" title="quanto entra NESTE mês? informe na Negociação">&#128181; parcela?</span>`} · ${esc(p2.status||"")}</span>
         <span style="font-size:11px;color:${dp>=7?"var(--red)":"var(--gray)"}">${dp!==null?dp+"d sem movimento":""}</span></div>`;}).join("")
         :'<div class="vazio">Nenhuma proposta sua na rua.</div>'}</div>
     ${quadroLembretes(lembs||[])}
@@ -6434,7 +6436,7 @@ async function verTarefasCliente(id){
     h+=`<div class="bloco-t" style="margin-top:10px;color:#7F5200">&#128221; ${propsCli.length} proposta(s) comercial(is)</div>`+
       propsCli.map(p=>{const cor={Aceita:"var(--green)",Recusada:"var(--red)"}[p.status]||"var(--amber)";
         const det=p.detalhes_visiveis!==false;
-        return `<div class="linha-item"><span>${esc(p.produtos||"—")} · quem toca: <b>${esc(p.executor||p.quem_pediu||"—")}</b>
+        return `<div class="linha-item"><span>${esc(p.produtos||"—")} · conduz a venda: <b>${esc(p.quem_pediu||p.executor||"—")}</b>${p.executor&&p.quem_pediu&&p.executor!==p.quem_pediu?` <span style="font-size:10px;color:var(--gray)">(execução: ${esc(p.executor)})</span>`:""}
           ${det&&p.valor?` · R$ ${esc(p.valor)}`:""}${det&&p.data_proposta?` · ${esc(p.data_proposta)}`:""}
           ${det?"":' <span style="font-size:10px;color:var(--gray)">&#128274; detalhes restritos — fale com quem toca antes de propor algo</span>'}</span>
           <span><span class="tag" style="background:${cor};color:white">${esc(p.status||"")}</span>${p.fechada==="SIM"?' <span class="tag tek">&#10003; Fechada</span>':""}</span></div>`;}).join("");}
@@ -6678,7 +6680,12 @@ function desenhaProps(){
           ${cnpj?`<div style="font-size:11px;color:var(--gray);font-family:'DM Mono'">${esc(cnpj)}</div>`:""}
           <div style="font-size:11px;color:var(--gray)">${esc(p.produtos||"")}</div>
           <div style="font-size:11px;color:var(--gray)">&#128100; Executou: <b>${esc(p.executor||"")}</b> · pediu: ${esc(p.quem_pediu||"")}</div></div>
-        <div style="text-align:right"><div style="font-weight:700;color:var(--navy)">R$ ${val}</div>
+        <div style="text-align:right">
+          ${(+p.valor_mes||0)>0
+            ?`<div style="font-weight:700;color:var(--green)" title="o que pode ENTRAR NESTE MÊS (parcela informada na Negociação)${p.data_pagto_prevista?" — pagamento em "+brData(p.data_pagto_prevista):""}">R$ ${(+p.valor_mes).toLocaleString("pt-BR",{minimumFractionDigits:2})} <span style="font-size:10px">no mês</span></div>
+              <div style="font-size:10.5px;color:var(--gray)">contrato: R$ ${val}</div>`
+            :`<div style="font-weight:700;color:var(--navy)">R$ ${val}</div>
+              <div style="font-size:9.5px;color:var(--gray)" title="Informe na Negociação quanto entra neste mês (parcela). Parcelado = só a parcela; cartão = integral.">&#128181; parcela do mês: informar na Negociação</div>`}
           <span class="tag" style="background:${cor};color:white">${esc(p.status||"")}</span> ${naRua}</div></div>
       <div style="font-size:11px;color:var(--gray);margin-top:7px;border-top:1px solid var(--gray-lt);padding-top:6px">
         &#128197; ${esc(p.data_proposta||"")} · ${esc(p.origem||"")} · ${esc(p.forma_contato||"")} · ${esc(p.cond_pagamento||"")}
@@ -8411,6 +8418,11 @@ async function abrirProposta(){
       ${temX?`em <input class="fsel" id="pgx-${id}" type="number" min="1" value="1" style="width:56px" oninput="somaProposta()">x <span id="pgh-${id}" style="font-size:10px;color:var(--dani)"></span>`:""}</span></div>`).join("")}</div>
     <div style="background:var(--green-lt);border-radius:9px;padding:8px 12px;display:flex;justify-content:space-between;margin-top:6px">
       <b style="font-size:12px;color:var(--green)">&#128176; Total da proposta</b><b id="pr-total" style="color:var(--green)">R$ 0,00</b></div>
+    <div class="linha-acao" style="margin-top:6px;background:#EEF3F9;border-radius:8px;padding:6px 8px">
+      <label style="font-size:11px" title="Quanto deste negócio deve ser PAGO no mês corrente. Parcelado: só a parcela do mês. Cartão de crédito: valor integral (a empresa antecipa).">&#128181; Previsto p/ ESTE mês (parcela): R$</label>
+      <input class="fsel" id="pr-vmes" placeholder="0,00" style="width:100px">
+      <label style="font-size:11px">pagamento em:</label><input type="date" class="fsel" id="pr-dpag"></div>
+    <div style="font-size:10px;color:var(--gray)">É ESTE valor (não o total do contrato) que conta no "quanto entra no mês" e na cobertura da meta. Dá para ajustar depois na Negociação.</div>
     <div class="bloco-t" style="margin-top:8px">&#128179; Condição do cartão <span style="font-weight:400;font-size:10px">(opcional — pode vir da Calculadora; edite à vontade)</span></div>
     <textarea class="fta" id="pr-cardcond" style="min-height:52px" placeholder="Ex.: Cartão (empresa arca a taxa): 3x de R$ 3.333,33 · 6x de R$ 1.666,67 · Recorrente 12x de R$ 833,33">${E._calcCond?esc(E._calcCond.cond):""}</textarea>
     <div class="bloco-t" style="margin-top:8px">Origem e formato</div>
@@ -8510,9 +8522,10 @@ async function lancarProposta(){
     " (executou "+(dups[0].executor||"?")+", status "+(dups[0].status||"?")+").\n\nLançar mesmo assim?"))return;
   const headCart=novo?ge("pr-nhead").value:"";
   if(novo&&!headCart){toast("Cliente novo precisa de uma head de carteira — escolha Bruna, Danielly ou Eduarda.","erro");return;}
+  const vmesNT=numBR((ge("pr-vmes")||{}).value||""),dpagNT=(ge("pr-dpag")||{}).value||"";
   try{const r=await DB.criarProposta({cliente,id_cliente:idc,cnpj,novo_cliente:novo,head_carteira:headCart,
     executor:exec,quem_pediu:pediu,responsavel:pediu||exec,produtos:prods.join(", "),verticais:verts.join(", "),
-    valor:tot,cond,origem:orig,contato:cont,parecer:par,sharepoint:sp,tempo,
+    valor:tot,valor_mes:vmesNT||null,data_pagto:dpagNT||null,cond,origem:orig,contato:cont,parecer:par,sharepoint:sp,tempo,
     data:ge("pr-data").value||hojeISO(),obs:ge("pr-obs").value||"",status:"Proposta enviada",
     data_reuniao:ge("pr-reuniao").value||null});
     toast("✓ Proposta lançada: "+r.id,"ok");E._calcCond=null;}
