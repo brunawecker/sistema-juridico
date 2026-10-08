@@ -6433,13 +6433,28 @@ async function verTarefasCliente(id){
       <span><span class="tag tm">${esc(c.motivo||"")}</span>
       ${E.perfil.head_sim?` <button class="btn bts btsm" title="Reabrir" onclick='abrirReabrir(${JSON.stringify(c.id_encerrado)},${c.linha})'>&#128260;</button>`:""}</span></div>`).join("");}
   if(propsCli.length){
-    h+=`<div class="bloco-t" style="margin-top:10px;color:#7F5200">&#128221; ${propsCli.length} proposta(s) comercial(is)</div>`+
-      propsCli.map(p=>{const cor={Aceita:"var(--green)",Recusada:"var(--red)"}[p.status]||"var(--amber)";
+    // três estados BEM distintos (Bruna, 08/10/2026): 🤝 em tratativa agora ·
+    // 🏆 fechada (virou contrato) · ✖ encerrada sem fechar (recusada/perdida)
+    const pEstado=p=>String(p.fechada||"")==="SIM"?"FECH":(p.status==="Recusada"?"ENC":"TRAT");
+    const pOrd={TRAT:0,FECH:1,ENC:2};
+    const ps2=propsCli.slice().sort((a,b)=>pOrd[pEstado(a)]-pOrd[pEstado(b)]);
+    const nT=ps2.filter(p=>pEstado(p)==="TRAT").length,
+          nF=ps2.filter(p=>pEstado(p)==="FECH").length,
+          nE=ps2.filter(p=>pEstado(p)==="ENC").length;
+    const resumoP=[nT?`<b style="color:#B45309">${nT} em tratativa</b>`:"",
+                   nF?`<b style="color:var(--green)">${nF} fechada(s)</b>`:"",
+                   nE?`<b style="color:var(--gray)">${nE} encerrada(s)</b>`:""].filter(Boolean).join(" · ");
+    h+=`<div class="bloco-t" style="margin-top:10px;color:#7F5200">&#128221; Propostas comerciais — ${resumoP}</div>`+
+      ps2.map(p=>{const e2=pEstado(p);
         const det=p.detalhes_visiveis!==false;
-        return `<div class="linha-item"><span>${esc(p.produtos||"—")} · conduz a venda: <b>${esc(p.quem_pediu||p.executor||"—")}</b>${p.executor&&p.quem_pediu&&p.executor!==p.quem_pediu?` <span style="font-size:10px;color:var(--gray)">(execução: ${esc(p.executor)})</span>`:""}
+        const selo=e2==="FECH"?'<span class="tag" style="background:var(--green);color:white">&#127942; FECHADA — virou contrato</span>'
+          :e2==="ENC"?'<span class="tag tm">&#10007; encerrada sem fechar</span>'
+          :`<span class="tag" style="background:var(--amber);color:white">&#129309; EM TRATATIVA</span> <span class="tag td2">${esc(p.status||"")}</span>`;
+        return `<div class="linha-item"${e2==="ENC"?' style="opacity:.6"':""}><span>${esc(p.produtos||"—")} · conduz a venda: <b>${esc(p.quem_pediu||p.executor||"—")}</b>${p.executor&&p.quem_pediu&&p.executor!==p.quem_pediu?` <span style="font-size:10px;color:var(--gray)">(execução: ${esc(p.executor)})</span>`:""}
           ${det&&p.valor?` · R$ ${esc(p.valor)}`:""}${det&&p.data_proposta?` · ${esc(p.data_proposta)}`:""}
+          ${e2==="ENC"&&det&&p.motivo_perda?`<br><i style="font-size:10.5px;color:var(--gray)">motivo: ${esc(p.motivo_perda)}</i>`:""}
           ${det?"":' <span style="font-size:10px;color:var(--gray)">&#128274; detalhes restritos — fale com quem toca antes de propor algo</span>'}</span>
-          <span><span class="tag" style="background:${cor};color:white">${esc(p.status||"")}</span>${p.fechada==="SIM"?' <span class="tag tek">&#10003; Fechada</span>':""}</span></div>`;}).join("");}
+          <span>${selo}</span></div>`;}).join("");}
   box.innerHTML=h;
 }
 function toggleEd(id){
