@@ -8027,7 +8027,12 @@ const OP_EXIGE_ECAC=op=>/Levantamento|Proposta Comercial/.test(String(op||""));
 function ecacBlocoHTML(pref,sempre){
   pref=String(pref||"").trim();
   const lib=pref&&!/^N[ÃA]O LIBERADO$/i.test(pref);
-  return `<div id="ec-w" data-sempre="${sempre?1:0}" style="display:${sempre?"block":"none"};margin-top:6px;background:var(--amber-lt);border-radius:9px;padding:8px 10px">
+  // ficha já tem a informação? mostra confirmação discreta em vez do bloco
+  // amarelo de "escolher" (Bruna, 08/10/2026 — parecia pedir de novo à toa)
+  return `<div id="ec-w" data-sempre="${sempre?1:0}" style="display:${sempre?"block":"none"};margin-top:6px;background:${pref?"var(--green-lt)":"var(--amber-lt)"};border-radius:9px;padding:8px 10px">
+    ${pref?`<div id="ec-ja" style="font-size:12px"><b style="color:var(--green)">&#128273; e-CAC já na ficha:</b> ${lib?esc(pref):"ainda NÃO liberado"} &#10003;
+      <a style="cursor:pointer;color:var(--dani);text-decoration:underline;font-size:11px" onclick="ge('ec-ja').style.display='none';ge('ec-edit').style.display='block'">mudou? alterar</a></div>`:""}
+    <div id="ec-edit" style="display:${pref?"none":"block"}">
     <div class="bloco-t" style="color:#7F6000">&#128273; Situação do e-CAC deste cliente${sempre?"":" *"}</div>
     <div class="linha-acao">
       <select class="fsel" id="ec-st" onchange="ge('ec-qual').style.display=this.value==='LIB'?'block':'none'">
@@ -8036,7 +8041,7 @@ function ecacBlocoHTML(pref,sempre){
         <option value="NAO"${pref&&!lib?" selected":""}>&#128683; Ainda NÃO liberado</option></select>
       <input class="fsel" id="ec-qual" placeholder="Em qual? Ex: 07-95, GOV" value="${esc(lib?pref:"")}" style="flex:1;display:${lib?"block":"none"}">
     </div>
-    <div style="font-size:10px;color:var(--gray);margin-top:3px">${sempre?"Opcional — mas obrigatório se a tarefa for levantamento/parecer. ":""}Grava na ficha do cliente e aparece em todos os cards dele.</div></div>`;
+    <div style="font-size:10px;color:var(--gray);margin-top:3px">${sempre?"Opcional — mas obrigatório se a tarefa for levantamento/parecer. ":""}Grava na ficha do cliente e aparece em todos os cards dele.</div></div></div>`;
 }
 function ecacToggle(opSelId){const w=ge("ec-w");if(!w)return;
   if(E._ntCli&&E._ntCli.interna){w.style.display="none";return;}
