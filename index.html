@@ -6637,14 +6637,16 @@ function desenhaProps(){
     ge("pp-s-ace").textContent=base.filter(p=>p.status==="Aceita").length;
     if(ge("pp-s-per"))ge("pp-s-per").textContent=base.filter(p=>p.status==="Recusada").length;
     // valor e projeção olham só o que está NA RUA (aceitas/recusadas fora)
-    const naRuaL=base.filter(p=>!["Aceita","Recusada"].includes(p.status));
+    // fechada NUNCA conta como em andamento, qualquer que seja o status
+    // (caso "Aprovada — aguardando pagamento" já fechada — Bruna, 08/10/2026)
+    const naRuaL=base.filter(p=>!["Aceita","Recusada"].includes(p.status)&&String(p.fechada||"")!=="SIM");
     const somaRua=naRuaL.reduce((s,p)=>s+(parseFloat(p.valor_num)||0),0);
     const proj=naRuaL.reduce((s,p)=>s+(parseFloat(p.valor_num)||0)*(PESOS_ETAPA[p.status]??.2),0);
     ge("pp-s-val").textContent="R$ "+somaRua.toLocaleString("pt-BR",{minimumFractionDigits:2})+(E.perfil.head_sim?"":" (suas)");
     if(ge("pp-s-proj"))ge("pp-s-proj").textContent="R$ "+proj.toLocaleString("pt-BR",{maximumFractionDigits:0});}
   const sit=ge("pp-sit")?ge("pp-sit").value:"ativas";
-  const casaSit=p=>sit==="todas"?true:sit==="aceitas"?p.status==="Aceita"
-    :sit==="recusadas"?p.status==="Recusada":!["Aceita","Recusada"].includes(p.status);
+  const casaSit=p=>sit==="todas"?true:sit==="aceitas"?(p.status==="Aceita"||String(p.fechada||"")==="SIM")
+    :sit==="recusadas"?p.status==="Recusada":(!["Aceita","Recusada"].includes(p.status)&&String(p.fechada||"")!=="SIM");
   let f=base.filter(p=>(!q||semAc(p.cliente).includes(semAc(q)))
     &&(!st||p.status===st)&&(!or||p.origem===or)&&casaSit(p));
   // recusadas ficam baixadas: vão para o fim da lista (dados preservados)
@@ -8456,6 +8458,7 @@ function selPrCli(id){E._prCli=E._cli[id];ge("pr-res").innerHTML="";ge("pr-q").v
 function propostasAbertasDe(nome,idc){
   const alvo=String(nome||"").trim().toUpperCase();
   return (E._props||[]).filter(p=>!["Aceita","Recusada"].includes(p.status)
+    &&String(p.fechada||"")!=="SIM"
     &&((idc&&p.id_cliente&&p.id_cliente===idc)
        ||(alvo&&String(p.cliente||"").trim().toUpperCase()===alvo)));}
 function avisaPropDup(){
