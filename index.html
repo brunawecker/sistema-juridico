@@ -2660,6 +2660,9 @@ async function carregarCliExtra(t){
       <span class="tag" style="background:#E8EAF6;color:#3949AB">&#128193; ${c.pasta_sharepoint
         ?`<a href="${esc(c.pasta_sharepoint)}" target="_blank" style="color:#3949AB;text-decoration:underline">Pasta do cliente</a>`
         :"Pasta: —"} <span style="cursor:pointer" onclick="editarPastaCard()">&#9998;</span></span>
+      <span class="tag" style="background:#FDEFE7;color:#B2502B">&#129522; ${c.link_hubspot
+        ?`<a href="${esc(c.link_hubspot)}" target="_blank" style="color:#B2502B;text-decoration:underline">HubSpot</a>`
+        :"HubSpot: —"} <span style="cursor:pointer" onclick="editarHubspotCard()">&#9998;</span></span>
       ${prazoSNtagHTML(c)}
       <span id="bil-card"></span>
       ${/Proposta Comercial/i.test(t.operacao||"")?taxCardHTML(c):""}`;
@@ -2725,6 +2728,18 @@ async function salvarEcacCard(){const c=E._cliCard;
   try{await DB.clienteUpdate(c.id_cliente,{e_cac:ge("m2-ecac").value});}catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("e-CAC atualizado!","ok");fecharModal2();carregarCliExtra(E.atual);}
 // pasta do SharePoint do cliente — sugestão da Danielly, 14/09/2026
+// 🧲 link do HubSpot do cliente no card (sugestão do Thiago, 13/10/2026)
+function editarHubspotCard(){const c=E._cliCard;if(!c)return;
+  modal2("&#129522; Link do HubSpot",esc(c.nome),`
+    <div style="font-size:12px;color:var(--gray);margin-bottom:6px">Cole o endereço do cliente/negócio no HubSpot — fica salvo na ficha e vira atalho em todos os cards dele.</div>
+    <input class="fi" id="m2-hub" placeholder="https://app.hubspot.com/..." value="${esc(c.link_hubspot||"")}">
+    <button class="btn btp btw" style="margin-top:10px" onclick="salvarHubspotCard(false)">&#128190; Salvar</button>
+    ${c.link_hubspot?`<button class="btn bts btsm" style="margin-top:6px;width:100%" onclick="salvarHubspotCard(true)">Remover link</button>`:""}`);}
+async function salvarHubspotCard(limpar){const c=E._cliCard;
+  const v=limpar?null:((ge("m2-hub").value||"").trim()||null);
+  if(v&&!/^https?:\/\//i.test(v)){toast("Cole o endereço completo (começa com https://).","erro");return;}
+  try{await DB.clienteUpdate(c.id_cliente,{link_hubspot:v});}catch(e){toast("Erro: "+e.message,"erro");return;}
+  c.link_hubspot=v;toast(v?"Link do HubSpot salvo!":"Link removido.","ok");fecharModal2();carregarCliExtra(E.atual);}
 function editarPastaCard(){const c=E._cliCard;if(!c)return;
   modal2("&#128193; Pasta do cliente (SharePoint)",esc(c.nome),`
     <input class="fi" id="m2-pasta" placeholder="https://...sharepoint.com/..." value="${esc(c.pasta_sharepoint||"")}">
