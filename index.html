@@ -3094,6 +3094,9 @@ function abrirCorrigirDados(){
   const t=E.atual;if(!t)return;
   modal2("&#9998; Corrigir dados do cartão",esc(t.cliente||""),`
     <div style="font-size:11.5px;color:var(--gray);margin-bottom:7px">Para os demais ajustes, use os caminhos próprios: <b>tipo de operação</b> (lápis no topo), <b>nº do processo</b> e <b>e-CAC</b> (no próprio card), <b>frequência</b> e <b>responsável</b> (heads, pelos botões do card).</div>
+    <label style="font-size:11px">Nome da empresa (título do card)</label>
+    <input class="fi" id="cd-nome" value="${esc(t.cliente||"")}">
+    <div style="font-size:10px;color:var(--gray);margin:-4px 0 6px">corrige só ESTE card — o cadastro oficial do cliente muda na ficha (Gestão de Clientes &rarr; Editar cadastro)</div>
     <label style="font-size:11px">CNPJ/CPF</label>
     <input class="fi" id="cd-cnpj" style="font-family:'DM Mono'" value="${esc(t.cnpj_cpf||"")}">
     <div style="display:grid;grid-template-columns:1fr 1fr 90px;gap:0 8px">
@@ -3105,9 +3108,11 @@ function abrirCorrigirDados(){
 }
 async function salvarCorrigirDados(){
   const t=E.atual;if(!t)return;
-  const novo={cnpj_cpf:(ge("cd-cnpj").value||"").trim(),vara:(ge("cd-vara").value||"").trim(),
-    tribunal:(ge("cd-trib").value||"").trim(),estado:(ge("cd-uf").value||"").trim().toUpperCase()};
-  const rot={cnpj_cpf:"CNPJ/CPF",vara:"Vara",tribunal:"Tribunal",estado:"UF"};
+  const novo={cliente:(ge("cd-nome").value||"").trim(),cnpj_cpf:(ge("cd-cnpj").value||"").trim(),
+    vara:(ge("cd-vara").value||"").trim(),tribunal:(ge("cd-trib").value||"").trim(),
+    estado:(ge("cd-uf").value||"").trim().toUpperCase()};
+  if(!novo.cliente){toast("O nome da empresa não pode ficar vazio.","erro");return;}
+  const rot={cliente:"Nome da empresa",cnpj_cpf:"CNPJ/CPF",vara:"Vara",tribunal:"Tribunal",estado:"UF"};
   const mud=Object.keys(novo).filter(k=>novo[k]!==String(t[k]||"").trim());
   if(!mud.length){toast("Nada mudou.","erro");return;}
   const campos={};mud.forEach(k=>campos[k]=novo[k]||null);
@@ -3116,6 +3121,7 @@ async function salvarCorrigirDados(){
     hist_texto:"✎ Dados do cartão corrigidos — "+relato});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   mud.forEach(k=>t[k]=novo[k]);
+  if(mud.includes("cliente"))ge("m-titulo").textContent=t.cliente||"";
   toast("Corrigido — registrado no histórico do card.","ok");
   fecharModal2();desenharCard(t,E._hist||[]);
 }
