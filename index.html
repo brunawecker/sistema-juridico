@@ -3188,6 +3188,11 @@ function htmlPacote(extras,prefixo){
 function abrirDelegar(){const t=E.atual;
   // tarefa com PRAZO FATAL não sai da mão do responsável (Bruna, 19/09/2026)
   if(t.prazo_fatal_dt){toast("Tarefa com PRAZO FATAL não pode ser delegada — quem cumpre é o assessor responsável. Está com a pessoa errada? Use 🔁 Pedir redirecionamento.","erro");return;}
+  // UM impulso por card-mãe (Bruna, 13/10/2026): já existe? vira orientação
+  if(/IMPULSO de/.test(t.supervisao||"")){abrirOrientarImpulso(t.id_tarefa,t.cliente);return;}
+  const subAtivo=(E.tarefas||[]).find(x=>x.id_tarefa&&/IMPULSO de/.test(x.supervisao||"")
+    &&String(x.supervisao||"").includes("Origem: "+t.id_tarefa+" "));
+  if(subAtivo){abrirOrientarImpulso(subAtivo.id_tarefa,t.cliente,subAtivo.assessor);return;}
   const ops=alvosDelegacao(E.perfil.nome_sistema).map(a=>`<option>${a}</option>`).join("");
   E._pacoteExtras=pacoteDoCliente(t);
   modal2("&#129309; Delegar impulso",esc(t.cliente)+" — pedir uma ação a outro assessor",`
@@ -6423,6 +6428,22 @@ async function copiarMsgPrePag(){
   const v=(ge("ppg-txt")||{}).value||"";
   try{await navigator.clipboard.writeText(v);toast("Mensagem copiada — cole no grupo de atendimento do cliente.","ok");fecharModal2();}
   catch(e){toast("Não consegui copiar sozinho — selecione o texto e use Ctrl+C.","erro");}
+}
+// 📣 nova orientação num impulso em andamento — no lugar de empilhar outro
+// (Bruna, 13/10/2026, caso Euziene: dois caminhos criaram cards duplicados)
+function abrirOrientarImpulso(subId,cliente,quem){
+  modal2("&#128226; Nova orientação no impulso",esc(cliente||"")+(quem?" — está com "+esc(quem):""),`
+    <div class="aviso info" style="margin-bottom:8px">Esta tarefa já tem um <b>impulso ativo</b>${quem?" com <b>"+esc(quem)+"</b>":""} — e a regra é <b>um impulso por card</b>. Escreva a nova orientação: ela entra no card do impulso e ele volta para o dia de quem está com ele.</div>
+    <textarea class="fta" id="oi-txt" rows="4" placeholder="Ex.: além do agravo, verificar também o pedido administrativo de migração…"></textarea>
+    <button class="btn btp btw" style="margin-top:8px" onclick='salvarOrientarImpulso(${JSON.stringify(subId)})'>&#128226; Enviar orientação</button>`);
+}
+async function salvarOrientarImpulso(subId){
+  const txt=(ge("oi-txt").value||"").trim();
+  if(!txt){toast("Escreva a orientação.","erro");return;}
+  try{await rpcS("impulso_orientar",{p_sub_id:subId,p_texto:txt});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Orientação enviada — o impulso volta para o dia de quem está com ele.","ok");
+  fecharModal2();
 }
 // 💸→📋 tarefas do inadimplente direto na central do dia (Bruna, 29/09/2026):
 // abre num modal, sem precisar ir até a Gestão de Clientes
