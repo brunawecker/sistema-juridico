@@ -2434,7 +2434,8 @@ function desenharCard(t,hist){
     <div>Responsável:<br><b>${esc(t.assessor||"—")}</b></div>
     <div>Criada em:<br><b>${(()=>{if(t.data_inclusao_dt)return brData(String(t.data_inclusao_dt).slice(0,10));
       const v=String(t.data_inclusao||"").trim().split(" ")[0];
-      return v.includes("-")?brData(v):esc(v)||"—";})()}</b></div></div>
+      return v.includes("-")?brData(v):esc(v)||"—";})()}</b></div>
+    ${t._consulta?"":`<div style="grid-column:1/-1;margin-top:2px"><button class="btn bts btsm" style="padding:2px 9px;font-size:10.5px" onclick="abrirCorrigirDados()" title="algo foi inserido errado na criação? corrija aqui (fica registrado no histórico)">&#9998; Corrigir dados do cartão</button></div>`}</div>
     ${t._emCorrecao?`<div style="background:#F3EEFB;border:1.5px solid #6B4FBF;border-radius:10px;padding:8px 12px;margin-top:8px;font-size:12.5px">
       &#9999;&#65039; <b style="color:#6B4FBF">Em correção com ${esc(t.correcao_head)}</b>
       ${t.correcao_data_dt?` · enviada ${brData(String(t.correcao_data_dt).slice(0,10))}`:""}${t.correcao_retorno_dt?` · devolver até <b>${brData(t.correcao_retorno_dt)}</b>`:""}
@@ -3086,6 +3087,37 @@ async function gatePropJustificar(){
   catch(e){toast("Erro: "+e.message,"erro");return;}
   E._propGateOk=true;fecharModal2();
   (E._gateDepois==="encerrar"?abrirEncerrar:concluirTarefa)();
+}
+// ✎ Corrigir dados inseridos errado na criação (sugestão da Danielly, 13/10/2026)
+// — CNPJ/CPF, vara, tribunal, UF. Toda mudança fica registrada no histórico.
+function abrirCorrigirDados(){
+  const t=E.atual;if(!t)return;
+  modal2("&#9998; Corrigir dados do cartão",esc(t.cliente||""),`
+    <div style="font-size:11.5px;color:var(--gray);margin-bottom:7px">Para os demais ajustes, use os caminhos próprios: <b>tipo de operação</b> (lápis no topo), <b>nº do processo</b> e <b>e-CAC</b> (no próprio card), <b>frequência</b> e <b>responsável</b> (heads, pelos botões do card).</div>
+    <label style="font-size:11px">CNPJ/CPF</label>
+    <input class="fi" id="cd-cnpj" style="font-family:'DM Mono'" value="${esc(t.cnpj_cpf||"")}">
+    <div style="display:grid;grid-template-columns:1fr 1fr 90px;gap:0 8px">
+      <div><label style="font-size:11px">Vara</label><input class="fi" id="cd-vara" value="${esc(t.vara||"")}"></div>
+      <div><label style="font-size:11px">Tribunal</label><input class="fi" id="cd-trib" value="${esc(t.tribunal||"")}"></div>
+      <div><label style="font-size:11px">UF</label><input class="fi" id="cd-uf" maxlength="2" value="${esc(t.estado||"")}"></div></div>
+    <button class="btn btp btw" style="margin-top:6px" onclick="salvarCorrigirDados()">&#128190; Salvar correções</button>
+    <div style="font-size:10px;color:var(--gray);margin-top:4px">&#9888; O cartão está no cliente errado? Isso não se corrige aqui — avise a Bruna/head para religar a tarefa ao cliente certo.</div>`);
+}
+async function salvarCorrigirDados(){
+  const t=E.atual;if(!t)return;
+  const novo={cnpj_cpf:(ge("cd-cnpj").value||"").trim(),vara:(ge("cd-vara").value||"").trim(),
+    tribunal:(ge("cd-trib").value||"").trim(),estado:(ge("cd-uf").value||"").trim().toUpperCase()};
+  const rot={cnpj_cpf:"CNPJ/CPF",vara:"Vara",tribunal:"Tribunal",estado:"UF"};
+  const mud=Object.keys(novo).filter(k=>novo[k]!==String(t[k]||"").trim());
+  if(!mud.length){toast("Nada mudou.","erro");return;}
+  const campos={};mud.forEach(k=>campos[k]=novo[k]||null);
+  const relato=mud.map(k=>`${rot[k]}: "${String(t[k]||"—")}" → "${novo[k]||"—"}"`).join(" · ");
+  try{await DB.tarefaUpdate(t,{campos,hist_tipo:"HISTORICO",
+    hist_texto:"✎ Dados do cartão corrigidos — "+relato});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  mud.forEach(k=>t[k]=novo[k]);
+  toast("Corrigido — registrado no histórico do card.","ok");
+  fecharModal2();desenharCard(t,E._hist||[]);
 }
 async function colocarAguardando(){
   const t=E.atual,freq=parseInt(ge("ag2-freq").value)||7;
