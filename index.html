@@ -2983,7 +2983,7 @@ async function concluirTarefa(){
         :"Para concluir, marque a caixinha confirmando que informou o movimento no grupo de atendimento do WhatsApp.","erro");return;}}
   // parecer/proposta comercial: portão com verificação REAL no banco —
   // ou existe proposta do cliente, ou lança agora, ou justifica por escrito
-  if(String(t.operacao||"").includes("Proposta Comercial")&&!E._propGateOk){
+  if(/Proposta Comercial|Parecer de Novo Cliente/i.test(t.operacao||"")&&!E._propGateOk){
     E._gateDepois="concluir";abrirGateProposta();return;}
   // laudo: concluir exige confirmar/atualizar a FASE (Bruna, 17/09/2026)
   if(t._laudo&&!E._laudoGateOk){E._laudoDepois="concluir";abrirGateLaudo();return;}
@@ -3416,7 +3416,7 @@ async function salvarPastaSeVazia(idCli,url){
 function abrirEncerrar(){const t=E.atual;
   // o portão da proposta vale TAMBÉM no encerrar — sem isso, arquivar era
   // uma porta lateral para fechar parecer sem proposta (fechada em 11/09/2026)
-  if(String(t.operacao||"").includes("Proposta Comercial")&&!E._propGateOk){
+  if(/Proposta Comercial|Parecer de Novo Cliente/i.test(t.operacao||"")&&!E._propGateOk){
     E._gateDepois="encerrar";abrirGateProposta();return;}
   // laudo: arquivar também exige a fase final (alimenta a taxa de deferimento)
   if(t._laudo&&!E._laudoGateOk){E._laudoDepois="encerrar";abrirGateLaudo();return;}
@@ -7344,14 +7344,20 @@ async function criarFixa(){
     if(!confirm(`Criar esta fixa para TODOS (${OPERACIONAIS.join(", ")}) — uma para cada?`))return;
     let ok=0;const falhas=[];
     for(const a of OPERACIONAIS){
-      try{await DB.fixaAdd({...base,assessor:a});ok++;}
+      try{const rA=await DB.fixaAdd({...base,assessor:a});
+        try{await rpcS("fixa_cartao_hoje",{p_id_fixa:rA.id});}catch(e2){}
+        ok++;}
       catch(e){falhas.push(a+" ("+e.message+")");}}
     toast(ok+" fixa(s) criada(s), uma por assessor."+(falhas.length?" Falhou: "+falhas.join("; "):""),falhas.length?"erro":"ok");
     telaFixas();return;
   }
-  try{await DB.fixaAdd({...base,assessor:ass});}
+  let rf;try{rf=await DB.fixaAdd({...base,assessor:ass});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
-  toast("Tarefa fixa criada!","ok");telaFixas();
+  // Eduarda (14/10/2026): o 1º cartão entra HOJE no dia do assessor
+  try{await rpcS("fixa_cartao_hoje",{p_id_fixa:rf.id});
+    toast("Fixa criada — o cartão de HOJE já está no dia de "+ass+"; depois segue a frequência.","ok");}
+  catch(e){toast("Fixa criada, mas não consegui puxar o cartão de hoje: "+e.message,"erro");}
+  telaFixas();
 }
 // ✏️ edição completa pelas heads (Bruna, 01/10/2026) com o tempo REAL que os
 // cards desta fixa têm levado (TIMERs dos '📌 titulo'), para calibrar a meta
