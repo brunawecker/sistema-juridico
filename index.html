@@ -2665,7 +2665,7 @@ async function carregarCliExtra(t){
         :"HubSpot: —"} <span style="cursor:pointer" onclick="editarHubspotCard()">&#9998;</span></span>
       ${prazoSNtagHTML(c)}
       <span id="bil-card"></span>
-      ${/Proposta Comercial/i.test(t.operacao||"")?taxCardHTML(c):""}`;
+      ${/Proposta Comercial|Parecer de Novo Cliente/i.test(t.operacao||"")?taxCardHTML(c):""}`;
     // status de cobrança do cliente no card
     await carregarFinanceiro();
     const cnpj=String(t.cnpj_cpf||"").replace(/\D/g,"");const b=(E._bilMap||{})[cnpj];
