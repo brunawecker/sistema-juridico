@@ -4570,6 +4570,13 @@ async function telaCentral(){
     const h0=new Date();h0.setHours(12,0,0,0);return Math.round((h0-u)/86400000);};
   // guarda o recorte p/ o relatório do financeiro e o resuminho do grupo (29/09/2026)
   E._finRel={abertas,prePag:prePag.map(o=>o.x),cliPorDoc,cliPorNome,eu};
+  // 🎁 pedidos de folga/prêmio em aberto TAMBÉM na Central (Bruna, 19/10/2026)
+  let pedsPrem=[];try{pedsPrem=await DB.premioPedidosAbertos();}catch(e){}
+  const pedsPremHtml=pedsPrem.length?`<div class="painel" style="background:#FEF9E7;border-color:#F5E3B3">
+      <div class="bloco-t" style="color:#7F6000">&#127873; Pedidos de prêmio em aberto (${pedsPrem.length}) — aprovar/negar</div>`+
+      pedsPrem.map(p=>`<div class="linha-item"><span style="font-size:12.5px"><b>${esc(p.pessoa)}</b> quer usar <b>${esc(p.premio)}</b> em <b>${brData(p.data_desejada)}</b>${p.obs?` · <span style="color:var(--gray)">${esc(p.obs)}</span>`:""}</span>
+        <span><button class="btn btg btsm" onclick="decidirPedidoPremio(${p.id},true)">&#10003; aprovar</button>
+        <button class="btn bts btsm" style="color:var(--red);border-color:var(--red)" onclick="decidirPedidoPremio(${p.id},false)">negar</button></span></div>`).join("")+`</div>`:"";
   ge("conteudo").innerHTML=`
     ${tarjaMeta("Meta da EQUIPE — "+new Date().toLocaleDateString("pt-BR",{month:"long"})+(mEquipe?" (conjunta, da planilha)":""),metaTot,pagoTot)}
     ${metaMinha?tarjaMeta("MINHA meta",metaMinha,pagoMeu)
@@ -4577,6 +4584,7 @@ async function telaCentral(){
       :tarjaMeta("MINHA meta",0,pagoMeu)}
     <div id="ct-redir"></div>
     <div id="ct-corr"></div>
+    ${pedsPremHtml}
     ${conflitosNic.length?`<div class="painel" style="border-left:4px solid var(--red);background:#FDEDEC">
       <div class="bloco-t" style="color:var(--red)">&#9888; Conflito na agenda do Nicholas (${conflitosNic.length}) — reuniões sobrepostas</div>
       ${conflitosNic.slice(0,6).map(([a1,b1])=>`<div class="linha-item"><span style="font-size:12.5px">
