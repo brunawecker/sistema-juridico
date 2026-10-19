@@ -302,6 +302,20 @@ const capDe=n=>CAP[n]||420;
 // colaborador novo ATIVO entra sozinho nos acompanhamentos, sem editar código.
 // Esta lista é só o plano B se o cadastro não carregar.
 const OPERACIONAIS=["Ygor","Thiago","Madu","Malu","Laura","João","Raquel"];
+// ⚖ recursos processuais (Bruna, 19/10/2026) — papel de cada processo no card
+const RECURSOS_PROC=["Apelação","Agravo de Instrumento","Embargos de Declaração","Agravo Interno",
+  "Recurso Especial (STJ)","Recurso Extraordinário (STF)","Agravo em REsp/RE",
+  "Exceção de Pré-Executividade","Embargos à Execução","Embargos de Divergência","IDPJ (desconsideração)",
+  "Remessa Necessária","Recurso Ordinário (RMS)","Suspensão de Segurança/Liminar"];
+// fase de cada originário = recurso ATIVO mais recente dele (senão, 1º grau)
+function fasesDaLista(ps){
+  const origs=(ps||[]).filter(p=>(p.papel||"ORIGINÁRIO")==="ORIGINÁRIO");
+  const fase={};
+  origs.forEach(o=>{const rs=(ps||[]).filter(p=>(p.papel||"ORIGINÁRIO")!=="ORIGINÁRIO"&&p.status==="ATIVO"
+      &&(p.vinculado_a===o.numero||(origs.length===1&&!p.vinculado_a)))
+    .sort((a,b)=>b.id-a.id);
+    fase[o.numero]=rs.length?rs[0].papel:"1º grau";});
+  return fase;}
 // Cores por assessor — mesmas do sistema antigo (renderPrevisaoMensal)
 const CORES_ASSESSOR={
   "Ygor":  {bg:"#E3F2F8",border:"#447F98",text:"#2C5F75",dot:"#447F98"},
@@ -1825,7 +1839,7 @@ function cardTarefa(t,mostrarAssessor,mostrarTempo){
   const tmp=mostrarTempo?`<span class="tco" style="font-family:'DM Mono'">&#9201;${t._tempo}min</span>`:"";
   return `<div class="tc ${t._urg===0?"uF":t._urg===0.5?"uP":"u"+(t._g||5)}" onclick="abrirTarefa('${esc(t.id_tarefa)}')"><div style="flex:1;min-width:0">
     <div class="tcc">${esc(t.cliente)}${fin}</div>
-    <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${t._nproc>1?` <span class="tag ts" title="execução com vários processos — o tempo do dia já conta ×${t._nproc}">&#9878; ${t._nproc} proc.</span>`:""}${t.numero_processual?` <span class="tco" style="font-family:'DM Mono';font-size:10px">${esc(t.numero_processual)}</span>`:""}${ec}${t._impulso?(()=>{const de=(String(t.supervisao||"").match(/IMPULSO de ([^|]+)\|/)||[])[1];return ` <span class="tag" style="background:#1F4E79;color:white" title="Cartinho de impulso — devolve ao dono quando finalizar">&#129309; impulso${de?" de "+esc(String(de).trim()):""}</span>`;})():""}${tagLanc(t)}${es}${hd}${pf}${ass}${tmp}</div></div>
+    <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${t._nproc>1?` <span class="tag ts" title="execução com vários processos — o tempo do dia já conta ×${t._nproc}">&#9878; ${t._nproc} proc.</span>`:""}${fasesChipsDe(t)}${t.numero_processual?` <span class="tco" style="font-family:'DM Mono';font-size:10px">${esc(t.numero_processual)}</span>`:""}${ec}${t._impulso?(()=>{const de=(String(t.supervisao||"").match(/IMPULSO de ([^|]+)\|/)||[])[1];return ` <span class="tag" style="background:#1F4E79;color:white" title="Cartinho de impulso — devolve ao dono quando finalizar">&#129309; impulso${de?" de "+esc(String(de).trim()):""}</span>`;})():""}${tagLanc(t)}${es}${hd}${pf}${ass}${tmp}</div></div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">${dt}${t.prazo_fatal_dt?`<span class="tdy ov" style="font-weight:700">FATAL: ${brData(t.prazo_fatal_dt)}</span>`:""}${t.simples_prazo_dt?`<span class="tdy ov" style="font-weight:700;background:#7B2D8B">&#9203; SIMPLES: ${brData(String(t.simples_prazo_dt).slice(0,10))}</span>`:""}${t.prazo_fatal_dt&&t.retomada_fatal_dt&&String(t.retomada_fatal_dt).slice(0,10)>hojeISO()?`<span class="tdy ok" title="Andamento do dia cumprido — dorme até a retomada">&#9203; retoma ${brData(t.retomada_fatal_dt)}</span>`:""}</div></div>`;
 }
 // Banner de prazos fatais desta semana (clicável)
@@ -2186,7 +2200,7 @@ async function telaDelegadas(){
     h+=`<div class="tc ${venc?"u1":"u5"}">
       <div style="flex:1;min-width:0">
         <div class="tcc" style="cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')">${esc(t.cliente)}</div>
-        <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${t._nproc>1?` <span class="tag ts" title="execução com vários processos — o tempo do dia já conta ×${t._nproc}">&#9878; ${t._nproc} proc.</span>`:""}${t.numero_processual?` <span class="tco" style="font-family:'DM Mono';font-size:10px">${esc(t.numero_processual)}</span>`:""}
+        <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${t._nproc>1?` <span class="tag ts" title="execução com vários processos — o tempo do dia já conta ×${t._nproc}">&#9878; ${t._nproc} proc.</span>`:""}${fasesChipsDe(t)}${t.numero_processual?` <span class="tco" style="font-family:'DM Mono';font-size:10px">${esc(t.numero_processual)}</span>`:""}
           <span class="tag" style="background:#1F4E79;color:white">&#129309; com ${esc(para)}</span>
           ${subs.map(s=>`<span class="tag ${typeof s._dias==="number"&&s._dias<0?"ti":"tm"}" style="cursor:pointer" onclick="abrirTarefa('${esc(s.id_tarefa)}')" title="abrir o impulso (${esc(s.id_tarefa)})">${esc(s.check_||"")}${typeof s._dias==="number"&&s._dias<0?` · vencido há ${Math.abs(s._dias)}d`:(s.data_revisao_dt?` · rodada ${brData(s.data_revisao_dt)}`:"")}</span>`).join("")}</div>
         ${pedido?`<div class="tco" style="margin-top:3px;font-style:italic">"${esc(pedido)}"</div>`:""}
@@ -2556,34 +2570,71 @@ async function carregarProcs(t){
   let ps=[];try{ps=okS(await supa.from("tarefa_processos").select("*").eq("id_tarefa",t.id_tarefa).order("id"))||[];}catch(e){}
   E._procsCard=ps;
   // Monitoramento também acompanha N execuções num card só (Bruna, 07/10/2026)
-  const ehExec=/Execução Fiscal|Monitoramento/i.test(t.operacao||"");
+  const ehExec=/Execução Fiscal|Monitoramento|^MS(\s|$)/i.test(t.operacao||"");
   if(!ps.length&&!ehExec){box.innerHTML="";return;}
   const chip={ATIVO:["tek","ativo"],SUSPENSO:["td2","suspenso"],BAIXADO:["tm","baixado"]};
-  box.innerHTML=`<div class="bloco" style="margin-top:10px"><div class="bloco-t">&#9878; Processos desta tarefa (${ps.filter(p=>p.status==="ATIVO").length} ativos${ps.length!==ps.filter(p=>p.status==="ATIVO").length?` · ${ps.length} no total`:""})</div>
-    ${ps.map(p=>{const ch=chip[p.status]||["tm",p.status];
-      return `<div class="linha-item"><span style="font-family:'DM Mono';font-size:11.5px">${esc(p.numero)} <span class="tag ${ch[0]}">${ch[1]}</span></span>
-      <span style="white-space:nowrap">
+  // árvore: originário com seus recursos aninhados; fase por originário
+  const origs=ps.filter(p=>(p.papel||"ORIGINÁRIO")==="ORIGINÁRIO");
+  const fase=fasesDaLista(ps);
+  const recsDe=o=>ps.filter(p=>(p.papel||"ORIGINÁRIO")!=="ORIGINÁRIO"
+    &&(p.vinculado_a===o.numero||(origs.length===1&&!p.vinculado_a)));
+  const orfaos=ps.filter(p=>(p.papel||"ORIGINÁRIO")!=="ORIGINÁRIO"
+    &&!(origs.length===1&&!p.vinculado_a)&&!origs.some(o=>o.numero===p.vinculado_a));
+  const resumoF={};Object.values(fase).forEach(f=>{if(f!=="1º grau")resumoF[f]=(resumoF[f]||0)+1;});
+  const resumoTx=Object.entries(resumoF).map(([f,n])=>`${n} em ${f}`).join(" · ");
+  const botoes=p=>`<span style="white-space:nowrap">
         ${p.status==="ATIVO"?`<button class="btn bts btsm" onclick="procStatus(${p.id},'SUSPENSO')" title="pausa: sai da conta de tempo">&#9208;</button>`
           :`<button class="btn bts btsm" onclick="procStatus(${p.id},'ATIVO')" title="reativar">&#9205;</button>`}
-        ${p.status!=="BAIXADO"?`<button class="btn bts btsm" onclick="procStatus(${p.id},'BAIXADO')" title="baixado/extinto">&#10004;</button>`:""}
-        ${ps.length>1?`<button class="btn bts btsm" onclick='procDestacar(${JSON.stringify(p.numero)})' title="vira um card próprio">&#9986;</button>`:""}</span></div>`;}).join("")
-      ||'<div style="font-size:12px;color:var(--gray)">Só o processo do campo acima. Adicione os demais para o tempo do dia contar certo.</div>'}
+        ${p.status!=="BAIXADO"?`<button class="btn bts btsm" onclick="procStatus(${p.id},'BAIXADO')" title="baixado/extinto/julgado">&#10004;</button>`:""}
+        ${(p.papel||"ORIGINÁRIO")==="ORIGINÁRIO"&&origs.length>1?`<button class="btn bts btsm" onclick='procDestacar(${JSON.stringify(p.numero)})' title="vira um card próprio — os recursos dele vão junto">&#9986;</button>`:""}</span>`;
+  const linhaRec=p=>{const ch=chip[p.status]||["tm",p.status];
+    return `<div class="linha-item" style="padding-left:22px"><span style="font-family:'DM Mono';font-size:11px;color:var(--gray)">&#8627; ${esc(p.numero)}
+      <span class="tag ts">${esc(p.papel)}</span> <span class="tag ${ch[0]}">${ch[1]}</span></span>${botoes(p)}</div>`;};
+  box.innerHTML=`<div class="bloco" style="margin-top:10px"><div class="bloco-t">&#9878; Processos desta tarefa (${origs.length} originário(s) · ${ps.filter(p=>p.status==="ATIVO").length} ativos de ${ps.length}${resumoTx?` · <span style="color:#7B2D8B">${resumoTx}</span>`:""})</div>
+    ${origs.map(o=>{const ch=chip[o.status]||["tm",o.status];
+      return `<div class="linha-item"><span style="font-family:'DM Mono';font-size:11.5px">${esc(o.numero)} <span class="tag ${ch[0]}">${ch[1]}</span>
+        <span class="tag" style="background:${fase[o.numero]==="1º grau"?"var(--gray-lt)":"#7B2D8B"};color:${fase[o.numero]==="1º grau"?"var(--gray)":"white"}" title="fase processual desta linha">fase: ${esc(fase[o.numero])}</span></span>${botoes(o)}</div>`
+        +recsDe(o).map(linhaRec).join("");}).join("")
+    +(orfaos.length?`<div style="font-size:11px;color:var(--amber);margin-top:4px">&#9888; recursos sem vínculo com um originário deste card:</div>`+orfaos.map(linhaRec).join(""):"")
+      ||'<div style="font-size:12px;color:var(--gray)">Só o processo do campo acima. Adicione os demais (e os recursos) para o tempo e a fase contarem certo.</div>'}
     <div class="linha-acao" style="margin-top:6px">
       <button class="btn bts btsm" onclick="procAdicionar()">&#10133; adicionar processo</button>
       <button class="btn bts btsm" onclick="abrirMesclar()">&#128279; mesclar outra tarefa deste cliente aqui</button></div>
     <div style="font-size:10px;color:var(--gray);margin-top:3px">O tempo do dia conta ×${Math.max(1,ps.filter(p=>p.status==="ATIVO").length)} (processos ativos). Suspenso/baixado não pesa.</div></div>`;
 }
-async function procAdicionar(){
-  const t=E.atual;
-  const n=(prompt("Número do processo a adicionar neste card:")||"").trim();
-  if(!n)return;
+function procAdicionar(){
+  const t=E.atual,ps=E._procsCard||[];
+  const origs=ps.filter(p=>(p.papel||"ORIGINÁRIO")==="ORIGINÁRIO");
+  const principal=String(t.numero_processual||"").trim();
+  const listaOrig=origs.length?origs.map(o=>o.numero):(principal?[principal]:[]);
+  modal2("&#9878; Adicionar processo",esc(t.cliente||""),`
+    <input class="fi" id="pa-num" style="font-family:'DM Mono'" placeholder="0000000-00.0000.0.00.0000">
+    <label style="font-size:11px">O que é este processo?</label>
+    <select class="fsel" id="pa-papel" style="width:100%;margin-bottom:6px" onchange="const w=ge('pa-vinc-w');if(w)w.style.display=this.value==='ORIGINÁRIO'?'none':'block'">
+      <option value="ORIGINÁRIO">Originário (a execução / o MS em si)</option>
+      ${RECURSOS_PROC.map(r=>`<option>${esc(r)}</option>`).join("")}</select>
+    <div id="pa-vinc-w" style="display:none">
+      <label style="font-size:11px">Nasce de qual originário?</label>
+      <select class="fsel" id="pa-vinc" style="width:100%;margin-bottom:6px">${listaOrig.map(o=>`<option>${esc(o)}</option>`).join("")}</select></div>
+    <button class="btn btp btw" onclick="procAdicionarGo()">&#10133; Adicionar</button>`);
+}
+async function procAdicionarGo(){
+  const t=E.atual;const n=(ge("pa-num").value||"").trim();
+  if(!n){toast("Informe o número do processo.","erro");return;}
+  const papel=ge("pa-papel").value;
+  let vinc=null;
+  if(papel!=="ORIGINÁRIO"){
+    vinc=((ge("pa-vinc")||{}).value||"").trim()||null;
+    if(!vinc){toast("Recurso precisa do originário — cadastre primeiro o processo originário.","erro");return;}}
   try{
     if((E._procsCard||[]).length===0&&String(t.numero_processual||"").trim())
       await supa.from("tarefa_processos").insert({id_tarefa:t.id_tarefa,numero:String(t.numero_processual).trim(),adicionado_por:E.perfil.nome_sistema});
-    okS(await supa.from("tarefa_processos").insert({id_tarefa:t.id_tarefa,numero:n,adicionado_por:E.perfil.nome_sistema}));
-    await DB.nota({id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,tipo:"HISTORICO",texto:"⚖ Processo adicionado ao card: "+n});
+    okS(await supa.from("tarefa_processos").insert({id_tarefa:t.id_tarefa,numero:n,papel,vinculado_a:vinc,adicionado_por:E.perfil.nome_sistema}));
+    await DB.nota({id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,tipo:"HISTORICO",
+      texto:"⚖ Processo adicionado: "+n+(papel!=="ORIGINÁRIO"?" — "+papel+(vinc?" do "+vinc:""):" (originário)")});
   }catch(e){toast("Erro: "+e.message,"erro");return;}
-  toast("Processo adicionado — o tempo do dia já conta com ele.","ok");carregarProcs(t);}
+  toast(papel==="ORIGINÁRIO"?"Processo adicionado — o tempo do dia já conta com ele.":"Recurso adicionado — a fase da linha já atualizou.","ok");
+  fecharModal2();carregarProcs(t);}
 async function procStatus(id,st){
   try{okS(await supa.from("tarefa_processos").update({status:st}).eq("id",id));}
   catch(e){toast("Erro: "+e.message,"erro");return;}
@@ -6001,6 +6052,12 @@ async function telaClientes(){
   E._fSit="TODOS";E._fReg="TODOS";E._fAtivo="TODOS";E._fSN="TODOS";E._clPag=0;
   if(E._fHead===undefined)E._fHead=escHead()||"TODOS";
   let cs,ops;try{[cs,ops]=await Promise.all([DB.clientes(""),DB.tarefas()]);}catch(e){return erro(e.message);}
+  // ⚖ fases processuais por tarefa (recursos ativos) — para filtro e sinalizador
+  E._fasesPorTarefa={};
+  try{const prAll=okS(await supa.from("tarefa_processos").select("id,id_tarefa,numero,status,papel,vinculado_a"))||[];
+    const byT={};prAll.forEach(p=>{(byT[p.id_tarefa]=byT[p.id_tarefa]||[]).push(p);});
+    Object.entries(byT).forEach(([id,ps])=>{E._fasesPorTarefa[id]=[...new Set(Object.values(fasesDaLista(ps)))];});
+  }catch(e){}
   E._clsTodos=cs||[];E._cli={};E._clsTodos.forEach(c=>E._cli[c.id_cliente]=c);
   E._temTarefa={};E._minhaTarefa={};E._minhaQtd={};
   (ops||[]).forEach(t=>{if(!t.id_cliente||!t.id_tarefa)return;
@@ -6042,11 +6099,15 @@ async function telaClientes(){
       <div class="linha-acao"><select class="fsel" id="cl-opsel" style="flex:1" onchange="buscaPorOperacao()">
         <option value="">Escolha o tipo de operação...</option>${OPERACOES.map(o=>`<option>${esc(o)}</option>`).join("")}</select>
       <select class="fsel" id="cl-opadv" onchange="buscaPorOperacao()">
-        <option value="">&#9878; Todas as advogadas</option>${[...new Set((E.tarefas||[]).map(t=>String(t.advogada||"").trim()).filter(Boolean))].sort((x,y)=>x.localeCompare(y)).map(n=>`<option>${esc(n)}</option>`).join("")}</select></div></div>
+        <option value="">&#9878; Todas as advogadas</option>${[...new Set((E.tarefas||[]).map(t=>String(t.advogada||"").trim()).filter(Boolean))].sort((x,y)=>x.localeCompare(y)).map(n=>`<option>${esc(n)}</option>`).join("")}</select>
+      <select class="fsel" id="cl-opfase" onchange="buscaPorOperacao()" title="fase processual (pelo recurso ativo de cada originário)">
+        <option value="">&#9878; Qualquer fase</option><option>1º grau</option>${RECURSOS_PROC.map(r=>`<option>${esc(r)}</option>`).join("")}</select></div></div>
     <div id="cl-assarea" style="display:none" class="painel">
       <div style="font-size:12px;color:var(--gray);margin-bottom:6px">Todas as tarefas <b>em andamento</b> de um assessor (delegadas aparecem com o dono):</div>
-      <select class="fsel" id="cl-asssel" style="width:100%" onchange="buscaPorAssessor()">
-        <option value="">Escolha o assessor...</option>${OPERACIONAIS.map(a=>`<option>${esc(a)}</option>`).join("")}</select></div>
+      <div class="linha-acao"><select class="fsel" id="cl-asssel" style="flex:1" onchange="buscaPorAssessor()">
+        <option value="">Escolha o assessor...</option>${OPERACIONAIS.map(a=>`<option>${esc(a)}</option>`).join("")}</select>
+      <select class="fsel" id="cl-assfase" onchange="buscaPorAssessor()" title="fase processual (pelo recurso ativo de cada originário)">
+        <option value="">&#9878; Qualquer fase</option><option>1º grau</option>${RECURSOS_PROC.map(r=>`<option>${esc(r)}</option>`).join("")}</select></div></div>
     <div id="cl-lista"></div>`;
   desenhaPills();desenhaClientes();
 }
@@ -6085,19 +6146,26 @@ function modoClientes(m){
 // mais urgente primeiro — delegadas contam no DONO da tarefa-mãe
 function buscaPorAssessor(){
   const a=ge("cl-asssel").value;if(!a)return;
+  const faseF=(ge("cl-assfase")?.value||"").trim();
   const f=semDuplicataImpulso((E.tarefas||[]).filter(t=>t.id_tarefa
       &&loginDe(t.assessor||"")===a
-      &&!/IMPULSO de/.test(t.supervisao||"")))
+      &&!/IMPULSO de/.test(t.supervisao||"")
+      &&(!faseF||((E._fasesPorTarefa||{})[t.id_tarefa]||[]).includes(faseF))))
     .sort((x,y)=>(x._dias??9999)-(y._dias??9999));
   ge("cl-lista").innerHTML=`<p style="font-size:12px;color:var(--gray);margin-bottom:8px">${nProcSum(f)} tarefa(s) com <b>${esc(a)}</b>${nProcSum(f)!==f.length?` em ${f.length} cards`:""} — delegadas aparecem aqui com o dono</p>`
     +(f.length?f.map(t=>cardTarefa(t,true)).join(""):`<div class="vazio">Nada ativo com ${esc(a)}.</div>`);
 }
+function fasesChipsDe(t){
+  const f=((E._fasesPorTarefa||{})[t.id_tarefa]||[]).filter(x=>x!=="1º grau");
+  return f.length?` <span class="tag" style="background:#7B2D8B;color:white" title="fase processual (recursos ativos)">&#9878; ${esc(f.join(" · "))}</span>`:"";}
 function buscaPorOperacao(){
   const op=ge("cl-opsel").value;if(!op)return;
   const alvo=op.toLowerCase();
   const adv=(ge("cl-opadv")?.value||"").trim();
+  const faseF=(ge("cl-opfase")?.value||"").trim();
   const f=semDuplicataImpulso((E.tarefas||[]).filter(t=>t.id_tarefa&&String(t.operacao||"").toLowerCase().includes(alvo)
-      &&(!adv||String(t.advogada||"").trim()===adv))
+      &&(!adv||String(t.advogada||"").trim()===adv)
+      &&(!faseF||((E._fasesPorTarefa||{})[t.id_tarefa]||[]).includes(faseF)))
     .sort((a,b)=>(a._dias??9999)-(b._dias??9999)));
   ge("cl-lista").innerHTML=`<p style="font-size:12px;color:var(--gray);margin-bottom:8px">${f.length} tarefa(s) de "${esc(op)}"${adv?` · advogada <b>${esc(adv)}</b>`:""} em andamento</p>`
     +(f.length?f.map(t=>cardTarefa(t,true)).join(""):`<div class="vazio">Nenhuma${adv?` de ${esc(adv)}`:""}.</div>`);
