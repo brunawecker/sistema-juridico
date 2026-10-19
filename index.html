@@ -2587,13 +2587,20 @@ async function carregarProcs(t){
           :`<button class="btn bts btsm" onclick="procStatus(${p.id},'ATIVO')" title="reativar">&#9205;</button>`}
         ${p.status!=="BAIXADO"?`<button class="btn bts btsm" onclick="procStatus(${p.id},'BAIXADO')" title="baixado/extinto/julgado">&#10004;</button>`:""}
         ${(p.papel||"ORIGINÁRIO")==="ORIGINÁRIO"&&origs.length>1?`<button class="btn bts btsm" onclick='procDestacar(${JSON.stringify(p.numero)})' title="vira um card próprio — os recursos dele vão junto">&#9986;</button>`:""}</span>`;
+  // 🏛 tribunal + ⚖ liminar/sentença por processo (Bruna, 19/10/2026)
+  const detChips=p=>{
+    const lm=String(p.liminar||"").toUpperCase(),st2=String(p.sentenca||"").toUpperCase();
+    return `${p.tribunal?` <span class="tag tda">&#127963; ${esc(p.tribunal)}</span>`:""}`
+      +(lm?` <span class="tag ${lm==="DEFERIDA"?"tek":"ti"}">liminar ${lm.toLowerCase()}</span>`:"")
+      +(st2?` <span class="tag ${st2==="CONCEDIDA"?"tek":"ti"}">sentença ${st2.toLowerCase()}</span>`:"")
+      +` <span style="cursor:pointer;font-size:11px" title="tribunal / liminar / sentença" onclick="procDetalhes(${p.id})">&#9998;</span>`;};
   const linhaRec=p=>{const ch=chip[p.status]||["tm",p.status];
     return `<div class="linha-item" style="padding-left:22px"><span style="font-family:'DM Mono';font-size:11px;color:var(--gray)">&#8627; ${esc(p.numero)}
-      <span class="tag ts">${esc(p.papel)}</span> <span class="tag ${ch[0]}">${ch[1]}</span></span>${botoes(p)}</div>`;};
+      <span class="tag ts">${esc(p.papel)}</span> <span class="tag ${ch[0]}">${ch[1]}</span>${detChips(p)}</span>${botoes(p)}</div>`;};
   box.innerHTML=`<div class="bloco" style="margin-top:10px"><div class="bloco-t">&#9878; Processos desta tarefa (${origs.length} originário(s) · ${ps.filter(p=>p.status==="ATIVO").length} ativos de ${ps.length}${resumoTx?` · <span style="color:#7B2D8B">${resumoTx}</span>`:""})</div>
     ${origs.map(o=>{const ch=chip[o.status]||["tm",o.status];
       return `<div class="linha-item"><span style="font-family:'DM Mono';font-size:11.5px">${esc(o.numero)} <span class="tag ${ch[0]}">${ch[1]}</span>
-        <span class="tag" style="background:${fase[o.numero]==="1º grau"?"var(--gray-lt)":"#7B2D8B"};color:${fase[o.numero]==="1º grau"?"var(--gray)":"white"}" title="fase processual desta linha">fase: ${esc(fase[o.numero])}</span></span>${botoes(o)}</div>`
+        <span class="tag" style="background:${fase[o.numero]==="1º grau"?"var(--gray-lt)":"#7B2D8B"};color:${fase[o.numero]==="1º grau"?"var(--gray)":"white"}" title="fase processual desta linha">fase: ${esc(fase[o.numero])}</span>${detChips(o)}</span>${botoes(o)}</div>`
         +recsDe(o).map(linhaRec).join("");}).join("")
     +(orfaos.length?`<div style="font-size:11px;color:var(--amber);margin-top:4px">&#9888; recursos sem vínculo com um originário deste card:</div>`+orfaos.map(linhaRec).join(""):"")
       ||'<div style="font-size:12px;color:var(--gray)">Só o processo do campo acima. Adicione os demais (e os recursos) para o tempo e a fase contarem certo.</div>'}
@@ -2635,6 +2642,34 @@ async function procAdicionarGo(){
   }catch(e){toast("Erro: "+e.message,"erro");return;}
   toast(papel==="ORIGINÁRIO"?"Processo adicionado — o tempo do dia já conta com ele.":"Recurso adicionado — a fase da linha já atualizou.","ok");
   fecharModal2();carregarProcs(t);}
+// 🏛 detalhes do processo: tribunal, liminar, sentença (Bruna, 19/10/2026)
+function procDetalhes(id){
+  const p=(E._procsCard||[]).find(x=>x.id===id);if(!p)return;
+  const sel=(idEl,val,ops)=>`<select class="fsel" id="${idEl}" style="width:100%;margin-bottom:6px">
+    <option value=""${!val?" selected":""}>— sem registro —</option>
+    ${ops.map(o=>`<option${String(val||"").toUpperCase()===o?" selected":""}>${o}</option>`).join("")}</select>`;
+  modal2("&#127963; Detalhes do processo",`<span style="font-family:'DM Mono'">${esc(p.numero)}</span>`,`
+    <label style="font-size:11px">Tribunal / juízo onde o processo está (ex.: TRF4, TJRS, 2ª VF de POA)</label>
+    <input class="fi" id="pd-trib" value="${esc(p.tribunal||"")}">
+    <label style="font-size:11px">Liminar</label>
+    ${sel("pd-lim",p.liminar,["DEFERIDA","INDEFERIDA"])}
+    <label style="font-size:11px">Sentença</label>
+    ${sel("pd-sent",p.sentenca,["CONCEDIDA","DENEGADA"])}
+    <button class="btn btp btw" onclick="salvarProcDetalhes(${id})">&#128190; Salvar</button>`);
+}
+async function salvarProcDetalhes(id){
+  const p=(E._procsCard||[]).find(x=>x.id===id);if(!p)return;
+  const trib=(ge("pd-trib").value||"").trim()||null,
+        lim=ge("pd-lim").value||null, sent=ge("pd-sent").value||null;
+  try{okS(await supa.from("tarefa_processos").update({tribunal:trib,liminar:lim,sentenca:sent}).eq("id",id));
+    const mud=[];
+    if((trib||"")!==(p.tribunal||""))mud.push("tribunal: "+(trib||"—"));
+    if((lim||"")!==(p.liminar||""))mud.push("liminar "+(lim||"—").toLowerCase());
+    if((sent||"")!==(p.sentenca||""))mud.push("sentença "+(sent||"—").toLowerCase());
+    if(mud.length)await DB.nota({id_tarefa:E.atual.id_tarefa,id_cliente:E.atual.id_cliente,tipo:"HISTORICO",
+      texto:"⚖ Processo "+p.numero+" — "+mud.join(" · ")});
+  }catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Detalhes salvos.","ok");fecharModal2();carregarProcs(E.atual);}
 async function procStatus(id,st){
   try{okS(await supa.from("tarefa_processos").update({status:st}).eq("id",id));}
   catch(e){toast("Erro: "+e.message,"erro");return;}
