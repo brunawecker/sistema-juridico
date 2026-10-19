@@ -2649,9 +2649,11 @@ function procDetalhes(id){
   const sel=(idEl,val,ops)=>`<select class="fsel" id="${idEl}" style="width:100%;margin-bottom:6px">
     <option value=""${!val?" selected":""}>— sem registro —</option>
     ${ops.map(o=>`<option${String(val||"").toUpperCase()===o?" selected":""}>${o}</option>`).join("")}</select>`;
-  // tribunal em lista fechada — sem digitação, sem erro (Bruna, 19/10/2026)
-  const TRIBS=["Vara Federal (1º grau)","Vara Estadual (1º grau)",
-    "TRF1","TRF2","TRF3","TRF4","TRF5","TRF6",
+  // tribunal = SÓ a Justiça onde o processo corre (TRF/TJ/STJ/STF). O grau
+  // vem do papel: originário roda na vara dessa Justiça; recurso, no tribunal.
+  // (Bruna, 19/10/2026: "Vara Estadual" + "TJRS" eram a mesma coisa e
+  // estragariam o filtro — removidas.)
+  const TRIBS=["TRF1","TRF2","TRF3","TRF4","TRF5","TRF6",
     ...UFS.map(u=>"TJ"+u),"STJ","STF"];
   const tAtual=String(p.tribunal||"").trim();
   const tOps=(tAtual&&!TRIBS.includes(tAtual)?[tAtual]:[]).concat(TRIBS);
@@ -2665,7 +2667,7 @@ function procDetalhes(id){
     <div id="pd-vinc-w" style="display:${pap==="ORIGINÁRIO"?"none":"block"};margin-bottom:6px">
       <label style="font-size:11px">Nasce de qual originário?</label>
       <select class="fsel" id="pd-vinc" style="width:100%">${origsOut.map(o=>`<option${p.vinculado_a===o.numero?" selected":""}>${esc(o.numero)}</option>`).join("")||'<option value="">— cadastre antes o originário —</option>'}</select></div>
-    <label style="font-size:11px">Tribunal / juízo onde o processo está</label>
+    <label style="font-size:11px">Justiça onde o processo corre <span style="color:var(--gray)">(o grau vem do papel: originário = vara dessa Justiça; recurso = o tribunal)</span></label>
     <select class="fsel" id="pd-trib" style="width:100%;margin-bottom:6px">
       <option value=""${!tAtual?" selected":""}>— sem registro —</option>
       ${tOps.map(o=>`<option${tAtual===o?" selected":""}>${esc(o)}</option>`).join("")}</select>
