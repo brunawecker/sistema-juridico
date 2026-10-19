@@ -2655,7 +2655,16 @@ function procDetalhes(id){
     ...UFS.map(u=>"TJ"+u),"STJ","STF"];
   const tAtual=String(p.tribunal||"").trim();
   const tOps=(tAtual&&!TRIBS.includes(tAtual)?[tAtual]:[]).concat(TRIBS);
+  const pap=p.papel||"ORIGINÁRIO";
+  const origsOut=(E._procsCard||[]).filter(x=>(x.papel||"ORIGINÁRIO")==="ORIGINÁRIO"&&x.id!==p.id);
   modal2("&#127963; Detalhes do processo",`<span style="font-family:'DM Mono'">${esc(p.numero)}</span>`,`
+    <label style="font-size:11px">O que é este processo? <span style="color:var(--gray)">(corrija aqui os cadastros antigos — tudo nasceu como "originário")</span></label>
+    <select class="fsel" id="pd-papel" style="width:100%;margin-bottom:6px" onchange="const w=ge('pd-vinc-w');if(w)w.style.display=this.value==='ORIGINÁRIO'?'none':'block'">
+      <option value="ORIGINÁRIO"${pap==="ORIGINÁRIO"?" selected":""}>Originário (a execução / o MS em si)</option>
+      ${RECURSOS_PROC.map(r=>`<option${pap===r?" selected":""}>${esc(r)}</option>`).join("")}</select>
+    <div id="pd-vinc-w" style="display:${pap==="ORIGINÁRIO"?"none":"block"};margin-bottom:6px">
+      <label style="font-size:11px">Nasce de qual originário?</label>
+      <select class="fsel" id="pd-vinc" style="width:100%">${origsOut.map(o=>`<option${p.vinculado_a===o.numero?" selected":""}>${esc(o.numero)}</option>`).join("")||'<option value="">— cadastre antes o originário —</option>'}</select></div>
     <label style="font-size:11px">Tribunal / juízo onde o processo está</label>
     <select class="fsel" id="pd-trib" style="width:100%;margin-bottom:6px">
       <option value=""${!tAtual?" selected":""}>— sem registro —</option>
@@ -2670,8 +2679,18 @@ async function salvarProcDetalhes(id){
   const p=(E._procsCard||[]).find(x=>x.id===id);if(!p)return;
   const trib=(ge("pd-trib").value||"").trim()||null,
         lim=ge("pd-lim").value||null, sent=ge("pd-sent").value||null;
-  try{okS(await supa.from("tarefa_processos").update({tribunal:trib,liminar:lim,sentenca:sent}).eq("id",id));
+  const papel=ge("pd-papel")?ge("pd-papel").value:(p.papel||"ORIGINÁRIO");
+  let vinc=p.vinculado_a||null;
+  if(papel!=="ORIGINÁRIO"){
+    vinc=((ge("pd-vinc")||{}).value||"").trim()||null;
+    if(!vinc){toast("Recurso precisa apontar o originário — cadastre o originário primeiro.","erro");return;}
+  }else vinc=null;
+  // originário que tem recursos pendurados não vira recurso sem antes realocar os filhos
+  if(papel!=="ORIGINÁRIO"&&(E._procsCard||[]).some(x=>x.vinculado_a===p.numero)){
+    toast("Este processo tem recursos vinculados a ele — reclassifique/realoque os recursos antes.","erro");return;}
+  try{okS(await supa.from("tarefa_processos").update({tribunal:trib,liminar:lim,sentenca:sent,papel,vinculado_a:vinc}).eq("id",id));
     const mud=[];
+    if(papel!==(p.papel||"ORIGINÁRIO"))mud.push("papel: "+(p.papel||"originário")+" → "+papel+(vinc?" (do "+vinc+")":""));
     if((trib||"")!==(p.tribunal||""))mud.push("tribunal: "+(trib||"—"));
     if((lim||"")!==(p.liminar||""))mud.push("liminar "+(lim||"—").toLowerCase());
     if((sent||"")!==(p.sentenca||""))mud.push("sentença "+(sent||"—").toLowerCase());
