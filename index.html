@@ -2590,9 +2590,10 @@ async function carregarProcs(t){
   // 🏛 tribunal + ⚖ liminar/sentença por processo (Bruna, 19/10/2026)
   const detChips=p=>{
     const lm=String(p.liminar||"").toUpperCase(),st2=String(p.sentenca||"").toUpperCase();
+    const cor=v=>/PARCIAL|EM PARTE/.test(v)?"td2":(v==="DEFERIDA"||v==="CONCEDIDA")?"tek":"ti";
     return `${p.tribunal?` <span class="tag tda">&#127963; ${esc(p.tribunal)}</span>`:""}`
-      +(lm?` <span class="tag ${lm==="DEFERIDA"?"tek":"ti"}">liminar ${lm.toLowerCase()}</span>`:"")
-      +(st2?` <span class="tag ${st2==="CONCEDIDA"?"tek":"ti"}">sentença ${st2.toLowerCase()}</span>`:"")
+      +(lm?` <span class="tag ${cor(lm)}">liminar ${lm.toLowerCase()}</span>`:"")
+      +(st2?` <span class="tag ${cor(st2)}">sentença ${st2.toLowerCase()}</span>`:"")
       +` <span style="cursor:pointer;font-size:11px" title="tribunal / liminar / sentença" onclick="procDetalhes(${p.id})">&#9998;</span>`;};
   const linhaRec=p=>{const ch=chip[p.status]||["tm",p.status];
     return `<div class="linha-item" style="padding-left:22px"><span style="font-family:'DM Mono';font-size:11px;color:var(--gray)">&#8627; ${esc(p.numero)}
@@ -2648,13 +2649,21 @@ function procDetalhes(id){
   const sel=(idEl,val,ops)=>`<select class="fsel" id="${idEl}" style="width:100%;margin-bottom:6px">
     <option value=""${!val?" selected":""}>— sem registro —</option>
     ${ops.map(o=>`<option${String(val||"").toUpperCase()===o?" selected":""}>${o}</option>`).join("")}</select>`;
+  // tribunal em lista fechada — sem digitação, sem erro (Bruna, 19/10/2026)
+  const TRIBS=["Vara Federal (1º grau)","Vara Estadual (1º grau)",
+    "TRF1","TRF2","TRF3","TRF4","TRF5","TRF6",
+    ...UFS.map(u=>"TJ"+u),"STJ","STF"];
+  const tAtual=String(p.tribunal||"").trim();
+  const tOps=(tAtual&&!TRIBS.includes(tAtual)?[tAtual]:[]).concat(TRIBS);
   modal2("&#127963; Detalhes do processo",`<span style="font-family:'DM Mono'">${esc(p.numero)}</span>`,`
-    <label style="font-size:11px">Tribunal / juízo onde o processo está (ex.: TRF4, TJRS, 2ª VF de POA)</label>
-    <input class="fi" id="pd-trib" value="${esc(p.tribunal||"")}">
+    <label style="font-size:11px">Tribunal / juízo onde o processo está</label>
+    <select class="fsel" id="pd-trib" style="width:100%;margin-bottom:6px">
+      <option value=""${!tAtual?" selected":""}>— sem registro —</option>
+      ${tOps.map(o=>`<option${tAtual===o?" selected":""}>${esc(o)}</option>`).join("")}</select>
     <label style="font-size:11px">Liminar</label>
-    ${sel("pd-lim",p.liminar,["DEFERIDA","INDEFERIDA"])}
+    ${sel("pd-lim",p.liminar,["DEFERIDA","PARCIALMENTE DEFERIDA","INDEFERIDA"])}
     <label style="font-size:11px">Sentença</label>
-    ${sel("pd-sent",p.sentenca,["CONCEDIDA","DENEGADA"])}
+    ${sel("pd-sent",p.sentenca,["CONCEDIDA","CONCEDIDA EM PARTE","DENEGADA"])}
     <button class="btn btp btw" onclick="salvarProcDetalhes(${id})">&#128190; Salvar</button>`);
 }
 async function salvarProcDetalhes(id){
