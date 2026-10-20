@@ -1207,7 +1207,7 @@ async function portalFranqueado(){
       <div id="pf-reu-w" style="display:none;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
         <input class="fi" id="pf-reuniao" type="date" style="max-width:160px;padding:6px 9px;margin:0" min="${new Date().toISOString().slice(0,10)}">
         <input class="fi" id="pf-hora" type="time" style="max-width:120px;padding:6px 9px;margin:0">
-        <span style="font-size:10.5px;color:var(--gray)">dia e horário obrigatórios · <b>mínimo 48 horas de antecedência</b> — o jurídico mira essa data</span></div>
+        <span style="font-size:10.5px;color:var(--gray)">dia e horário obrigatórios · <b>mínimo 24 horas de antecedência</b> — o jurídico mira essa data</span></div>
       <button class="btn btp btw" id="pf-enviar" onclick="portalSolicitar()">Enviar para o jurídico</button>
       <div id="pf-aviso"></div></div>
     <div class="painel"><div class="bloco-t">&#128203; Minhas solicitações</div>
@@ -1319,8 +1319,8 @@ async function portalSolicitar(){
   if(temReu){
     reuD=ge("pf-reuniao").value;reuH=ge("pf-hora").value;
     if(!reuD||!reuH)return pfAviso("Você marcou que a reunião já está agendada — informe a DATA e o HORÁRIO dela.");
-    if(new Date(reuD+"T"+reuH)<new Date(Date.now()+48*3600*1000))
-      return pfAviso("A reunião precisa estar a pelo menos 48 horas daqui. Escolha outro dia/horário — ou desmarque a caixinha e envie sem a reunião.");
+    if(new Date(reuD+"T"+reuH)<new Date(Date.now()+24*3600*1000))
+      return pfAviso("A reunião precisa estar a pelo menos 24 horas daqui. Escolha outro dia/horário — ou desmarque a caixinha e envie sem a reunião.");
   }
   const bt=ge("pf-enviar");bt.disabled=true;bt.textContent="Enviando…";
   const fim=()=>{bt.disabled=false;bt.textContent="Enviar para o jurídico";};
