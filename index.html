@@ -1200,10 +1200,14 @@ async function portalFranqueado(){
       <button type="button" class="btn bts btsm" onclick="pfAddEmpresa()" style="margin-bottom:10px">+ Adicionar outra empresa (mesmo dono)</button>
       <select class="fi" id="pf-head" style="margin-bottom:8px"><option value="">Head responsável *</option></select>
       <textarea class="fi" id="pf-desc" rows="3" placeholder="Conte a situação: o que o cliente precisa, dívidas, o que ele pediu…" style="margin-bottom:8px;resize:vertical"></textarea>
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
-        <span style="font-size:12px;color:var(--gray)">&#128197; Reunião de devolução já marcada com o cliente?</span>
-        <input class="fi" id="pf-reuniao" type="date" style="max-width:160px;padding:6px 9px" min="${new Date().toISOString().slice(0,10)}">
-        <span style="font-size:10.5px;color:var(--gray)">(se sim, informe — o jurídico mira essa data)</span></div>
+      <label style="font-size:12.5px;display:flex;gap:7px;align-items:center;margin-bottom:6px;cursor:pointer">
+        <input type="checkbox" id="pf-temreu" style="width:16px;height:16px"
+          onchange="const w=ge('pf-reu-w');if(w)w.style.display=this.checked?'flex':'none';if(!this.checked){ge('pf-reuniao').value='';ge('pf-hora').value='';}">
+        &#128197; <b>Já tenho a reunião de devolução marcada com o cliente</b></label>
+      <div id="pf-reu-w" style="display:none;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+        <input class="fi" id="pf-reuniao" type="date" style="max-width:160px;padding:6px 9px;margin:0" min="${new Date().toISOString().slice(0,10)}">
+        <input class="fi" id="pf-hora" type="time" style="max-width:120px;padding:6px 9px;margin:0">
+        <span style="font-size:10.5px;color:var(--gray)">dia e horário obrigatórios · <b>mínimo 48 horas de antecedência</b> — o jurídico mira essa data</span></div>
       <button class="btn btp btw" id="pf-enviar" onclick="portalSolicitar()">Enviar para o jurídico</button>
       <div id="pf-aviso"></div></div>
     <div class="painel"><div class="bloco-t">&#128203; Minhas solicitações</div>
@@ -1300,6 +1304,15 @@ async function portalSolicitar(){
   if(!empresas.length)return pfAviso("Informe ao menos uma empresa (CNPJ + nome).");
   if(!ge("pf-head").value)return pfAviso("Escolha a head responsável.");
   if(!ge("pf-desc").value.trim())return pfAviso("Descreva a situação do cliente.");
+  // checkbox marcado = data E hora obrigatórias, com 48h de antecedência
+  const temReu=!!(ge("pf-temreu")&&ge("pf-temreu").checked);
+  let reuD=null,reuH=null;
+  if(temReu){
+    reuD=ge("pf-reuniao").value;reuH=ge("pf-hora").value;
+    if(!reuD||!reuH)return pfAviso("Você marcou que a reunião já está agendada — informe a DATA e o HORÁRIO dela.");
+    if(new Date(reuD+"T"+reuH)<new Date(Date.now()+48*3600*1000))
+      return pfAviso("A reunião precisa estar a pelo menos 48 horas daqui. Escolha outro dia/horário — ou desmarque a caixinha e envie sem a reunião.");
+  }
   const bt=ge("pf-enviar");bt.disabled=true;bt.textContent="Enviando…";
   const fim=()=>{bt.disabled=false;bt.textContent="Enviar para o jurídico";};
   // um pedido por empresa: mesma head/descrição/acesso/reunião, MESMO assessor
@@ -1318,7 +1331,7 @@ async function portalSolicitar(){
       p_cnpj:e.dig,p_empresa:e.nome,p_descricao:ge("pf-desc").value.trim(),
       p_municipio:e.mun,p_uf:e.uf,p_ecac:e.ec,
       p_anexo_caminho:anexo,p_anexo_nome:anexoNome,p_anexo_tamanho:anexoTam,
-      p_reuniao:ge("pf-reuniao").value||null,p_assessor:assessorLote});
+      p_reuniao:reuD,p_hora_reuniao:reuH,p_assessor:assessorLote});
     if(error){erros.push(e.nome+": "+error.message);}
     else{okN++;if(data&&data.novo)novos++;if(data&&data.assessor&&!assessorLote)assessorLote=data.assessor;}
   }
@@ -1326,7 +1339,8 @@ async function portalSolicitar(){
   if(erros.length)return pfAviso("Enviei "+okN+" de "+empresas.length+". Não deu em: "+erros.join(" · "));
   // limpa o formulário (volta a ter uma empresa em branco)
   E._pfEmpI=0;ge("pf-empresas").innerHTML=pfEmpRow(0);
-  ["pf-desc","pf-reuniao"].forEach(i=>ge(i).value="");
+  ["pf-desc","pf-reuniao","pf-hora"].forEach(i=>{if(ge(i))ge(i).value="";});
+  if(ge("pf-temreu")){ge("pf-temreu").checked=false;ge("pf-reu-w").style.display="none";}
   pfAviso("Enviado! "+okN+" empresa(s) já viraram tarefa imediata no jurídico"+(novos?" ("+novos+" cliente(s) cadastrado(s))":"")+". Acompanhe aqui embaixo.","info");
   portalLista();
 }
