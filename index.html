@@ -1264,8 +1264,17 @@ async function pfBuscaCNPJ(el){
   const dig=String(el.value||"").replace(/\D/g,"");
   row.dataset.mun="";row.dataset.uf="";
   const info=row.querySelector(".pf-cnpj-info");
-  if(dig.length!==14){if(info)info.innerHTML="";return;}
-  let d;try{const r=await fetch("https://brasilapi.com.br/api/cnpj/v1/"+dig);if(!r.ok)return;d=await r.json();}catch(e){return;}
+  // nada de falha silenciosa (caso Peduzzi, 20/10/2026): sempre dizer o que houve
+  if(dig.length===11){if(info)info.innerHTML='<span style="color:var(--gray)">CPF informado — preencha o nome manualmente que está tudo certo.</span>';return;}
+  if(dig.length!==14){
+    if(info)info.innerHTML=dig.length?`<span style="color:var(--red)">&#9888; CNPJ com ${dig.length} números — precisa ter 14. Confira os dígitos.</span>`:"";
+    return;}
+  if(info)info.innerHTML='<span style="color:var(--gray)">&#128269; consultando a Receita…</span>';
+  let d;
+  try{const r=await fetch("https://brasilapi.com.br/api/cnpj/v1/"+dig);
+    if(!r.ok){if(info)info.innerHTML='<span style="color:var(--red)">&#9888; CNPJ não encontrado na Receita — confira os números. Se estiver certo (empresa muito nova), preencha o nome manualmente e envie normal.</span>';return;}
+    d=await r.json();}
+  catch(e){if(info)info.innerHTML='<span style="color:#7F6000">&#9888; A consulta à Receita falhou agora — preencha o nome da empresa manualmente e envie normal.</span>';return;}
   row.dataset.mun=d.municipio||"";row.dataset.uf=d.uf||"";
   const emp=row.querySelector(".pf-emp");
   if(d.razao_social&&emp&&!(emp.value||"").trim())emp.value=d.razao_social;
