@@ -2613,7 +2613,7 @@ async function carregarProcs(t){
   // 🏛 tribunal + ⚖ liminar/sentença por processo (Bruna, 19/10/2026)
   const detChips=p=>{
     const lm=String(p.liminar||"").toUpperCase(),st2=String(p.sentenca||"").toUpperCase();
-    const cor=v=>/PARCIAL|EM PARTE/.test(v)?"td2":(v==="DEFERIDA"||v==="CONCEDIDA")?"tek":"ti";
+    const cor=v=>/BAIXADA|EXTINTA/.test(v)?"tm":/PARCIAL|EM PARTE/.test(v)?"td2":(v==="DEFERIDA"||v==="CONCEDIDA")?"tek":"ti";
     return `${p.tribunal?` <span class="tag tda">&#127963; ${esc(p.tribunal)}</span>`:""}`
       +(lm?` <span class="tag ${cor(lm)}">liminar ${lm.toLowerCase()}</span>`:"")
       +(st2?` <span class="tag ${cor(st2)}">sentença ${st2.toLowerCase()}</span>`:"")
@@ -2697,7 +2697,7 @@ function procDetalhes(id){
     <label style="font-size:11px">Liminar</label>
     ${sel("pd-lim",p.liminar,["DEFERIDA","PARCIALMENTE DEFERIDA","INDEFERIDA"])}
     <label style="font-size:11px">Sentença</label>
-    ${sel("pd-sent",p.sentenca,["CONCEDIDA","CONCEDIDA EM PARTE","DENEGADA"])}
+    ${sel("pd-sent",p.sentenca,["CONCEDIDA","CONCEDIDA EM PARTE","DENEGADA","BAIXADA/EXTINTA"])}
     <button class="btn btp btw" onclick="salvarProcDetalhes(${id})">&#128190; Salvar</button>`);
 }
 async function salvarProcDetalhes(id){
