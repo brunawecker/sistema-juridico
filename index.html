@@ -3226,12 +3226,14 @@ async function salvarGateSimples(envolve){
 }
 async function gatePropLancar(){
   const t=E.atual;fecharModal2();
+  // ao salvar a proposta, a tarefa conclui SOZINHA (Bruna, 21/10/2026)
+  E._gatePropLanc=t?{id:t.id_tarefa,depois:E._gateDepois||"concluir"}:null;
   await abrirProposta();
   if(t&&t.id_cliente){
     E._prCli={id_cliente:t.id_cliente,nome:t.cliente,cnpj_cpf:t.cnpj_cpf||""};
     if(ge("pr-q"))ge("pr-q").value=t.cliente||"";
     if(ge("pr-sel"))ge("pr-sel").textContent="✓ "+(t.cliente||"")+" selecionado";}
-  toast("Lance a proposta; depois volte ao cartão e conclua a tarefa.","ok");
+  toast("Lance a proposta — ao salvar, a tarefa conclui sozinha.","ok");
 }
 async function gatePropJustificar(){
   const t=E.atual,j=(ge("gate-just").value||"").trim();
@@ -8799,7 +8801,14 @@ async function lancarProposta(){
     data_reuniao:ge("pr-reuniao").value||null});
     toast("✓ Proposta lançada: "+r.id,"ok");E._calcCond=null;}
   catch(e){toast("Erro: "+e.message,"erro");return;}
-  fecharModal2();recarregarTelaAtual();
+  fecharModal2();
+  // veio do gate do parecer? fecha o ciclo: a tarefa conclui/encerra sozinha
+  if(E._gatePropLanc&&E.atual&&E.atual.id_tarefa===E._gatePropLanc.id){
+    const dep=E._gatePropLanc.depois;E._gatePropLanc=null;E._propGateOk=true;
+    toast("Proposta registrada — concluindo a tarefa do parecer…","ok");
+    (dep==="encerrar"?abrirEncerrar:concluirTarefa)();return;}
+  E._gatePropLanc=null;
+  recarregarTelaAtual();
 }
 // ponte da Calculadora de cartão → Lançar proposta (mensagem vinda do iframe)
 window.addEventListener("message",ev=>{
