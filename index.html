@@ -1189,7 +1189,7 @@ async function portalSalvarSenha(){
   try{await supa.rpc("franq_senha_trocada");}catch(_e){}
   E.franq.senha_trocada=true;portalFranqueado();
 }
-const PF_ST={NOVA:["tda","recebida"],EM_ANALISE:["td2","em análise"],RESPONDIDA:["tek","respondida"],RECUSADA:["ti","recusada"]};
+const PF_ST={NOVA:["tda","recebida"],EM_ANALISE:["td2","em análise"],CONCLUIDA:["tek","concluído — em revisão final"],RESPONDIDA:["tek","respondida"],RECUSADA:["ti","recusada"]};
 async function portalFranqueado(){
   if(!E.franq.senha_trocada)return portalTrocaSenha();
   E._pfEmpI=0;
@@ -4306,10 +4306,10 @@ async function telaDiario(dia){
           <button class="btn bts btsm" style="color:var(--red);border-color:var(--red)" onclick="decidirDobro(${d.id},false)">negar</button></span></div>`).join("")+
         `<div style="font-size:10px;color:var(--gray);margin-top:4px">Validada, a ficha extra entra sozinha no Placar do ciclo. Contador novo aprovado fica registrado na ficha do cliente ("contador parceiro").</div></div>`;}
     // 📨 solicitações de franqueados aguardando resposta (Portal do Franqueado)
-    let solF=[];try{solF=(await DB.franqSolicListar()).filter(s=>["NOVA","EM_ANALISE"].includes(s.status));}catch(e){}
+    let solF=[];try{solF=(await DB.franqSolicListar()).filter(s=>["NOVA","EM_ANALISE","CONCLUIDA"].includes(s.status));}catch(e){}
     if(solF.length){
       // parecer FEITO sem resposta = gargalo das heads; reunião a ≤2 dias grita
-      const prontasF=solF.filter(s=>/EM DIA/i.test(s.tarefa_status||""));
+      const prontasF=solF.filter(s=>s.status==="CONCLUIDA"||/EM DIA/i.test(s.tarefa_status||""));
       const emProd=solF.filter(s=>!/EM DIA/i.test(s.tarefa_status||""));
       const urgReun=s=>{if(!s.data_reuniao)return false;const d=new Date(s.data_reuniao+"T12:00:00"),h0=new Date();h0.setHours(12,0,0,0);return (d-h0)/86400000<=2;};
       const brR=s=>new Date(s.data_reuniao+"T12:00:00").toLocaleDateString("pt-BR");
@@ -5636,7 +5636,7 @@ async function telaFranqueados(){
         <button class="btn bts btsm" style="${x.ver_parecer?"color:var(--green);border-color:var(--green)":"color:var(--gray);border-color:var(--border)"}" onclick="toggleVerParecer(${x.id})" title="${x.ver_parecer?"PADRÃO deste franqueado: VÊ o anexo do parecer. Clique para deixar bloqueado por padrão (dá para abrir exceção parecer a parecer)":"PADRÃO deste franqueado: NÃO vê o anexo (só a mensagem). Clique para liberar por padrão. Você ainda pode liberar um parecer específico na exceção"}">&#128196; padrão: ${x.ver_parecer?"liberado":"bloqueado"}</button>
         ${x.acesso_criado?`<button class="btn bts btsm" style="color:var(--amber);border-color:var(--amber)" onclick="resetSenhaFranq(${x.id})" title="esqueceu a senha? volta para a padrão">&#8634;</button>`:""}</span></div>`;};
   // 📨 solicitações vindas do portal (parecer/proposta)
-  const solRot={NOVA:["tda","nova"],EM_ANALISE:["td2","em análise"],RESPONDIDA:["tek","respondida"],RECUSADA:["ti","recusada"]};
+  const solRot={NOVA:["tda","nova"],EM_ANALISE:["td2","em análise"],CONCLUIDA:["tek","concluída"],RESPONDIDA:["tek","respondida"],RECUSADA:["ti","recusada"]};
   const solHtml=s=>{const st=solRot[s.status]||["tm",s.status];
     return `<div class="linha-item" style="align-items:flex-start">
       <span style="font-size:12.5px"><span class="tag ${st[0]}">${st[1]}</span>
