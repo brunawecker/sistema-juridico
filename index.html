@@ -5675,8 +5675,10 @@ async function telaFranqueados(){
   const respMes=sols.filter(s=>s.resp_em&&new Date(s.resp_em).getMonth()===mesAtu&&new Date(s.resp_em).getFullYear()===anoAtu);
   const mediaMes=respMes.length?(respMes.reduce((a,s)=>a+diasSol(s),0)/respMes.length):null;
   // 🔗 conversão: proposta lançada p/ o mesmo cliente DEPOIS do pedido; contrato = fechada SIM
+  // data_lancamento_dt vem NULA em muitas propostas (279!) — usar a data da
+  // proposta como reserva, senão NENHUMA conversão aparecia (Bruna, 21/10/2026)
   const propDe=s=>s.cliente_id?(propsAll||[]).filter(p=>String(p.id_cliente||"")===String(s.cliente_id)
-    &&String(p.data_lancamento_dt||"").slice(0,10)>=String(s.criado).slice(0,10)):[];
+    &&String(p.data_lancamento_dt||p.data_proposta_dt||"").slice(0,10)>=String(s.criado).slice(0,10)):[];
   const solProp=s=>{const ps=propDe(s);return ps.length?(ps.some(p=>String(p.fechada||"")==="SIM")?"CONTRATO":"PROPOSTA"):null;};
   const virProp=sols.filter(s=>solProp(s)).length,virContr=sols.filter(s=>solProp(s)==="CONTRATO").length;
   const levCard=(rot,val,c)=>`<div style="background:${c}14;border:1.5px solid ${c};border-radius:11px;padding:8px 12px;flex:1;min-width:105px">
