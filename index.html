@@ -3158,11 +3158,19 @@ async function abrirGateProposta(){
   try{props=((await DB.propostas())||[]).filter(p=>p.id_cliente===t.id_cliente
     &&p.status!=="Recusada");}catch(e){}
   if(props.length){
+    // ➕ próxima proposta do MESMO cliente (sugestão da Madu, 21/10/2026):
+    // parecer vendido pelo Nicholas → a venda seguinte sai daqui, com os
+    // MESMOS responsáveis pela venda (obrigatório; travados no formulário)
+    const ref=props[props.length-1];
+    E._gatePropRef={executor:String(ref.executor||"").trim(),quem_pediu:String(ref.quem_pediu||"").trim()};
     modal2("&#128221; Parecer entregue — proposta conferida",esc(t.cliente),`
       <div class="aviso info">&#10003; Encontrei proposta deste cliente na aba de Propostas:
         <b>${props.map(p=>esc(p.id_proposta)+" · "+esc(p.status||"")).join(" · ")}</b></div>
-      <button class="btn btg btw" style="margin-top:8px" onclick="gatePropOk()">&#10003; Tudo certo — concluir a tarefa</button>`);
+      <button class="btn btg btw" style="margin-top:8px" onclick="gatePropOk()">&#10003; Tudo certo — concluir a tarefa</button>
+      <button class="btn btp btw" style="margin-top:6px" onclick="gatePropLancar()">&#128221; Lançar a PRÓXIMA proposta deste cliente</button>
+      <div style="font-size:10.5px;color:var(--gray);margin-top:3px">A nova proposta nasce com os <b>mesmos responsáveis pela venda</b> da anterior (${esc(E._gatePropRef.quem_pediu||E._gatePropRef.executor||"—")}) — regra da casa, campos travados.</div>`);
     return;}
+  E._gatePropRef=null;
   modal2("&#128221; Parecer entregue — e a proposta?",esc(t.cliente)+" — não encontrei nenhuma proposta deste cliente",`
     <div style="font-size:13px;margin-bottom:8px">Parecer/proposta comercial entregue deve virar uma <b>proposta lançada</b> — é o que alimenta os números de venda. Escolha:</div>
     <button class="btn btp btw" onclick="gatePropLancar()">&#128221; Lançar a proposta agora (cliente já vem selecionado)</button>
@@ -3233,6 +3241,14 @@ async function gatePropLancar(){
     E._prCli={id_cliente:t.id_cliente,nome:t.cliente,cnpj_cpf:t.cnpj_cpf||""};
     if(ge("pr-q"))ge("pr-q").value=t.cliente||"";
     if(ge("pr-sel"))ge("pr-sel").textContent="✓ "+(t.cliente||"")+" selecionado";}
+  // próxima proposta do cliente: MESMOS responsáveis da anterior, travados
+  const ref=E._gatePropRef;
+  if(ref&&(ref.executor||ref.quem_pediu)){
+    const trava=(id,val)=>{const el=ge(id);if(!el||!val)return;
+      if(![...el.options].some(o=>o.value===val))el.insertAdjacentHTML("beforeend",`<option>${esc(val)}</option>`);
+      el.value=val;el.disabled=true;el.title="Mesmos responsáveis da proposta anterior — regra da casa";};
+    trava("pr-exec",ref.executor);trava("pr-pediu",ref.quem_pediu||ref.executor);
+    E._gatePropRef=null;}
   toast("Lance a proposta — ao salvar, a tarefa conclui sozinha.","ok");
 }
 async function gatePropJustificar(){
