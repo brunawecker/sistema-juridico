@@ -6201,7 +6201,7 @@ async function exportarClientesPlanilhaGo(){
 }
 async function telaClientes(){
   setNav("cli",E.perfil.head_sim?"Gestão de Clientes":"Buscar Clientes"); carregando();
-  E._fSit="TODOS";E._fReg="TODOS";E._fAtivo="TODOS";E._fSN="TODOS";E._clPag=0;
+  E._fSit="TODOS";E._fReg="TODOS";E._fAtivo="TODOS";E._fSN="TODOS";E._fImp="TODOS";E._clPag=0;
   if(E._fHead===undefined)E._fHead=escHead()||"TODOS";
   let cs,ops;try{[cs,ops]=await Promise.all([DB.clientes(""),DB.tarefas()]);}catch(e){return erro(e.message);}
   // ⚖ fases processuais por tarefa (recursos ativos) — para filtro e sinalizador
@@ -6226,6 +6226,17 @@ async function telaClientes(){
   (ops||[]).forEach(t=>{if(t.id_cliente&&ehMeuNome(t.criado_por))E._lanceiCli[t.id_cliente]=true;});
   try{(await DB.clientesQueLancei()).forEach(id=>E._lanceiCli[id]=true);}catch(e){}
   E.tarefas=(ops||[]).map(classificar);
+  // ⛔ clientes IMPEDIDOS (Bruna, 22/10/2026): vem da data de queda informada
+  // na tarefa — impedido enquanto a queda não chega; tarefa de impedimento
+  // sem data = impedido sem previsão. Queda passada = impedimento caiu.
+  E._impedCli={};
+  (ops||[]).forEach(t=>{
+    if(!t.id_cliente)return;
+    const q=t.queda_impedimento_dt?String(t.queda_impedimento_dt).slice(0,10):"";
+    if(q&&q>=hojeISO()){const a=E._impedCli[t.id_cliente];
+      if(!a||a.q==="?"||q>a.q)E._impedCli[t.id_cliente]={q:q};}
+    else if(!q&&/impedimento/i.test(String(t.operacao||""))&&!String(t.status_tarefa||"").includes("EM DIA")){
+      if(!E._impedCli[t.id_cliente])E._impedCli[t.id_cliente]={q:"?"};}});
   // 👤 quem está com as tarefas de cada cliente (Bruna, 07/10/2026): dono da
   // tarefa-mãe; delegada mostra "dono 🤝→ delegado"; impulsos (subs) e fixas fora
   E._assPorCli={};
@@ -6270,6 +6281,7 @@ function desenhaPills(){
     ${[["TODOS","Todos"],["OFICIAL","&#10003; Clientes"],["PROSPECCAO","&#128270; Prospecção"]].map(([v,r])=>
       `<button class="btn ${E._fSit===v?"btp":"bts"} btsm" onclick="E._fSit='${v}';E._clPag=0;desenhaClientes();desenhaPills()">${r}</button>`).join("")}
     <button class="btn ${E._fSN==="COM"?"btp":"bts"} btsm" onclick="E._fSN=E._fSN==='COM'?'TODOS':'COM';E._clPag=0;desenhaClientes();desenhaPills()" title="Só clientes com prazo do Simples Nacional — os mais urgentes primeiro">&#9203; Prazo Simples</button>
+    <button class="btn ${E._fImp==="COM"?"btp":"bts"} btsm" onclick="E._fImp=E._fImp==='COM'?'TODOS':'COM';E._clPag=0;desenhaClientes();desenhaPills()" title="Só clientes IMPEDIDOS — pela data de queda do impedimento informada na tarefa (queda mais próxima primeiro; sem data informada vão ao fim)">&#9940; Impedidos</button>
     <select class="fsel" onchange="E._fReg=this.value;E._clPag=0;desenhaClientes()">
       <option value="TODOS">Regime: todos</option><option value="CONFIRMAR">&#9888; Para confirmar</option>
       <option value="SIMPLES">Simples/MEI</option><option value="PR">Presumido/Real</option><option value="SEM">Sem regime</option></select>
@@ -6336,6 +6348,7 @@ function filtroCliente(c){
   if(E._fReg==="SEM"&&rg!=="")return false;
   if(E._fAtivo==="SEM"&&E._temTarefa[c.id_cliente])return false;
   if(E._fAtivo==="COM"&&!E._temTarefa[c.id_cliente])return false;
+  if(E._fImp==="COM"&&!(E._impedCli||{})[c.id_cliente])return false;
   if(E._fAtivo==="MINHAS"&&!(E._minhaTarefa[c.id_cliente]
     ||loginDe(c.assessor_responsavel||"")===E.perfil.nome_sistema))return false;
   if(E._fAtivo==="LANCEI"&&!(E._lanceiCli||{})[c.id_cliente])return false;
@@ -6349,6 +6362,9 @@ function desenhaClientes(){
   let f=(q?filtraLocalClientes(E._clsTodos,q):E._clsTodos).filter(filtroCliente);
   // filtro do Simples: mais urgentes (prazo mais próximo/vencido) primeiro
   if(E._fSN==="COM")f=f.slice().sort((a,b)=>String(a.prazo_simples||"9999").slice(0,10).localeCompare(String(b.prazo_simples||"9999").slice(0,10)));
+  // filtro de impedidos: queda mais próxima primeiro; sem data informada no fim
+  if(E._fImp==="COM"){const kq=c=>{const q=((E._impedCli||{})[c.id_cliente]||{}).q||"9999";return q==="?"?"9998-12-31":q;};
+    f=f.slice().sort((a,b)=>kq(a).localeCompare(kq(b)));}
   const PAG=60,fim=Math.min((E._clPag+1)*PAG,f.length);
   const tag=c=>c.situacao==="PROSPECCAO"?'<span class="tag td2">&#128270; PROSPECÇÃO</span>'
     :'<span class="tag tek">&#10003; CLIENTE</span>';
@@ -6356,7 +6372,7 @@ function desenhaClientes(){
   alvo.innerHTML=`<p style="font-size:12px;color:var(--gray);margin-bottom:8px">${f.length} de ${E._clsTodos.length} cliente(s)${E._fAtivo==="MINHAS"?` · <b style="color:var(--navy)">${totMinhas} tarefa(s) ativas suas dentro deles</b>`:""}</p>`+
     f.slice(0,fim).map(c=>`<details class="det" id="cd-${esc(c.id_cliente)}"><summary onclick="prepCliente('${esc(c.id_cliente)}')">
       <div style="flex:1;min-width:0"><div style="font-weight:700;color:var(--navy)">${esc(c.nome)} ${tag(c)}
-        ${E._temTarefa[c.id_cliente]?'<span class="tag tek">com tarefa</span>':'<span class="tag ti">sem tarefa ativa</span>'}${String(c.assessor_responsavel||"").trim()===""?'<span class="tag" style="background:var(--red);color:white">&#9888; sem responsável</span>':""}${(E._minhaQtd||{})[c.id_cliente]?`<span class="tag" style="background:var(--ice);color:var(--dani)">&#128100; ${E._minhaQtd[c.id_cliente]} sua(s)</span>`:""}${prazoSNbadge(c)}</div>
+        ${E._temTarefa[c.id_cliente]?'<span class="tag tek">com tarefa</span>':'<span class="tag ti">sem tarefa ativa</span>'}${String(c.assessor_responsavel||"").trim()===""?'<span class="tag" style="background:var(--red);color:white">&#9888; sem responsável</span>':""}${(E._minhaQtd||{})[c.id_cliente]?`<span class="tag" style="background:var(--ice);color:var(--dani)">&#128100; ${E._minhaQtd[c.id_cliente]} sua(s)</span>`:""}${(E._impedCli||{})[c.id_cliente]?`<span class="tag" style="background:#7B0000;color:white" title="Cliente IMPEDIDO — pela data de queda informada na tarefa">&#9940; impedido${E._impedCli[c.id_cliente].q!=="?"?" até "+brData(E._impedCli[c.id_cliente].q):" · sem data de queda"}</span>`:""}${prazoSNbadge(c)}</div>
       <div style="font-size:11px;color:var(--gray)">${esc(c.cnpj_cpf||"")} · ${esc(c.head||"—")}${c.vertical?" · "+esc(c.vertical):""}${c.regime?" · "+esc(c.regime):""}</div></div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
         ${c.head?`<span class="tag tda">${esc(c.head)}</span>`:""}
