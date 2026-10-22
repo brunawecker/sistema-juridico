@@ -1989,7 +1989,13 @@ function montarPlanoDia(nome,ativas,reun,histHoje,props){
     if(rem<=0){fila.push(t);continue;}if(push1(t,4))rem-=t._tempo;}
   // pela REVISÃO: quem está há mais tempo na mesa abre a fila; quem voltou
   // ontem (correção/impulso) vai para o fim das imediatas (Bruna, 16/09)
-  plano.sort((a,b)=>a._urg-b._urg||(a._urg===0?((a._pfDias??999)-(b._pfDias??999)):(a._dias-b._dias)));
+  // dentro de cada degrau, REUNIÃO marcada vem primeiro, a mais próxima no
+  // topo (Madu/Bruna, 22/10/2026); fatais seguem pelo prazo fatal
+  const rKey=t=>t.reuniao_cliente_dt?String(t.reuniao_cliente_dt).slice(0,10):"9999-12-31";
+  plano.sort((a,b)=>a._urg-b._urg
+    ||(a._urg===0?((a._pfDias??999)-(b._pfDias??999)):0)
+    ||(rKey(a)<rKey(b)?-1:rKey(a)>rKey(b)?1:0)
+    ||(a._dias-b._dias));
   // fila em ordem de ATRASO REAL (mais antiga primeiro) — vale para a visão
   // das heads e para o painel "Na fila" do próprio assessor
   fila.sort((a,b)=>atrasoDias(b)-atrasoDias(a)||((a._dias??9)-(b._dias??9)));
