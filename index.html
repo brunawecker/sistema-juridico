@@ -1862,7 +1862,7 @@ function cardTarefa(t,mostrarAssessor,mostrarTempo){
   const tmp=mostrarTempo?`<span class="tco" style="font-family:'DM Mono'">&#9201;${t._tempo}min</span>`:"";
   return `<div class="tc ${t._urg===0?"uF":t._urg===0.5?"uP":"u"+(t._g||5)}" onclick="abrirTarefa('${esc(t.id_tarefa)}')"><div style="flex:1;min-width:0">
     <div class="tcc">${esc(t.cliente)}${fin}</div>
-    <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${t._nproc>1?` <span class="tag ts" title="execução com vários processos — o tempo do dia já conta ×${t._nproc}">&#9878; ${t._nproc} proc.</span>`:""}${fasesChipsDe(t)}${t.numero_processual?` <span class="tco" style="font-family:'DM Mono';font-size:10px">${esc(t.numero_processual)}</span>`:""}${ec}${t._impulso?(()=>{const de=(String(t.supervisao||"").match(/IMPULSO de ([^|]+)\|/)||[])[1];return ` <span class="tag" style="background:#1F4E79;color:white" title="Cartinho de impulso — devolve ao dono quando finalizar">&#129309; impulso${de?" de "+esc(String(de).trim()):""}</span>`;})():""}${tagLanc(t)}${es}${hd}${pf}${ass}${tmp}</div></div>
+    <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${t._nproc>1?` <span class="tag ts" title="execução com vários processos — o tempo do dia já conta ×${t._nproc}">&#9878; ${t._nproc} proc.</span>`:""}${fasesChipsDe(t)}${t.numero_processual?` <span class="tco" style="font-family:'DM Mono';font-size:10px">${esc(t.numero_processual)}</span>`:""}${ec}${t._impulso?(()=>{const de=(String(t.supervisao||"").match(/IMPULSO de ([^|]+)\|/)||[])[1];return ` <span class="tag" style="background:#1F4E79;color:white" title="Cartinho de impulso — devolve ao dono quando finalizar">&#129309; impulso${de?" de "+esc(String(de).trim()):""}</span>`;})():""}${(/parecer|levantamento/i.test(t.operacao||"")&&!t._delegada&&!t._concluida)?(t.reuniao_cliente_dt?` <span class="tag" style="background:${String(t.reuniao_cliente_dt).slice(0,10)<=hojeISO()?"var(--red)":"#1E8449"};color:white" title="Reunião com o cliente marcada — o parecer precisa estar pronto antes">&#128197; reunião ${brData(t.reuniao_cliente_dt)}${t.reuniao_cliente_hora?" "+esc(t.reuniao_cliente_hora):""}</span>`:` <span class="tag" style="background:var(--gray-lt);color:var(--gray)" title="Ainda sem reunião marcada com o cliente — prioridade menor que as agendadas">reunião não agendada</span>`):""}${tagLanc(t)}${es}${hd}${pf}${ass}${tmp}</div></div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">${dt}${t.prazo_fatal_dt?`<span class="tdy ov" style="font-weight:700">FATAL: ${brData(t.prazo_fatal_dt)}</span>`:""}${t.simples_prazo_dt?`<span class="tdy ov" style="font-weight:700;background:#7B2D8B">&#9203; SIMPLES: ${brData(String(t.simples_prazo_dt).slice(0,10))}</span>`:""}${t.prazo_fatal_dt&&t.retomada_fatal_dt&&String(t.retomada_fatal_dt).slice(0,10)>hojeISO()?`<span class="tdy ok" title="Andamento do dia cumprido — dorme até a retomada">&#9203; retoma ${brData(t.retomada_fatal_dt)}</span>`:""}</div></div>`;
 }
 // Banner de prazos fatais desta semana (clicável)
@@ -2520,6 +2520,20 @@ function desenharCard(t,hist){
       <select class="fsel" id="red-ass"><option value="">— escolher assessor —</option>${ops}</select>
       <button class="btn bts btsm" onclick="redistribuir()">&#128100; Redistribuir</button></div></div>`;}
   // aguardando / follow-up
+  // 📅 reunião com o cliente NA tarefa (sugestão da Madu, 22/10/2026) — só
+  // parecer/levantamento: com reunião marcada, prioridade à vista nas listas
+  if(/parecer|levantamento/i.test(t.operacao||"")&&!t._delegada){
+    const temR=!!t.reuniao_cliente_dt;
+    h+=`<div class="bloco"><div class="bloco-t">&#128197; Reunião com o cliente</div>
+      <div style="background:${temR?"#EAF7EA":"var(--gray-lt)"};border-radius:9px;padding:10px 12px">
+      <div style="font-size:12px;margin-bottom:6px">${temR
+        ?`&#9989; <b>Agendada para ${brData(t.reuniao_cliente_dt)}${t.reuniao_cliente_hora?" às "+esc(t.reuniao_cliente_hora):""}</b> — o parecer precisa estar pronto antes dessa data.`
+        :`&#9898; <b>Reunião não agendada</b> — quando combinar com o cliente, marque aqui: tarefa com reunião marcada é a prioridade da fila.`}</div>
+      <div class="linha-acao">
+        <input type="date" class="fsel" id="rc-data" value="${t.reuniao_cliente_dt?String(t.reuniao_cliente_dt).slice(0,10):""}">
+        <input type="time" class="fsel" id="rc-hora" value="${esc(t.reuniao_cliente_hora||"")}" style="width:96px">
+        <button class="btn btp btsm" onclick="salvarReuniaoCliente()">&#128190; ${temR?"Atualizar":"Marcar reunião"}</button>
+        ${temR?`<button class="btn bts btsm" onclick="salvarReuniaoCliente(true)">&#10005; desmarcar</button>`:""}</div></div></div>`;}
   const ehAg=String(t.check_||"")==="AGUARDANDO";
   if(ehAg){h+=`<div class="bloco"><div class="bloco-t">&#9203; Em aguardando</div>
     <div style="background:var(--amber-lt);border:1px solid #F9C74F;border-radius:9px;padding:10px 12px">
@@ -2948,6 +2962,22 @@ function abrirRetomadaFatal(){
     <button class="btn bts btw" style="margin-top:6px" onclick="fecharModal2();abrirTarefa(E.atual.id_tarefa)">&#9889; Ainda falta algo — manter no topo</button>
     <button class="btn btg btw" style="margin-top:6px" onclick="fecharModal2();marcarPrazoCumprido()">&#9989; O prazo foi CUMPRIDO — limpar o fatal</button>`);
 }
+// 📅 reunião com o cliente na tarefa de parecer/levantamento (Madu, 22/10/2026)
+async function salvarReuniaoCliente(desmarcar){
+  const t=E.atual;
+  if(desmarcar===true){
+    try{await DB.tarefaUpdate(t,{campos:{reuniao_cliente_dt:null,reuniao_cliente_hora:null},
+      hist_texto:"📅 Reunião com o cliente DESMARCADA na tarefa — volta como 'não agendada'.",hist_tipo:"HISTORICO"});}
+    catch(e){toast("Erro: "+e.message,"erro");return;}
+    t.reuniao_cliente_dt=null;t.reuniao_cliente_hora=null;
+    toast("Reunião desmarcada.","ok");abrirTarefa(t.id_tarefa);return;}
+  const d=ge("rc-data").value,hr=(ge("rc-hora").value||"").trim();
+  if(!d){toast("Escolha o dia da reunião com o cliente.","erro");return;}
+  try{await DB.tarefaUpdate(t,{campos:{reuniao_cliente_dt:d,reuniao_cliente_hora:hr},
+    hist_texto:`📅 Reunião com o cliente AGENDADA: ${brData(d)}${hr?" às "+hr:""} — o parecer precisa estar pronto antes.`,hist_tipo:"HISTORICO"});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  t.reuniao_cliente_dt=d;t.reuniao_cliente_hora=hr;
+  toast("Reunião marcada: "+brData(d)+(hr?" às "+hr:"")+".","ok");abrirTarefa(t.id_tarefa);}
 async function salvarRetomadaFatal(){
   const t=E.atual,d=ge("rf-data").value,max=String(t.prazo_fatal_dt).slice(0,10);
   if(!d){toast("Escolha a data de retomada.","erro");return;}
