@@ -1555,7 +1555,20 @@ function montarMenu(){
   itens[0][3]();   // abre a primeira
 }
 function setNav(v,titulo){E.view=v;ge("tbt").textContent=titulo;
-  document.querySelectorAll(".ni").forEach(b=>b.classList.toggle("on",b.dataset.v===v));}
+  document.querySelectorAll(".ni").forEach(b=>b.classList.toggle("on",b.dataset.v===v));
+  // 📝 resumo pendente persegue no sistema INTEIRO, não só na Agenda
+  // (Bruna, 24/10/2026) — a cada troca de tela, com folga de 90s entre
+  // checagens; não atropela cartão aberto nem outra janelinha em uso
+  if(E.perfil&&E.perfil.nome_sistema&&!(E.franq&&!E.perfil.head_sim)){
+    const ag=Date.now();
+    if(!E._resumoNagAte||ag>=E._resumoNagAte){
+      E._resumoNagAte=ag+90000;
+      setTimeout(()=>{try{
+        const m2=ge("modal2");
+        if(!E.atual&&!(m2&&m2.classList.contains("aberto")))checarResumosPendentes();
+      }catch(e){}},700);
+    }
+  }}
 function recarregar(){E._cacheT=null;const it=E._itens.find(i=>i[0]===E.view);if(it)it[3]();}
 function abrirMenu(){ge("sb").classList.add("on");ge("ovl").classList.add("on");}
 function fecharMenu(){ge("sb").classList.remove("on");ge("ovl").classList.remove("on");}
