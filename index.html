@@ -8475,6 +8475,19 @@ async function enviarDocsCriacao(inputId,idCli,idTar){
   if(ok)toast(ok+" documento(s) anexado(s) à tarefa.","ok");
   if(falhas.length)toast("Não anexado(s): "+falhas.join("; "),"erro");
 }
+// 🚫 anti-duplicata compartilhada (caso Rio Verde, 23/10/2026): o cliente já
+// tem tarefa ATIVA da mesma operação? Pergunta antes de criar outra — em
+// QUALQUER caminho de criação (fixas de robô ficam fora da conta)
+async function confirmaDupTarefa(idCli,op){
+  if(!idCli||!op)return true;
+  let ja=[];E._cacheT=null;   // dados frescos: pega até tarefa criada há segundos
+  try{ja=(await DB.tarefas()).filter(t=>t.id_tarefa&&t.id_cliente===idCli
+    &&String(t.operacao||"").trim()===String(op).trim()
+    &&String(t.status_tarefa||"")!=="TAREFA FIXA");}catch(e){}
+  if(!ja.length)return true;
+  const l=ja.map(t=>`• ${t.id_tarefa} — ${t.operacao} (${t.check_||"?"}, ${t.assessor||"sem assessor"})`).join("\n");
+  return confirm(`⚠️ Este cliente já tem ${ja.length} tarefa(s) ATIVA(S) de "${op}":\n\n${l}\n\nQuase sempre isso é duplicidade — melhor abrir/usar a que já existe (a head pode mesclar). Criar assim mesmo uma nova?`);
+}
 async function criarTarefaNova(){
   const c=E._ntCli;if(!c){toast("Selecione um cliente (ou marque tarefa interna).","erro");return;}
   if(c.interna){const tt=(ge("nt-int").value||"").trim();
@@ -8489,17 +8502,9 @@ async function criarTarefaNova(){
     op:(w.querySelector(".nt-ex-op")||{}).value||"",sup:((w.querySelector(".nt-ex-sup")||{}).value||"").trim()}));
   if(extras.some(x=>!x.op&&x.sup)){toast("Tem uma tarefa extra com resuminho mas SEM o tipo de operação — escolha o tipo ou remova a linha.","erro");return;}
   const extrasOk=extras.filter(x=>x.op);
-  // 🚫 anti-duplicata de TAREFA (Bruna, 21/09/2026): o cliente já tem tarefa
-  // ATIVA da mesma operação? (a trava antiga só evitava CLIENTE repetido).
-  if(!c.interna&&c.id_cliente){
-    let jaAtivas=[];
-    E._cacheT=null;   // dados frescos: pega até tarefa criada há segundos
-    try{jaAtivas=(await DB.tarefas()).filter(t=>t.id_tarefa&&t.id_cliente===c.id_cliente
-      &&String(t.operacao||"").trim()===String(op).trim());}catch(e){}
-    if(jaAtivas.length){
-      const l=jaAtivas.map(t=>`• ${t.id_tarefa} — ${t.operacao} (${t.check_||"?"}, ${t.assessor||"sem assessor"})`).join("\n");
-      if(!confirm(`⚠️ Este cliente já tem ${jaAtivas.length} tarefa(s) ATIVA(S) de "${op}":\n\n${l}\n\nQuase sempre isso é duplicidade — melhor abrir a tarefa que já existe. Criar assim mesmo uma nova?`))return;}
-  }
+  // 🚫 anti-duplicata de TAREFA (Bruna, 21/09/2026; caso Rio Verde 23/10:
+  // agora vale também no Novo cliente→existente e no grupo mesmo dono)
+  if(!c.interna&&c.id_cliente&&!(await confirmaDupTarefa(c.id_cliente,op)))return;
   // Prazo C3 = prazo processual: processo e prazo fatal são obrigatórios
   if(op==="Prazo C3"){
     if(!(ge("nt-proc").value||"").trim()){toast("Prazo C3 exige o Nº do processo — preencha o campo do processo.","erro");return;}
@@ -8630,6 +8635,12 @@ async function criarGrupoMesmoDono(principal,extras){
   let todos=E._clsTodos;
   if(!todos||!todos.length){try{todos=await DB.clientes("");}catch(e){todos=[];}}
   const grupoNota=`🏢 MESMO DONO — grupo de ${empresas.length} empresas: ${empresas.map(e2=>e2.nome).join(" · ")}. É a mesma pessoa por trás de todas: analise e trate em conjunto.`;
+  // anti-duplicata nos CNPJs que JÁ eram clientes (caso Rio Verde, 23/10/2026):
+  // pergunta ANTES de criar qualquer coisa — recusou, nada do grupo é gravado
+  if(!semTarefa){
+    for(const e2 of empresas){
+      const ja2=(todos||[]).find(x=>dig(x.cnpj_cpf)===dig(e2.cnpj));
+      if(ja2&&!(await confirmaDupTarefa(ja2.id_cliente,op)))return;}}
   const criados=[],reusados=[];let tarefas=0;
   try{
     for(let i=0;i<empresas.length;i++){const e2=empresas[i];
@@ -8664,6 +8675,7 @@ async function criarTarefaParaExistente(cli){
   if(flagNC&&!(ge("nc-headflag")||{}).checked){toast("Para direcionar a "+ge("nc-ass").value+", marque que a tarefa é por pedido direto de uma das heads.","erro");return;}
   const op=ge("nc-op").value;if(!op){toast("Selecione a operação da primeira tarefa.","erro");return;}
   if(op==="Prazo C3"){toast("Prazo C3 pede Nº do processo e prazo fatal: cadastre o cliente com outra operação (ou nenhuma) e crie o Prazo C3 pela Nova tarefa.","erro");return;}
+  if(!(await confirmaDupTarefa(cli.id_cliente,op)))return;   // caso Rio Verde, 23/10/2026
   const ecacEx=ecacValor("nc-op");if(ecacEx===null)return;
   const chk=ge("nc-chk").value;
   const rev=new Date();if(!["IMEDIATO","DIÁRIO"].includes(chk))rev.setDate(rev.getDate()+7);
