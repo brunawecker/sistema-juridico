@@ -1402,6 +1402,9 @@ async function entrou(){
   if(!p.vendo_como_outro){DB.presencaPing();setInterval(()=>DB.presencaPing(),5*60000);}
   vigiarVersao();
   coroaViva();
+  // resumo de reunião pendente cobra NA ENTRADA, em qualquer perfil — não só
+  // ao abrir a Agenda (heads caíam na Central e escapavam; Bruna, 23/10/2026)
+  try{checarResumosPendentes();}catch(e){}
 }
 // erro inesperado em QUALQUER clique: em vez de botão mudo, mostra a
 // mensagem real — os relatos "deu erro" passam a vir com o texto exato
@@ -7921,7 +7924,9 @@ function reuPendentesDe(reu){
   const eu=loginDe(E.perfil.nome_sistema),hoje=hojeISO();
   const ag=new Date(),nowMin=ag.getHours()*60+ag.getMinutes();
   return (reu||[]).filter(r=>{
-    if(loginDe(r.assessor)!==eu)return false;
+    // indicado pela head? a cobrança é DELE; senão, de quem fez a reunião
+    const dono=String(r.resumo_delegado||"").trim()?loginDe(r.resumo_delegado):loginDe(r.assessor);
+    if(dono!==eu)return false;
     const d=String(r.data_dt||"").slice(0,10);
     if(d<RESUMO_INI||d>hoje)return false;
     if(String(r.resumo||"").trim())return false;             // já resumida
@@ -7950,6 +7955,11 @@ function pedirResumoReuniao(id,restantes){
   modal2("&#128221; "+(editando?"Editar resumo da reunião":"Resumo obrigatório da reunião"),
     esc(r.titulo||"reunião")+(r.data?" · "+esc(r.data):"")+(restantes>1?" · ainda faltam "+restantes:""),
     `<div style="font-size:11px;color:var(--gray);margin-bottom:6px">Toda reunião pede um resumo. Se <b>não teve cliente envolvido</b> (interno, pessoal, alinhamento), marque a caixa e pronto — sem precisar escrever.</div>
+     ${String(r.resumo_delegado||"").trim()&&loginDe(r.resumo_delegado)===loginDe(E.perfil.nome_sistema)?`<div style="font-size:11.5px;background:var(--ice);border-radius:8px;padding:6px 9px;margin-bottom:8px">&#128100; A head indicou <b>você</b> para preencher este resumo (reunião de ${esc(r.assessor||"—")}).</div>`:""}
+     ${E.perfil.head_sim&&!String(r.resumo||"").trim()?`<div class="linha-acao" style="background:#F5F2FC;border-radius:8px;padding:6px 9px;margin-bottom:8px">
+       <span style="font-size:11.5px;color:#6B4FBF">&#128228; Não foi você que fez? Indique quem preenche:</span>
+       <select class="fsel" id="res-deleg">${["",...OPERACIONAIS].map(n=>`<option value="${esc(n)}"${loginDe(r.resumo_delegado||"")===n&&n?" selected":""}>${n||"— escolher assessor —"}</option>`).join("")}</select>
+       <button class="btn bts btsm" onclick="indicarResumo('${esc(id)}')">&#128228; Indicar</button></div>`:""}
      <label style="font-size:12.5px;display:flex;gap:6px;align-items:center;margin:2px 0 8px;cursor:pointer;background:var(--gray-lt);border-radius:8px;padding:6px 9px"><input type="checkbox" id="res-semcli" ${r.sem_cliente===true?"checked":""} onchange="toggleSemCli()"> &#128101; Sem cliente envolvido nesta reunião</label>
      <div id="res-cli-w"${r.sem_cliente===true?' style="display:none"':""}>
        ${temCli?`<div style="font-size:12px;margin-bottom:6px">&#9989; Cliente: <b>${esc(r.cliente||"—")}</b></div>`
@@ -7980,6 +7990,19 @@ function escolherResCli(id){E._resCli=id;const c=(E._cli||{})[id];
   ge("res-res").innerHTML="";if(ge("res-q"))ge("res-q").value=c?c.nome:"";
   if(ge("res-sel"))ge("res-sel").innerHTML=c?"&#9989; Vinculado a: <b>"+esc(c.nome)+"</b>":"";}
 function toggleSemCli(){const cb=ge("res-semcli"),w=ge("res-cli-w");if(w)w.style.display=(cb&&cb.checked)?"none":"block";}
+// head indica um assessor para preencher o resumo (Bruna, 23/10/2026) — a
+// cobrança obrigatória passa a ser do indicado
+async function indicarResumo(id){
+  const r=(E._reuMap||{})[id];if(!r)return;
+  const quem=(ge("res-deleg")||{}).value||"";
+  if(!quem){toast("Escolha o assessor que vai preencher o resumo.","erro");return;}
+  try{await DB.reuniaoResumo(id,{resumo_delegado:quem});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  r.resumo_delegado=quem;
+  toast("Resumo indicado a "+quem+" — a cobrança passa a ser dele(a) e sai da sua.","ok");
+  fecharModal2();
+  try{if(!(await checarResumosPendentes(await DB.reunioes())))recarregarTelaAtual();}catch(e){}
+}
 // cliente da reunião ainda não existe no sistema → cadastra dali mesmo
 // (caso do Nicholas — Bruna, 29/09/2026)
 function toggleResNovo(){const cb=ge("res-novo"),w=ge("res-novo-w");
