@@ -8705,12 +8705,14 @@ async function criarTarefaParaExistente(cli){
   let revISO=rev.toISOString().slice(0,10);
   if(chk==="IMEDIATO"&&ge("nc-ass").value!==E.perfil.nome_sistema){
     const q=perguntarQuandoDelegar("IMEDIATO");if(q)revISO=q;}
-  // a head INDICADA no formulário vence a da ficha (caso Eduarda, 23/10/2026:
-  // ela indicava outra head e a tag saía com o nome dela mesmo)
+  // a head INDICADA no formulário MANDA — tarefa E carteira (Bruna, 23/10/2026):
+  // a head que veio do lançamento da proposta (ex.: Nicholas, pré-sorteio) é
+  // provisória; a 1ª tarefa define a carteira de verdade, sem perguntar.
   const headInd=ge("nc-head").value||cli.head||"";
-  if(headInd&&cli.head&&headInd!==cli.head){
-    if(confirm(`O cliente "${cli.nome}" está na carteira de ${cli.head}, mas você indicou ${headInd}.\n\nOK = a tarefa fica com ${headInd} E a carteira do cliente passa para ${headInd}.\nCancelar = a tarefa fica com ${headInd}, mas a carteira continua de ${cli.head}.`)){
-      try{await DB.clienteUpdate(cli.id_cliente,{head:headInd});cli.head=headInd;}catch(e){}}}
+  if(headInd&&cli.head!==headInd){
+    try{await DB.clienteUpdate(cli.id_cliente,{head:headInd});
+      toast(`🏷 Carteira do cliente definida: ${headInd}${cli.head?` (antes: ${cli.head})`:""}.`,"ok");
+      cli.head=headInd;}catch(e){}}
   let rt;
   try{await ecacGravar(cli.id_cliente,ecacEx,cli.e_cac);
     rt=await DB.criarTarefa({id_cliente:cli.id_cliente,cliente:cli.nome,cnpj:cli.cnpj_cpf||"",
