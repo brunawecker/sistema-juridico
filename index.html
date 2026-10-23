@@ -7925,14 +7925,18 @@ function reuPendentesDe(reu){
   const ag=new Date(),nowMin=ag.getHours()*60+ag.getMinutes();
   // reunião compartilhada (importada do Google p/ vários) cobra SÓ o responsável
   // — as outras cópias herdam o resumo depois (caso Erustes/Eduarda, 24/10/2026)
-  const porEv={};(reu||[]).forEach(r=>{const m=String(r.id_reuniao||"").match(/^(GCAL-.+)-[^-]+$/);
-    if(m)(porEv[m[1]]=porEv[m[1]]||[]).push(r);});
+  // só é CÓPIA quando o sufixo do id é um NOME da equipe (ids sem sufixo são
+  // eventos próprios — a chave antiga agrupava a agenda inteira; caso Breno)
+  const NOMES_EQ=new Set(((E.equipe||[]).map(m=>String(m.nome_sistema||"").trim()))
+    .concat(OPERACIONAIS,["Bruna","Danielly","Eduarda","Nicholas"]));
+  const porEv={};(reu||[]).forEach(r=>{const m=String(r.id_reuniao||"").match(/^(GCAL-.+)-([^-]+)$/);
+    if(m&&NOMES_EQ.has(m[2]))(porEv[m[1]]=porEv[m[1]]||[]).push(r);});
   return (reu||[]).filter(r=>{
     // indicado pela head? a cobrança é DELE; senão, de quem fez a reunião
     const dono=String(r.resumo_delegado||"").trim()?loginDe(r.resumo_delegado):loginDe(r.assessor);
     if(dono!==eu)return false;
-    const mEv=String(r.id_reuniao||"").match(/^(GCAL-.+)-[^-]+$/);
-    if(mEv&&(porEv[mEv[1]]||[]).length>1&&!String(r.resumo_delegado||"").trim()){
+    const mEv=String(r.id_reuniao||"").match(/^(GCAL-.+)-([^-]+)$/);
+    if(mEv&&NOMES_EQ.has(mEv[2])&&(porEv[mEv[1]]||[]).length>1&&!String(r.resumo_delegado||"").trim()){
       const grupo=porEv[mEv[1]];
       const resp=loginDe(r.responsavel||"");
       const cobrado=grupo.some(x=>loginDe(x.assessor)===resp)?resp
