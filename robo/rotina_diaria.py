@@ -183,6 +183,39 @@ def main():
                                 and coalesce(f.assessor,'') = coalesce(o.assessor,''))""")
         print(f"3z2. cartões de fixas desativadas/reescritas removidos: {cur.rowcount}")
 
+        # 3z3) carteira segue a SEÇÃO do 1º pagamento (Bruna, 23/10/2026):
+        # a head marcada na proposta (ex.: Nicholas, pré-sorteio) é provisória;
+        # quando o pagamento NOVO chega, a seção da planilha do financeiro é a
+        # verdade — ficha e tarefas se alinham sozinhas, com bilhete.
+        cur.execute("""
+            with pg as (
+              select regexp_replace(coalesce(p.cnpj_cpf,''),'\\D','','g') dig,
+                     min(trim(p.secao_head)) secao
+              from juridico.comercial_pagamentos p
+              where p.tipo='NOVO' and p.status='PAGO'
+                and p.data_pgto >= current_date - 7
+                and coalesce(trim(p.secao_head),'') in ('Bruna','Danielly','Eduarda')
+              group by 1 having count(distinct trim(p.secao_head)) = 1)
+            update juridico.clientes c set head = pg.secao
+            from pg
+            where regexp_replace(coalesce(c.cnpj_cpf,''),'\\D','','g') = pg.dig
+              and pg.dig <> '' and c.head is distinct from pg.secao
+            returning c.id_cliente, c.nome, c.head""")
+        corrigidos = cur.fetchall()
+        for idc, nome, head_nova in corrigidos:
+            cur.execute("""update juridico.operacional set advogada = %s
+                where id_cliente = %s and coalesce(advogada,'') <> %s""",
+                (head_nova, idc, head_nova))
+            hid = novo_id(cur, "HIS", 5)
+            cur.execute("""insert into juridico.historico
+                (id_historico,id_tarefa,id_cliente,data,data_dt,autor,tipo,texto,origem)
+                values (%s,'',%s,to_char(current_date,'DD/MM/YY'),current_date,
+                  'Sistema','HISTORICO',%s,'ROBO')""",
+                (hid, idc, "🏷 Carteira alinhada à SEÇÃO do 1º pagamento: head agora é "
+                 + head_nova + " (regra de 23/10/2026 — a seção do financeiro manda)."))
+        if corrigidos:
+            print(f"3z3. carteiras alinhadas à seção do pagamento: {len(corrigidos)}")
+
         # 4) tarefas fixas do dia
         DIAS_SEMANA = {"SEMANAL_SEG": 0, "SEMANAL_TER": 1, "SEMANAL_QUA": 2,
                        "SEMANAL_QUI": 3, "SEMANAL_SEX": 4}
