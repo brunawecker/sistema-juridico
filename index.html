@@ -2614,13 +2614,13 @@ async function carregarProcs(t){
   // card de processo ÚNICO: o nº do campo de cima vira linha sozinho, para a
   // Justiça/liminar/sentença e a fase existirem desde o 1º processo (23/10/2026)
   if(!ps.length&&!t._consulta&&String(t.numero_processual||"").trim()
-     &&/Execução Fiscal|Monitoramento|^MS(\s|$)/i.test(t.operacao||"")){
+     &&/Execução Fiscal|Monitoramento|^MS(\s|$)|^Petição$|^Recurso$|ExcPreEx|^Garantias$|^Oferta de garantia$|^Outros$/i.test(t.operacao||"")){
     try{const r=okS(await supa.from("tarefa_processos")
       .insert({id_tarefa:t.id_tarefa,numero:String(t.numero_processual).trim(),adicionado_por:E.perfil.nome_sistema})
       .select());if(r&&r.length)ps=r;}catch(e){}}
   E._procsCard=ps;
   // Monitoramento também acompanha N execuções num card só (Bruna, 07/10/2026)
-  const ehExec=/Execução Fiscal|Monitoramento|^MS(\s|$)/i.test(t.operacao||"");
+  const ehExec=/Execução Fiscal|Monitoramento|^MS(\s|$)|^Petição$|^Recurso$|ExcPreEx|^Garantias$|^Oferta de garantia$|^Outros$/i.test(t.operacao||"");
   if(!ps.length&&!ehExec){box.innerHTML="";return;}
   const chip={ATIVO:["tek","ativo"],SUSPENSO:["td2","suspenso"],BAIXADO:["tm","baixado"]};
   // árvore: originário com seus recursos aninhados; fase por originário
