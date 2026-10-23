@@ -220,8 +220,12 @@ def main():
         # ganha resumo, as irmãs herdam — ninguém é cobrado em dobro (24/10/2026)
         cur.execute("""
             with chave as (
-              select linha, regexp_replace(id_reuniao, '-[^-]+$', '') ev, resumo,
-                     resumo_dt, resumo_por, sem_cliente, cliente, id_cliente
+              select linha,
+                     case when regexp_replace(id_reuniao,'^.*-','') in
+                               (select nome_sistema from juridico.equipe)
+                          then regexp_replace(id_reuniao, '-[^-]+$', '')
+                          else id_reuniao end ev,
+                     resumo, resumo_dt, resumo_por, sem_cliente, cliente, id_cliente
               from juridico.reunioes where id_reuniao like 'GCAL-%%'),
             fonte as (
               select distinct on (ev) ev, resumo, resumo_dt, resumo_por,
