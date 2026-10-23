@@ -216,6 +216,27 @@ def main():
         if corrigidos:
             print(f"3z3. carteiras alinhadas à seção do pagamento: {len(corrigidos)}")
 
+        # 3z4) reunião compartilhada (cópias GCAL p/ vários): quando uma cópia
+        # ganha resumo, as irmãs herdam — ninguém é cobrado em dobro (24/10/2026)
+        cur.execute("""
+            with chave as (
+              select linha, regexp_replace(id_reuniao, '-[^-]+$', '') ev, resumo,
+                     resumo_dt, resumo_por, sem_cliente, cliente, id_cliente
+              from juridico.reunioes where id_reuniao like 'GCAL-%%'),
+            fonte as (
+              select distinct on (ev) ev, resumo, resumo_dt, resumo_por,
+                     sem_cliente, cliente, id_cliente
+              from chave where coalesce(resumo,'') <> '' order by ev, resumo_dt nulls last)
+            update juridico.reunioes r
+            set resumo = f.resumo, resumo_dt = f.resumo_dt, resumo_por = f.resumo_por,
+                sem_cliente = f.sem_cliente,
+                cliente = case when coalesce(r.cliente,'')='' then f.cliente else r.cliente end,
+                id_cliente = coalesce(r.id_cliente, f.id_cliente)
+            from chave c join fonte f on f.ev = c.ev
+            where r.linha = c.linha and coalesce(r.resumo,'') = ''""")
+        if cur.rowcount:
+            print(f"3z4. resumos propagados entre cópias de reunião: {cur.rowcount}")
+
         # 4) tarefas fixas do dia
         DIAS_SEMANA = {"SEMANAL_SEG": 0, "SEMANAL_TER": 1, "SEMANAL_QUA": 2,
                        "SEMANAL_QUI": 3, "SEMANAL_SEX": 4}
