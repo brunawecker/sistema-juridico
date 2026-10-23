@@ -2647,10 +2647,10 @@ async function carregarProcs(t){
       +` <span style="cursor:pointer;font-size:11px" title="tribunal / liminar / sentença" onclick="procDetalhes(${p.id})">&#9998;</span>`;};
   const linhaRec=p=>{const ch=chip[p.status]||["tm",p.status];
     return `<div class="linha-item" style="padding-left:22px"><span style="font-family:'DM Mono';font-size:11px;color:var(--gray)">&#8627; ${esc(p.numero)}
-      <span class="tag ts">${esc(p.papel)}</span> <span class="tag ${ch[0]}">${ch[1]}</span>${detChips(p)}</span>${botoes(p)}</div>`;};
+      <span class="tag ts">${esc(p.papel)}</span> <span class="tag ${ch[0]}">${ch[1]}${p.status==="SUSPENSO"&&p.suspensao_motivo?" · "+esc(String(p.suspensao_motivo).toLowerCase()):""}</span>${detChips(p)}</span>${botoes(p)}</div>`;};
   box.innerHTML=`<div class="bloco" style="margin-top:10px"><div class="bloco-t">&#9878; Processos desta tarefa (${origs.length} originário(s) · ${ps.filter(p=>p.status==="ATIVO").length} ativos de ${ps.length}${resumoTx?` · <span style="color:#7B2D8B">${resumoTx}</span>`:""})</div>
     ${origs.map(o=>{const ch=chip[o.status]||["tm",o.status];
-      return `<div class="linha-item"><span style="font-family:'DM Mono';font-size:11.5px">${esc(o.numero)} <span class="tag ${ch[0]}">${ch[1]}</span>
+      return `<div class="linha-item"><span style="font-family:'DM Mono';font-size:11.5px">${esc(o.numero)} <span class="tag ${ch[0]}">${ch[1]}${o.status==="SUSPENSO"&&o.suspensao_motivo?" · "+esc(String(o.suspensao_motivo).toLowerCase()):""}</span>
         <span class="tag" style="background:${fase[o.numero]==="1º grau"?"var(--gray-lt)":"#7B2D8B"};color:${fase[o.numero]==="1º grau"?"var(--gray)":"white"}" title="fase processual desta linha">fase: ${esc(fase[o.numero])}</span>${detChips(o)}</span>${botoes(o)}</div>`
         +recsDe(o).map(linhaRec).join("");}).join("")
     +(orfaos.length?`<div style="font-size:11px;color:var(--amber);margin-top:4px">&#9888; recursos sem vínculo com um originário deste card:</div>`+orfaos.map(linhaRec).join(""):"")
@@ -2751,9 +2751,25 @@ async function salvarProcDetalhes(id){
   }catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Detalhes salvos.","ok");fecharModal2();carregarProcs(E.atual);}
 async function procStatus(id,st){
-  try{okS(await supa.from("tarefa_processos").update({status:st}).eq("id",id));}
+  // suspender pede o MOTIVO (parcelamento, art. 40…) — lista fechada
+  if(st==="SUSPENSO"){abrirMotivoSuspensao(id);return;}
+  try{okS(await supa.from("tarefa_processos").update({status:st,suspensao_motivo:null}).eq("id",id));}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   carregarProcs(E.atual);}
+const MOTIVOS_SUSP=["Parcelamento","Art. 40 (LEF)","Decisão judicial","Garantia/penhora em discussão","Outro"];
+function abrirMotivoSuspensao(id){
+  const p=(E._procsCard||[]).find(x=>x.id===id);
+  modal2("&#9208; Suspender processo",p?`<span style="font-family:'DM Mono'">${esc(p.numero)}</span>`:"",`
+    <div style="font-size:12px;color:var(--gray);margin-bottom:8px">Suspenso sai da conta de tempo do dia. Qual o motivo?</div>
+    ${MOTIVOS_SUSP.map(m=>`<button class="btn bts btw" style="margin-bottom:6px" onclick='salvarSuspensao(${id},${JSON.stringify(m)})'>${esc(m)}</button>`).join("")}`);
+}
+async function salvarSuspensao(id,motivo){
+  try{okS(await supa.from("tarefa_processos").update({status:"SUSPENSO",suspensao_motivo:motivo}).eq("id",id));
+    if(E.atual)await DB.nota({id_tarefa:E.atual.id_tarefa,id_cliente:E.atual.id_cliente,tipo:"HISTORICO",
+      texto:"⏸ Processo suspenso — motivo: "+motivo});
+  }catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Suspenso ("+motivo+") — fora da conta de tempo.","ok");
+  fecharModal2();carregarProcs(E.atual);}
 async function procDestacar(numero){
   const t=E.atual;
   if(!confirm("Destacar o processo "+numero+" para um card próprio?\nEle sai desta lista e vira uma tarefa separada (mesmo assessor)."))return;
