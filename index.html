@@ -7952,7 +7952,8 @@ function reuPendentesDe(reu){
   const resolvidasDia={};(reu||[]).forEach(r=>{
     if(!(String(r.resumo||"").trim()||r.sem_cliente===true))return;
     const d=String(r.data_dt||"").slice(0,10);
-    (resolvidasDia[d]=resolvidasDia[d]||[]).push(nucleoReu(r.titulo));});
+    const li=(resolvidasDia[d]=resolvidasDia[d]||[]);
+    li.push(nucleoReu(r.titulo));li.push(nucleoReu(r.cliente));});
   return (reu||[]).filter(r=>{
     // indicado pela head? a cobrança é DELE; senão, de quem fez a reunião
     const dono=String(r.resumo_delegado||"").trim()?loginDe(r.resumo_delegado):loginDe(r.assessor);
@@ -7969,9 +7970,9 @@ function reuPendentesDe(reu){
     if(d<RESUMO_INI||d>hoje)return false;
     if(String(r.resumo||"").trim())return false;             // já resumida
     if(r.sem_cliente===true)return false;                    // marcada "sem cliente" → resolvida
-    const nn=nucleoReu(r.titulo);
-    if(nn.length>=8){const dd=String(r.data_dt||"").slice(0,10);
-      if((resolvidasDia[dd]||[]).some(x=>x.length>=8&&(x.includes(nn)||nn.includes(x))))return false;}
+    const dd=String(r.data_dt||"").slice(0,10);
+    for(const nn of [nucleoReu(r.titulo),nucleoReu(r.cliente)]){
+      if(nn.length>=8&&(resolvidasDia[dd]||[]).some(x=>x.length>=8&&(x.includes(nn)||nn.includes(x))))return false;}
     if(d<hoje)return true;                                    // dias passados
     const m=String(r.horario||"").match(/(\d{1,2}):(\d{2})/); // hoje: só se já passou o horário
     return m?((+m[1])*60+(+m[2]))<=nowMin:false;
