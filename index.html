@@ -7923,10 +7923,22 @@ const RESUMO_INI="2026-09-22";
 function reuPendentesDe(reu){
   const eu=loginDe(E.perfil.nome_sistema),hoje=hojeISO();
   const ag=new Date(),nowMin=ag.getHours()*60+ag.getMinutes();
+  // reunião compartilhada (importada do Google p/ vários) cobra SÓ o responsável
+  // — as outras cópias herdam o resumo depois (caso Erustes/Eduarda, 24/10/2026)
+  const porEv={};(reu||[]).forEach(r=>{const m=String(r.id_reuniao||"").match(/^(GCAL-.+)-[^-]+$/);
+    if(m)(porEv[m[1]]=porEv[m[1]]||[]).push(r);});
   return (reu||[]).filter(r=>{
     // indicado pela head? a cobrança é DELE; senão, de quem fez a reunião
     const dono=String(r.resumo_delegado||"").trim()?loginDe(r.resumo_delegado):loginDe(r.assessor);
     if(dono!==eu)return false;
+    const mEv=String(r.id_reuniao||"").match(/^(GCAL-.+)-[^-]+$/);
+    if(mEv&&(porEv[mEv[1]]||[]).length>1&&!String(r.resumo_delegado||"").trim()){
+      const grupo=porEv[mEv[1]];
+      const resp=loginDe(r.responsavel||"");
+      const cobrado=grupo.some(x=>loginDe(x.assessor)===resp)?resp
+        :loginDe(grupo.slice().sort((a,b)=>String(a.assessor||"").localeCompare(String(b.assessor||"")))[0].assessor);
+      if(loginDe(r.assessor)!==cobrado)return false;
+    }
     const d=String(r.data_dt||"").slice(0,10);
     if(d<RESUMO_INI||d>hoje)return false;
     if(String(r.resumo||"").trim())return false;             // já resumida
