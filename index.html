@@ -7944,6 +7944,15 @@ function reuPendentesDe(reu){
     .concat(OPERACIONAIS,["Bruna","Danielly","Eduarda","Nicholas"]));
   const porEv={};(reu||[]).forEach(r=>{const m=String(r.id_reuniao||"").match(/^(GCAL-.+)-([^-]+)$/);
     if(m&&NOMES_EQ.has(m[2]))(porEv[m[1]]=porEv[m[1]]||[]).push(r);});
+  // gêmeas por importação duplicada (ids DIFERENTES, mesmo dia, título com o
+  // mesmo núcleo — caso Becelli 07/10): resolvida uma, não cobra a outra
+  const nucleoReu=t=>{let s=semAc(String(t||"")).toUpperCase().replace(/[^A-Z0-9]/g,"");
+    ["VIDEOCHAMADA","MALADIRETA","LIGACAO","REUNIAO","RETORNO","APRESENTACAO","PARECER","GERAL","COM"]
+      .forEach(w=>{s=s.split(w).join("");});return s;};
+  const resolvidasDia={};(reu||[]).forEach(r=>{
+    if(!(String(r.resumo||"").trim()||r.sem_cliente===true))return;
+    const d=String(r.data_dt||"").slice(0,10);
+    (resolvidasDia[d]=resolvidasDia[d]||[]).push(nucleoReu(r.titulo));});
   return (reu||[]).filter(r=>{
     // indicado pela head? a cobrança é DELE; senão, de quem fez a reunião
     const dono=String(r.resumo_delegado||"").trim()?loginDe(r.resumo_delegado):loginDe(r.assessor);
@@ -7960,6 +7969,9 @@ function reuPendentesDe(reu){
     if(d<RESUMO_INI||d>hoje)return false;
     if(String(r.resumo||"").trim())return false;             // já resumida
     if(r.sem_cliente===true)return false;                    // marcada "sem cliente" → resolvida
+    const nn=nucleoReu(r.titulo);
+    if(nn.length>=8){const dd=String(r.data_dt||"").slice(0,10);
+      if((resolvidasDia[dd]||[]).some(x=>x.length>=8&&(x.includes(nn)||nn.includes(x))))return false;}
     if(d<hoje)return true;                                    // dias passados
     const m=String(r.horario||"").match(/(\d{1,2}):(\d{2})/); // hoje: só se já passou o horário
     return m?((+m[1])*60+(+m[2]))<=nowMin:false;
