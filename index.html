@@ -2611,6 +2611,13 @@ function desenharCard(t,hist){
 async function carregarProcs(t){
   const box=ge("procs-box");if(!box)return;
   let ps=[];try{ps=okS(await supa.from("tarefa_processos").select("*").eq("id_tarefa",t.id_tarefa).order("id"))||[];}catch(e){}
+  // card de processo ÚNICO: o nº do campo de cima vira linha sozinho, para a
+  // Justiça/liminar/sentença e a fase existirem desde o 1º processo (23/10/2026)
+  if(!ps.length&&!t._consulta&&String(t.numero_processual||"").trim()
+     &&/Execução Fiscal|Monitoramento|^MS(\s|$)/i.test(t.operacao||"")){
+    try{const r=okS(await supa.from("tarefa_processos")
+      .insert({id_tarefa:t.id_tarefa,numero:String(t.numero_processual).trim(),adicionado_por:E.perfil.nome_sistema})
+      .select());if(r&&r.length)ps=r;}catch(e){}}
   E._procsCard=ps;
   // Monitoramento também acompanha N execuções num card só (Bruna, 07/10/2026)
   const ehExec=/Execução Fiscal|Monitoramento|^MS(\s|$)/i.test(t.operacao||"");
