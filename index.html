@@ -8682,10 +8682,16 @@ async function criarTarefaParaExistente(cli){
   let revISO=rev.toISOString().slice(0,10);
   if(chk==="IMEDIATO"&&ge("nc-ass").value!==E.perfil.nome_sistema){
     const q=perguntarQuandoDelegar("IMEDIATO");if(q)revISO=q;}
+  // a head INDICADA no formulário vence a da ficha (caso Eduarda, 23/10/2026:
+  // ela indicava outra head e a tag saía com o nome dela mesmo)
+  const headInd=ge("nc-head").value||cli.head||"";
+  if(headInd&&cli.head&&headInd!==cli.head){
+    if(confirm(`O cliente "${cli.nome}" está na carteira de ${cli.head}, mas você indicou ${headInd}.\n\nOK = a tarefa fica com ${headInd} E a carteira do cliente passa para ${headInd}.\nCancelar = a tarefa fica com ${headInd}, mas a carteira continua de ${cli.head}.`)){
+      try{await DB.clienteUpdate(cli.id_cliente,{head:headInd});cli.head=headInd;}catch(e){}}}
   let rt;
   try{await ecacGravar(cli.id_cliente,ecacEx,cli.e_cac);
     rt=await DB.criarTarefa({id_cliente:cli.id_cliente,cliente:cli.nome,cnpj:cli.cnpj_cpf||"",
-    head:cli.head||ge("nc-head").value,operacao:op,check:chk,assessor:ge("nc-ass").value,
+    head:headInd,operacao:op,check:chk,assessor:ge("nc-ass").value,
     supervisao:(flagNC?MARCA_PEDIDO_HEAD+". ":"")+(ge("nc-sup").value||""),revisao:revISO});
     toast(`✓ Tarefa ${rt.id} criada no cliente existente "${cli.nome}".`,"ok");}
   catch(e){toast("Erro: "+e.message,"erro");return;}
