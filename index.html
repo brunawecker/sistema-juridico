@@ -8577,7 +8577,7 @@ function abrirNovoCliente(){
     <button type="button" class="btn bts btsm" style="margin-top:5px" onclick="ncAddEmpresa()">+ Adicionar outro CNPJ (mesmo dono)</button>
     <div style="font-size:10px;color:var(--gray);margin-top:2px">&#127970; <b>Mesmo dono com mais de um CNPJ?</b> Adicione as outras empresas: cada uma vira cliente + tarefa, <b>todas com o mesmo assessor</b> e marcadas como grupo do mesmo dono.</div>
     <div class="linha-acao" style="margin-top:6px">
-      <select class="fsel" id="nc-head"><option>Danielly</option><option>Bruna</option><option>Eduarda</option></select>
+      <select class="fsel" id="nc-head"><option value="">— head responsável * —</option><option>Danielly</option><option>Bruna</option><option>Eduarda</option></select>
       <select class="fsel" id="nc-sit"><option value="OFICIAL">&#10003; Cliente oficial</option><option value="PROSPECCAO">&#128270; Prospecção</option></select>
       <label style="font-size:11px;display:flex;align-items:center;gap:5px">&#128197; Entrou na casa:<input type="date" class="fsel" id="nc-inicio" style="width:150px"></label></div>
     <div style="margin-top:6px"><div style="font-size:11px;color:var(--gray);margin-bottom:3px">Tipo(s) de contrato — marque quantos precisar (ex.: Recupere + Renegocie):</div>${vertCheckboxes("nc-vert","")}</div>
@@ -8728,6 +8728,9 @@ async function criarClienteTarefa(){
   const cnpj=docFormata(ge("nc-cnpj").value);
   if(!nome){toast("Informe o nome.","erro");return;}
   if(!cnpj){toast("Informe o CNPJ/CPF.","erro");return;}
+  // head agora é escolha OBRIGATÓRIA e consciente — o campo define a carteira
+  // (antes abria pré-marcado "Danielly" e levava cliente pra carteira errada)
+  if(!ge("nc-head").value){toast("Escolha a head responsável — é ela que define a carteira do cliente.","erro");return;}
   // mais de um CNPJ do mesmo dono? segue o fluxo de GRUPO (Bruna, 29/09/2026)
   const extras=ncEmpresasExtras();
   if(extras.length){await criarGrupoMesmoDono({nome,cnpj,uf:"",mun:""},extras);return;}
