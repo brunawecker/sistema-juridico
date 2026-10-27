@@ -813,6 +813,7 @@ const S = {
   async lembreteFeito(id){return rpcS("lembrete_feito",{p_id:id});},
   async lembreteApagar(id){return rpcS("lembrete_apagar",{p_id:id});},
   async lembreteReagendar(id,dt){return rpcS("lembrete_reagendar",{p_id:id,p_data:dt});},
+  async lembreteAtualizar(id,txt){return rpcS("lembrete_atualizar",{p_id:id,p_texto:txt});},
   async sinalAgendar(idp){try{return await rpcS("sinal_agendar_apresentacao",{p_id_proposta:idp});}catch(e){return false;}},
   async franqueados(){return okS(await supa.from("franqueados").select("*").order("franqueado"))||[];},
   // portal do franqueado — lado do TIME (as funções do lado do franqueado usam supa.rpc direto)
@@ -4519,10 +4520,11 @@ function quadroLembretes(lembs){
   const deHoje=pend.filter(l=>l.data_lembrete===hj2);
   const fut=pend.filter(l=>l.data_lembrete>hj2).slice(0,8);
   const feitos=(lembs||[]).filter(l=>l.feito);
-  const linhaL=(l,cor)=>`<div class="linha-item" style="align-items:center"><span style="font-size:12.5px;flex:1;min-width:0;padding-right:10px">
+  const linhaL=(l,cor)=>`<div class="linha-item" style="align-items:center"><span style="font-size:12.5px;flex:1;min-width:0;padding-right:10px;white-space:pre-wrap">
       <b style="color:${cor}">${brData(l.data_lembrete)}</b> · <b>${esc(l.cliente)}</b> — ${esc(l.texto)}
       ${l.alvo&&l.alvo!=="para mim"?`<span class="tag ta">cobrar ${esc(l.alvo)}</span>`:""}</span>
     <span style="display:flex;gap:6px;align-items:center;flex-shrink:0;white-space:nowrap"><button class="btn btg btsm" onclick="lembreteFeito(${l.id})">&#10003; feito</button>
+      <button class="btn bts btsm" title="acrescentar atualização à anotação" onclick='atualizarLembrete(${l.id},${JSON.stringify(l.cliente||"")},${JSON.stringify(l.texto||"")})'>&#9998;</button>
       <button class="btn bts btsm" title="reagendar para outra data" onclick='reagendarLembrete(${l.id},${JSON.stringify(l.cliente||"")})'>&#128197;</button>
       <button class="btn bts btsm" title="apagar" onclick="lembreteApagar(${l.id})">&#10005;</button></span></div>`;
   return `<div class="painel">
@@ -4583,6 +4585,16 @@ async function salvarLembrete(){
   try{await DB.lembreteAdd(cli,txt,dt,alvo,idCli);}catch(e){toast("Erro: "+e.message,"erro");return;}
   rascunhoLimpa("lb:novo");
   toast("Guardado — aparece na sua agenda em "+brData(dt)+".","ok");fecharModal2();
+  (E.view==="agenda"?telaAgenda:telaCentral)();}
+function atualizarLembrete(id,cliente,texto){
+  modal2("&#9998; Atualizar lembrete",esc(cliente||""),`
+    <div style="background:var(--ice);border-radius:9px;padding:8px 11px;font-size:12px;white-space:pre-wrap;max-height:160px;overflow:auto;margin-bottom:8px">${esc(texto||"")}</div>
+    <textarea class="fta" id="la-txt" rows="3" placeholder="Nova atualização — entra datada abaixo do texto (ex.: cliente pediu mais uma semana)"></textarea>
+    <button class="btn btp btw" style="margin-top:8px" onclick="salvarAtualizarLembrete(${id})">&#128190; Acrescentar atualização</button>`);}
+async function salvarAtualizarLembrete(id){
+  const t=(ge("la-txt").value||"").trim();if(!t){toast("Escreva a atualização.","erro");return;}
+  try{await DB.lembreteAtualizar(id,t);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Atualização anotada.","ok");fecharModal2();
   (E.view==="agenda"?telaAgenda:telaCentral)();}
 function reagendarLembrete(id,cliente){
   modal2("&#128197; Reagendar lembrete",esc(cliente||""),`
