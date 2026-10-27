@@ -812,6 +812,7 @@ const S = {
   async headGastosAcertar(){return rpcS("head_gastos_acertar",{});},
   async lembreteFeito(id){return rpcS("lembrete_feito",{p_id:id});},
   async lembreteApagar(id){return rpcS("lembrete_apagar",{p_id:id});},
+  async lembreteReagendar(id,dt){return rpcS("lembrete_reagendar",{p_id:id,p_data:dt});},
   async sinalAgendar(idp){try{return await rpcS("sinal_agendar_apresentacao",{p_id_proposta:idp});}catch(e){return false;}},
   async franqueados(){return okS(await supa.from("franqueados").select("*").order("franqueado"))||[];},
   // portal do franqueado — lado do TIME (as funções do lado do franqueado usam supa.rpc direto)
@@ -4522,6 +4523,7 @@ function quadroLembretes(lembs){
       <b style="color:${cor}">${brData(l.data_lembrete)}</b> · <b>${esc(l.cliente)}</b> — ${esc(l.texto)}
       ${l.alvo&&l.alvo!=="para mim"?`<span class="tag ta">cobrar ${esc(l.alvo)}</span>`:""}</span>
     <span><button class="btn btg btsm" onclick="lembreteFeito(${l.id})">&#10003; feito</button>
+      <button class="btn bts btsm" title="reagendar para outra data" onclick='reagendarLembrete(${l.id},${JSON.stringify(l.cliente||"")})'>&#128197;</button>
       <button class="btn bts btsm" title="apagar" onclick="lembreteApagar(${l.id})">&#10005;</button></span></div>`;
   return `<div class="painel">
     <div class="bloco-t">&#128276; Meus lembretes de combinado
@@ -4532,7 +4534,8 @@ function quadroLembretes(lembs){
     ${!pend.length?'<div class="vazio">Nenhum lembrete pendente — use o botão para registrar um combinado. 🎉</div>':""}
     ${feitos.length?`<details style="margin-top:6px"><summary style="cursor:pointer;font-size:11.5px;color:var(--gray)">&#10003; Feitos nos últimos 7 dias (${feitos.length})</summary>
       ${feitos.map(l=>`<div class="linha-item" style="opacity:.65"><span style="font-size:12px">${brData(l.data_lembrete)} · ${esc(l.cliente)} — ${esc(l.texto)}</span>
-        <button class="btn bts btsm" onclick="lembreteFeito(${l.id})">desfazer</button></div>`).join("")}</details>`:""}</div>`;
+        <button class="btn bts btsm" onclick="lembreteFeito(${l.id})">desfazer</button>
+        <button class="btn bts btsm" title="retomar: volta a valer numa nova data" onclick='reagendarLembrete(${l.id},${JSON.stringify(l.cliente||"")})'>&#128260; retomar</button></div>`).join("")}</details>`:""}</div>`;
 }
 function abrirLembrete(){
   const nomes=[...new Set((E.equipe||[]).filter(m=>String(m.status||"").toUpperCase()==="ATIVO").map(m=>m.nome_sistema))].filter(n=>n!==E.perfil.nome_sistema).sort();
@@ -4580,6 +4583,16 @@ async function salvarLembrete(){
   try{await DB.lembreteAdd(cli,txt,dt,alvo,idCli);}catch(e){toast("Erro: "+e.message,"erro");return;}
   rascunhoLimpa("lb:novo");
   toast("Guardado — aparece na sua agenda em "+brData(dt)+".","ok");fecharModal2();
+  (E.view==="agenda"?telaAgenda:telaCentral)();}
+function reagendarLembrete(id,cliente){
+  modal2("&#128197; Reagendar lembrete",esc(cliente||""),`
+    <div style="font-size:12px;color:var(--gray);margin-bottom:6px">O lembrete volta para a sua lista na data escolhida (se estava feito, é retomado).</div>
+    <input type="date" class="fsel" id="lr-data" value="${hojeISO()}" style="width:100%">
+    <button class="btn btp btw" style="margin-top:8px" onclick="salvarReagendarLembrete(${id})">&#128197; Reagendar</button>`);}
+async function salvarReagendarLembrete(id){
+  const dt=ge("lr-data").value;if(!dt){toast("Escolha a data.","erro");return;}
+  try{await DB.lembreteReagendar(id,dt);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Reagendado para "+brData(dt)+".","ok");fecharModal2();
   (E.view==="agenda"?telaAgenda:telaCentral)();}
 async function lembreteFeito(id){
   try{await DB.lembreteFeito(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
