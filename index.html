@@ -446,7 +446,7 @@ async function quadroPremios(){
     const fol=pd.filter(x=>EH_FOLGA.test(x.premio)).length;
     return `<span style="background:${fol?"var(--amber-lt)":"var(--gray-lt)"};border-radius:10px;padding:4px 10px;font-size:12px">
       <b>${esc(n)}</b> · ${pd.length} pendente(s)${fol?` · <b style="color:var(--amber)">&#127958;&#65039; ${fol} folga(s)</b>`:""}</span>`;};
-  const linha=x=>`<div class="linha-item"><span style="font-size:12px">
+  const linha=x=>`<div class="linha-item prem-linha" data-pb="${esc(semAc(x.pessoa+" "+x.premio+" "+(x.numero||"")+" "+brData(x.semana)))}"><span style="font-size:12px">
       <span class="mono" style="color:var(--gray)">${brData(x.semana)}</span> · <b>${esc(x.pessoa)}</b>
       ${x.numero?`<span class="tag tz">nº ${x.numero}</span>`:""} ${EH_FOLGA.test(x.premio)?"&#127958;&#65039; ":""}${esc(x.premio)}
       ${(()=>{const rot=x.pago_por?(/ratead|todas/i.test(x.pago_por)?"&#129309; rateado entre as heads":"pagou "+esc(x.pago_por)):"";
@@ -475,14 +475,21 @@ async function quadroPremios(){
       <button class="btn btp btsm" style="margin-left:8px" onclick="abrirPremioNovo()">+ prêmio</button>
       <select class="fsel" style="margin-left:8px;font-size:11px" onchange="E._premFiltro=this.value;telaComercial()">
         <option value="">&#128100; Todos</option>
-        ${Object.keys(porP).sort((x,y)=>x.localeCompare(y)).map(n=>`<option ${filtro===n?"selected":""}>${esc(n)}</option>`).join("")}</select></div>
+        ${Object.keys(porP).sort((x,y)=>x.localeCompare(y)).map(n=>`<option ${filtro===n?"selected":""}>${esc(n)}</option>`).join("")}</select>
+      <input class="fsel" id="prem-busca" placeholder="&#128269; buscar prêmio..." style="margin-left:8px;font-size:11px;width:170px" oninput="premBusca(this.value)"></div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${Object.keys(porP).sort().map(chip).join("")}</div>
     ${gastoHtml}${agendaHtml}
     <div class="bloco-t" style="color:var(--amber)">A entregar / usufruir (${pend.length})</div>
     ${pend.map(linha).join("")||'<div class="vazio">Nada pendente 🎉</div>'}
-    <details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px;color:var(--gray)">&#10003; Já entregues (${ent.length}) — toque para ver</summary>
+    <details id="prem-det-ent" style="margin-top:8px"><summary style="cursor:pointer;font-size:12px;color:var(--gray)">&#10003; Já entregues (${ent.length}) — toque para ver</summary>
     ${ent.map(linha).join("")}</details>
     <div style="font-size:10.5px;color:var(--gray);margin-top:6px">&#127958;&#65039; = folga (home office, chegar tarde, sair cedo, dia de folga) — combine a data antes de marcar como entregue. Assessores não veem este quadro.</div></div>`;
+}
+// 🔎 busca por texto no quadro de prêmios — filtra ao vivo, sem recarregar a tela (Bruna, 28/10/2026)
+function premBusca(v){
+  const q=semAc(v).trim();
+  document.querySelectorAll(".prem-linha").forEach(el=>{el.style.display=!q||(el.dataset.pb||"").indexOf(q)>=0?"":"none";});
+  const det=ge("prem-det-ent");if(det&&q)det.open=true; // abre "já entregues" p/ mostrar o que casou lá dentro
 }
 function abrirPremioEditar(id){
   const x=(E._premMap||{})[id];if(!x)return;
@@ -4921,7 +4928,7 @@ async function carregarTricount(){
   const box=ge("tric-box");if(!box)return;
   let gs=[];try{gs=await DB.headGastos();}catch(e){box.innerHTML="";return;}
   let pends=[];try{pends=(await DB.premios()).filter(p=>!String(p.pago_por||"").trim());}catch(e){}
-  E._tricPrem={};pends.forEach(p=>E._tricPrem[p.id]=p);
+  E._tricPrem={};pends.forEach(p=>E._tricPrem[p.id]=p);E._tricPremList=pends;
   const heads=headsAtivas(),eu=E.perfil.nome_sistema;
   const abertos=gs.filter(g=>!g.liquidado);
   E._tricMap={};abertos.forEach(g=>{if(g.fonte==="gasto")E._tricMap[g.id]=g;});
@@ -4945,6 +4952,7 @@ async function carregarTricount(){
     <div class="bloco-t" style="color:#1E8449">&#128184; Divisão de gastos das heads — só vocês veem</div>
     ${pends.length?`<div class="linha-acao" style="margin-bottom:6px">
       <span style="font-size:11px;color:var(--gray)">&#127873; É pagamento de prêmio?</span>
+      <input class="fsel" id="tg-prem-busca" placeholder="&#128269; digite p/ achar" style="width:140px" oninput="tricFiltraPremios()">
       <select class="fsel" id="tg-premio" style="flex:1" onchange="tricVinculaPremio()">
         <option value="">não — gasto comum</option>
         ${pends.map(p=>`<option value="${p.id}">${esc(p.premio)} — ${esc(p.pessoa)}${p.valor?` (R$ ${String(p.valor).replace(".",",")})`:""}</option>`).join("")}</select></div>`:""}
@@ -4969,6 +4977,17 @@ async function carregarTricount(){
     :'<div style="font-size:12px;color:var(--gray)">Nenhum gasto em aberto. Lance o primeiro acima.</div>'}
     <div style="font-size:10px;color:var(--gray);margin-top:5px">&#128218; O histórico completo (lançamento por lançamento, incluindo acertados) fica em <b>Configurações</b>. Prêmio só vira linha aqui quando marcado como <b>pagamento individual</b> (no vínculo do lançar ou na caixinha do controle da roleta) — compra em lote entra pelo gasto total, sem duplicar.</div>
   </div>`;
+}
+// 🔎 digitar para achar o prêmio na lista do "É pagamento de prêmio?" (Bruna, 28/10/2026)
+function tricFiltraPremios(){
+  const sel=ge("tg-premio");if(!sel)return;
+  const q=semAc((ge("tg-prem-busca")||{}).value||"").trim(),cur=sel.value;
+  const lista=(E._tricPremList||[]).filter(p=>!q||semAc(p.premio+" "+p.pessoa).indexOf(q)>=0);
+  sel.innerHTML='<option value="">não — gasto comum</option>'+
+    lista.map(p=>`<option value="${p.id}">${esc(p.premio)} — ${esc(p.pessoa)}${p.valor?` (R$ ${String(p.valor).replace(".",",")})`:""}</option>`).join("");
+  if(cur&&lista.some(p=>String(p.id)===cur))sel.value=cur;        // mantém o que já estava escolhido
+  else if(q&&lista.length===1){sel.value=String(lista[0].id);tricVinculaPremio();} // sobrou um só → já seleciona
+  else if(cur)tricVinculaPremio();                                 // escolha sumiu do filtro → limpa o formulário
 }
 function tricVinculaPremio(){
   const sel=ge("tg-premio"),p=sel&&sel.value?(E._tricPrem||{})[sel.value]:null;
