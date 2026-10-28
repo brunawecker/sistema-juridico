@@ -55,8 +55,9 @@ AGENDAS = [
     {"cal": "nicholasdemeneghe.grupovillela@gmail.com", "ver": ["Nicholas"], "cat": "sdr"},
     {"cal": "plataformabd3.8@gmail.com",
      "ver": ["Nicholas"], "cat": "sdr", "dono": "Nicholas"},
-    {"cal": "souzademarqueseduarda@gmail.com",
-     "ver": ["Nicholas"], "cat": "sdr", "dono": "Nicholas"},
+    # 28/10/2026 (Bruna): esta agenda passou a ser DA EDUARDA (antes era
+    # agenda de marcação dos SDRs para o Nicholas)
+    {"cal": "souzademarqueseduarda@gmail.com", "ver": ["Eduarda"], "cat": "pessoal"},
     # plataforma SC → reuniões das 3 heads, com RODÍZIO diário de responsável
     {"cal": "plataformabde@gmail.com",
      "ver": ["Bruna", "Danielly", "Eduarda"], "cat": "sc", "rot": True},
