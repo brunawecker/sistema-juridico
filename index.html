@@ -5106,6 +5106,8 @@ async function telaMeusPremios(){
 }
 // modal do pedido de ficha em dobro (os dois tipos)
 function abrirDobro(tipo){
+  toast("\ud83d\udee0 Em manuten\u00e7\u00e3o \u2014 em breve, novas diretrizes. Os pedidos de ficha em dobro est\u00e3o pausados.","erro");return;
+  /* religar: remover as duas linhas acima */
   const cont=tipo==="CONTADOR_NOVO",ind=tipo==="INDICACAO_CLIENTE";
   modal2(cont?"&#129534; Contador parceiro novo":ind?"&#129309; Indicação de cliente":"&#128260; Cliente reativado",
     "Vai para validação das heads antes da roleta (sexta 15h)",`
@@ -7435,9 +7437,14 @@ async function telaComercial(){
     hh+=blocoOrigem(minhasNaRua(props,nome),nome===eu?"":" — "+esc(nome));
     return hh;
   };
-  // 🏆 Placar da semana — Programa de Engajamento (público para a equipe)
-  let placarHtml="";
+  // 🛠 FICHAS EM MANUTENCAO (Bruna, 28/10/2026): novas diretrizes a caminho.
+  // Para religar: FICHAS_MANUTENCAO=false (o bloco original segue intacto).
+  const FICHAS_MANUTENCAO=true;
+  let placarHtml='<div class="painel" style="background:linear-gradient(135deg,#455A64,#78909C);color:white">'
+    +'<b>&#128736; Programa de fichas em manuten\u00e7\u00e3o</b>'
+    +'<div style="font-size:12.5px;margin-top:4px;opacity:.92">Estamos definindo as <b>novas diretrizes</b> \u2014 o placar da semana e a corrida de fichas voltam em breve com as regras novas. Os pr\u00eamios j\u00e1 conquistados continuam valendo em "Meus Pr\u00eamios".</div></div>';
   try{
+    if(FICHAS_MANUTENCAO)throw new Error("manutencao");
     const pl=await DB.placar();
     if((pl||[]).length){
       const cc=coroaCriterio();E._critRotulo=cc.rotulo;
