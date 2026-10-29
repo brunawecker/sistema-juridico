@@ -2666,7 +2666,7 @@ async function carregarProcs(t){
   const detChips=p=>{
     const lm=String(p.liminar||"").toUpperCase(),st2=String(p.sentenca||"").toUpperCase();
     const cor=v=>/BAIXADA|EXTINTA/.test(v)?"tm":/PARCIAL|EM PARTE/.test(v)?"td2":(v==="DEFERIDA"||v==="CONCEDIDA")?"tek":"ti";
-    return `${p.tribunal?` <span class="tag tda">&#127963; ${esc(p.tribunal)}</span>`:""}`
+    return `${(p.tribunal||p.vara)?` <span class="tag tda">&#127963; ${esc([p.tribunal,p.vara].filter(Boolean).join(" · "))}</span>`:""}`
       +(lm?` <span class="tag ${cor(lm)}">liminar ${lm.toLowerCase()}</span>`:"")
       +(st2?` <span class="tag ${cor(st2)}">sentença ${st2.toLowerCase()}</span>`:"")
       +` <span style="cursor:pointer;font-size:11px" title="tribunal / liminar / sentença" onclick="procDetalhes(${p.id})">&#9998;</span>`;};
@@ -2732,11 +2732,16 @@ function procDetalhes(id){
     ...UFS.map(u=>"TJ"+u),"STJ","STF"];
   const tAtual=String(p.tribunal||"").trim();
   const tOps=(tAtual&&!TRIBS.includes(tAtual)?[tAtual]:[]).concat(TRIBS);
+  // vara = lista fechada (Bruna, 29/10/2026): só o originário tem vara;
+  // recurso corre no tribunal. Valor antigo fora da lista entra no topo.
+  const VARAS=Array.from({length:27},(_,i)=>(i+1)+"ª VF");
+  const vAtual=String(p.vara||"").trim();
+  const vOps=(vAtual&&!VARAS.includes(vAtual)?[vAtual]:[]).concat(VARAS);
   const pap=p.papel||"ORIGINÁRIO";
   const origsOut=(E._procsCard||[]).filter(x=>(x.papel||"ORIGINÁRIO")==="ORIGINÁRIO"&&x.id!==p.id);
   modal2("&#127963; Detalhes do processo",`<span style="font-family:'DM Mono'">${esc(p.numero)}</span>`,`
     <label style="font-size:11px">O que é este processo? <span style="color:var(--gray)">(corrija aqui os cadastros antigos — tudo nasceu como "originário")</span></label>
-    <select class="fsel" id="pd-papel" style="width:100%;margin-bottom:6px" onchange="const w=ge('pd-vinc-w');if(w)w.style.display=this.value==='ORIGINÁRIO'?'none':'block'">
+    <select class="fsel" id="pd-papel" style="width:100%;margin-bottom:6px" onchange="const o=this.value==='ORIGINÁRIO';const w=ge('pd-vinc-w');if(w)w.style.display=o?'none':'block';const vw=ge('pd-vara-w');if(vw)vw.style.display=o?'block':'none'">
       <option value="ORIGINÁRIO"${pap==="ORIGINÁRIO"?" selected":""}>Originário (a execução / o MS em si)</option>
       ${RECURSOS_PROC.map(r=>`<option${pap===r?" selected":""}>${esc(r)}</option>`).join("")}</select>
     <div id="pd-vinc-w" style="display:${pap==="ORIGINÁRIO"?"none":"block"};margin-bottom:6px">
@@ -2746,6 +2751,11 @@ function procDetalhes(id){
     <select class="fsel" id="pd-trib" style="width:100%;margin-bottom:6px">
       <option value=""${!tAtual?" selected":""}>— sem registro —</option>
       ${tOps.map(o=>`<option${tAtual===o?" selected":""}>${esc(o)}</option>`).join("")}</select>
+    <div id="pd-vara-w" style="display:${pap==="ORIGINÁRIO"?"block":"none"}">
+      <label style="font-size:11px">Vara onde o originário corre <span style="color:var(--gray)">(ex.: 17ª VF de Brasília — recurso não tem vara)</span></label>
+      <select class="fsel" id="pd-vara" style="width:100%;margin-bottom:6px">
+        <option value=""${!vAtual?" selected":""}>— sem registro —</option>
+        ${vOps.map(o=>`<option${vAtual===o?" selected":""}>${esc(o)}</option>`).join("")}</select></div>
     <label style="font-size:11px">Liminar</label>
     ${sel("pd-lim",p.liminar,["DEFERIDA","PARCIALMENTE DEFERIDA","INDEFERIDA"])}
     <label style="font-size:11px">Sentença</label>
@@ -2762,13 +2772,16 @@ async function salvarProcDetalhes(id){
     vinc=((ge("pd-vinc")||{}).value||"").trim()||null;
     if(!vinc){toast("Recurso precisa apontar o originário — cadastre o originário primeiro.","erro");return;}
   }else vinc=null;
+  let vara=((ge("pd-vara")||{}).value||"").trim()||null;
+  if(papel!=="ORIGINÁRIO")vara=null; // recurso corre no tribunal, não tem vara
   // originário que tem recursos pendurados não vira recurso sem antes realocar os filhos
   if(papel!=="ORIGINÁRIO"&&(E._procsCard||[]).some(x=>x.vinculado_a===p.numero)){
     toast("Este processo tem recursos vinculados a ele — reclassifique/realoque os recursos antes.","erro");return;}
-  try{okS(await supa.from("tarefa_processos").update({tribunal:trib,liminar:lim,sentenca:sent,papel,vinculado_a:vinc}).eq("id",id));
+  try{okS(await supa.from("tarefa_processos").update({tribunal:trib,liminar:lim,sentenca:sent,papel,vinculado_a:vinc,vara}).eq("id",id));
     const mud=[];
     if(papel!==(p.papel||"ORIGINÁRIO"))mud.push("papel: "+(p.papel||"originário")+" → "+papel+(vinc?" (do "+vinc+")":""));
     if((trib||"")!==(p.tribunal||""))mud.push("tribunal: "+(trib||"—"));
+    if((vara||"")!==(p.vara||""))mud.push("vara: "+(vara||"—"));
     if((lim||"")!==(p.liminar||""))mud.push("liminar "+(lim||"—").toLowerCase());
     if((sent||"")!==(p.sentenca||""))mud.push("sentença "+(sent||"—").toLowerCase());
     if(mud.length)await DB.nota({id_tarefa:E.atual.id_tarefa,id_cliente:E.atual.id_cliente,tipo:"HISTORICO",
@@ -6291,9 +6304,14 @@ async function telaClientes(){
   let cs,ops;try{[cs,ops]=await Promise.all([DB.clientes(""),DB.tarefas()]);}catch(e){return erro(e.message);}
   // ⚖ fases processuais por tarefa (recursos ativos) — para filtro e sinalizador
   E._fasesPorTarefa={};
-  try{const prAll=okS(await supa.from("tarefa_processos").select("id,id_tarefa,numero,status,papel,vinculado_a"))||[];
+  try{const prAll=okS(await supa.from("tarefa_processos").select("id,id_tarefa,numero,status,papel,vinculado_a,vara"))||[];
     const byT={};prAll.forEach(p=>{(byT[p.id_tarefa]=byT[p.id_tarefa]||[]).push(p);});
     Object.entries(byT).forEach(([id,ps])=>{E._fasesPorTarefa[id]=[...new Set(Object.values(fasesDaLista(ps)))];});
+    // 🏛 varas por tarefa (Bruna, 29/10/2026) — p/ filtrar ex.: 17ª VF
+    E._varasPorTarefa={};
+    Object.entries(byT).forEach(([id,ps])=>{E._varasPorTarefa[id]=[...new Set(ps.map(p=>String(p.vara||"").trim()).filter(Boolean))];});
+    E._varasTodas=[...new Set(prAll.map(p=>String(p.vara||"").trim()).filter(Boolean))]
+      .sort((a,b)=>(parseInt(a)||99)-(parseInt(b)||99)||a.localeCompare(b));
   }catch(e){}
   E._clsTodos=cs||[];E._cli={};E._clsTodos.forEach(c=>E._cli[c.id_cliente]=c);
   E._temTarefa={};E._minhaTarefa={};E._minhaQtd={};
@@ -6349,13 +6367,17 @@ async function telaClientes(){
       <select class="fsel" id="cl-opadv" onchange="buscaPorOperacao()">
         <option value="">&#9878; Todas as advogadas</option>${[...new Set((E.tarefas||[]).map(t=>String(t.advogada||"").trim()).filter(Boolean))].sort((x,y)=>x.localeCompare(y)).map(n=>`<option>${esc(n)}</option>`).join("")}</select>
       <select class="fsel" id="cl-opfase" onchange="buscaPorOperacao()" title="fase processual (pelo recurso ativo de cada originário)">
-        <option value="">&#9878; Qualquer fase</option><option>1º grau</option>${RECURSOS_PROC.map(r=>`<option>${esc(r)}</option>`).join("")}</select></div></div>
+        <option value="">&#9878; Qualquer fase</option><option>1º grau</option>${RECURSOS_PROC.map(r=>`<option>${esc(r)}</option>`).join("")}</select>
+      <select class="fsel" id="cl-opvara" onchange="buscaPorOperacao()" title="vara federal do processo originário (preenchida no ⚖ de cada card)">
+        <option value="">&#127963; Qualquer vara</option>${(E._varasTodas||[]).map(v=>`<option>${esc(v)}</option>`).join("")}</select></div></div>
     <div id="cl-assarea" style="display:none" class="painel">
       <div style="font-size:12px;color:var(--gray);margin-bottom:6px">Todas as tarefas <b>em andamento</b> de um assessor (delegadas aparecem com o dono):</div>
       <div class="linha-acao"><select class="fsel" id="cl-asssel" style="flex:1" onchange="buscaPorAssessor()">
         <option value="">Escolha o assessor...</option>${OPERACIONAIS.map(a=>`<option>${esc(a)}</option>`).join("")}</select>
       <select class="fsel" id="cl-assfase" onchange="buscaPorAssessor()" title="fase processual (pelo recurso ativo de cada originário)">
-        <option value="">&#9878; Qualquer fase</option><option>1º grau</option>${RECURSOS_PROC.map(r=>`<option>${esc(r)}</option>`).join("")}</select></div></div>
+        <option value="">&#9878; Qualquer fase</option><option>1º grau</option>${RECURSOS_PROC.map(r=>`<option>${esc(r)}</option>`).join("")}</select>
+      <select class="fsel" id="cl-assvara" onchange="buscaPorAssessor()" title="vara federal do processo originário (preenchida no ⚖ de cada card)">
+        <option value="">&#127963; Qualquer vara</option>${(E._varasTodas||[]).map(v=>`<option>${esc(v)}</option>`).join("")}</select></div></div>
     <div id="cl-lista"></div>`;
   desenhaPills();desenhaClientes();
 }
@@ -6396,10 +6418,12 @@ function modoClientes(m){
 function buscaPorAssessor(){
   const a=ge("cl-asssel").value;if(!a)return;
   const faseF=(ge("cl-assfase")?.value||"").trim();
+  const varaF=(ge("cl-assvara")?.value||"").trim();
   const f=semDuplicataImpulso((E.tarefas||[]).filter(t=>t.id_tarefa
       &&loginDe(t.assessor||"")===a
       &&!/IMPULSO de/.test(t.supervisao||"")
-      &&(!faseF||((E._fasesPorTarefa||{})[t.id_tarefa]||[]).includes(faseF))))
+      &&(!faseF||((E._fasesPorTarefa||{})[t.id_tarefa]||[]).includes(faseF))
+      &&(!varaF||((E._varasPorTarefa||{})[t.id_tarefa]||[]).includes(varaF))))
     .sort((x,y)=>(x._dias??9999)-(y._dias??9999));
   ge("cl-lista").innerHTML=`<p style="font-size:12px;color:var(--gray);margin-bottom:8px">${nProcSum(f)} tarefa(s) com <b>${esc(a)}</b>${nProcSum(f)!==f.length?` em ${f.length} cards`:""} — delegadas aparecem aqui com o dono</p>`
     +(f.length?f.map(t=>cardTarefa(t,true)).join(""):`<div class="vazio">Nada ativo com ${esc(a)}.</div>`);
@@ -6412,9 +6436,11 @@ function buscaPorOperacao(){
   const alvo=op.toLowerCase();
   const adv=(ge("cl-opadv")?.value||"").trim();
   const faseF=(ge("cl-opfase")?.value||"").trim();
+  const varaF=(ge("cl-opvara")?.value||"").trim();
   const f=semDuplicataImpulso((E.tarefas||[]).filter(t=>t.id_tarefa&&String(t.operacao||"").toLowerCase().includes(alvo)
       &&(!adv||String(t.advogada||"").trim()===adv)
-      &&(!faseF||((E._fasesPorTarefa||{})[t.id_tarefa]||[]).includes(faseF)))
+      &&(!faseF||((E._fasesPorTarefa||{})[t.id_tarefa]||[]).includes(faseF))
+      &&(!varaF||((E._varasPorTarefa||{})[t.id_tarefa]||[]).includes(varaF)))
     .sort((a,b)=>(a._dias??9999)-(b._dias??9999)));
   ge("cl-lista").innerHTML=`<p style="font-size:12px;color:var(--gray);margin-bottom:8px">${f.length} tarefa(s) de "${esc(op)}"${adv?` · advogada <b>${esc(adv)}</b>`:""} em andamento</p>`
     +(f.length?f.map(t=>cardTarefa(t,true)).join(""):`<div class="vazio">Nenhuma${adv?` de ${esc(adv)}`:""}.</div>`);
