@@ -2511,6 +2511,7 @@ function desenharCard(t,hist){
     <span style="font-size:13px">Total: <b>${fmtMin(tot)}</b></span></div>`;
   h+=`<div class="dados">
     ${t.cnpj_cpf?`<div>CNPJ/CPF:<br><b style="font-family:'DM Mono'">${esc(t.cnpj_cpf)}</b></div>`:""}
+    <div id="sn-dado" style="display:none"></div>
     <div>Nº processo:<br><span id="proc-ver">${t.numero_processual?`<b style="font-family:'DM Mono';font-size:11px">${esc(t.numero_processual)}</b> `:""}
       <button class="btn bts btsm" style="padding:1px 8px;font-size:10px" onclick="editarProcesso()">${t.numero_processual?"&#9998;":"+ Informar"}</button></span>
       <span id="proc-ed" style="display:none"><input class="fsel" id="proc-in" style="width:180px;font-family:'DM Mono';font-size:11px" placeholder="0000000-00.0000..." value="${esc(t.numero_processual||"")}">
@@ -2912,15 +2913,22 @@ async function carregarCliExtra(t){
   if(!t.id_cliente)return;const box=ge("cli-extra");if(!box)return;
   try{const cs=await DB.clientes("");const c=cs.find(x=>x.id_cliente===t.id_cliente);if(!c)return;
     E._cliCard=c;
-    box.innerHTML=`<span class="tag" style="background:#E3F2FD;color:#1565C0;cursor:pointer" onclick="editarRegimeCard()">&#127963; Regime: ${esc(c.regime||"—")} &#9998;</span>
-      <span class="tag" style="background:var(--amber-lt);color:#7F6000;cursor:pointer" onclick="editarEcacCard()">&#128273; e-CAC: ${esc(c.e_cac||"—")} &#9998;</span>
+    // 🏪 Regime + situação do Simples no painel principal do cartão
+    // (sugestão via Bruna, 29/10/2026: "aba pra ficar à mostra se é caso de SN")
+    const sd=ge("sn-dado");
+    if(sd){const rg=String(c.regime||"").toUpperCase(),ehSN=rg==="SIMPLES NACIONAL"||rg==="MEI";
+      sd.style.display="block";
+      sd.innerHTML=`Regime Tributário:<br><span class="tag" style="background:${ehSN?"#1565C0":c.regime?"var(--gray-lt)":"var(--amber-lt)"};color:${ehSN?"white":c.regime?"var(--text)":"#7F6000"};cursor:pointer;font-weight:700" onclick="editarRegimeCard()">&#127978; ${esc(c.regime||"definir")} &#9998;</span><br>`
+        +(c.simples_na?`<span class="tag tm" style="cursor:pointer;margin-top:3px" onclick="editarPrazoSimplesCard()" title="marcado como fora do Simples — clique para rever">&#128683; NÃO é caso do Simples &#9998;</span>`
+          :c.prazo_simples?`<span class="tag" style="background:#E6F4EA;color:#1E8449;cursor:pointer;margin-top:3px" onclick="editarPrazoSimplesCard()">&#9989; caso do Simples — prazo ${brData(String(c.prazo_simples).slice(0,10))} &#9998;</span>`
+          :`<span class="tag ta" style="cursor:pointer;margin-top:3px" onclick="editarPrazoSimplesCard()" title="informe o prazo de regularização ou marque que não é caso">&#10067; é caso do Simples? definir &#9998;</span>`);}
+    box.innerHTML=`<span class="tag" style="background:var(--amber-lt);color:#7F6000;cursor:pointer" onclick="editarEcacCard()">&#128273; e-CAC: ${esc(c.e_cac||"—")} &#9998;</span>
       <span class="tag" style="background:#E8EAF6;color:#3949AB">&#128193; ${c.pasta_sharepoint
         ?`<a href="${esc(c.pasta_sharepoint)}" target="_blank" style="color:#3949AB;text-decoration:underline">Pasta do cliente</a>`
         :"Pasta: —"} <span style="cursor:pointer" onclick="editarPastaCard()">&#9998;</span></span>
       <span class="tag" style="background:#FDEFE7;color:#B2502B">&#129522; ${c.link_hubspot
         ?`<a href="${esc(c.link_hubspot)}" target="_blank" style="color:#B2502B;text-decoration:underline">HubSpot</a>`
         :"HubSpot: —"} <span style="cursor:pointer" onclick="editarHubspotCard()">&#9998;</span></span>
-      ${prazoSNtagHTML(c)}
       <span id="bil-card"></span>
       ${/Proposta Comercial|Parecer de Novo Cliente/i.test(t.operacao||"")?taxCardHTML(c):""}`;
     // status de cobrança do cliente no card
@@ -8103,7 +8111,9 @@ async function checarResumosPendentes(reu){
 function recarregarTelaAtual(){const it=(E._itens||[]).find(i=>i[0]===E.view);if(it){E._cacheT=null;it[3]();}}
 function pedirResumoReuniao(id,restantes){
   const r=(E._reuMap||{})[id];if(!r)return;
-  E._resCli=r.id_cliente||"";
+  // vínculo MÚLTIPLO (sugestão via Bruna, 29/10/2026): reunião pode ter mais
+  // de um cliente — o resumo é gravado no cadastro de todos os vinculados
+  E._resClis=r.id_cliente?[{id:r.id_cliente,nome:r.cliente||r.id_cliente,fixo:true}]:[];
   const temCli=!!r.id_cliente;
   const naoAcont=String(r.resumo||"").trim()==="(reunião não aconteceu / cancelada)";
   const jaTexto=String(r.resumo||"").trim()&&!naoAcont?String(r.resumo):"";
@@ -8118,11 +8128,10 @@ function pedirResumoReuniao(id,restantes){
        <button class="btn bts btsm" onclick="indicarResumo('${esc(id)}')">&#128228; Indicar</button></div>`:""}
      <label style="font-size:12.5px;display:flex;gap:6px;align-items:center;margin:2px 0 8px;cursor:pointer;background:var(--gray-lt);border-radius:8px;padding:6px 9px"><input type="checkbox" id="res-semcli" ${r.sem_cliente===true?"checked":""} onchange="toggleSemCli()"> &#128101; Sem cliente envolvido nesta reunião</label>
      <div id="res-cli-w"${r.sem_cliente===true?' style="display:none"':""}>
-       ${temCli?`<div style="font-size:12px;margin-bottom:6px">&#9989; Cliente: <b>${esc(r.cliente||"—")}</b></div>`
-         :`<input class="fi" id="res-q" placeholder="&#128269; Vincular ao cliente da reunião (2+ letras)..." oninput="buscaResCli()">
-           <div id="res-res" style="max-height:120px;overflow:auto"></div>
-           <div id="res-sel" style="font-size:12px;color:var(--navy);margin:2px 0"></div>
-           <label style="font-size:12px;display:flex;gap:6px;align-items:center;margin:4px 0;cursor:pointer"><input type="checkbox" id="res-novo" onchange="toggleResNovo()"> &#127381; O cliente <b>ainda não está no sistema</b> — cadastrar agora</label>
+       <div id="res-sel" style="font-size:12px;color:var(--navy);margin:2px 0"></div>
+       <input class="fi" id="res-q" placeholder="${temCli?"&#128269; Reunião com mais de um cliente? Vincule os outros aqui (opcional)...":"&#128269; Vincular ao cliente da reunião (2+ letras)..."}" oninput="buscaResCli()">
+       <div id="res-res" style="max-height:120px;overflow:auto"></div>
+       ${temCli?"":`<label style="font-size:12px;display:flex;gap:6px;align-items:center;margin:4px 0;cursor:pointer"><input type="checkbox" id="res-novo" onchange="toggleResNovo()"> &#127381; O cliente <b>ainda não está no sistema</b> — cadastrar agora</label>
            <div id="res-novo-w" style="display:none;border:1px solid var(--border);border-radius:9px;padding:8px 9px;margin-bottom:4px">
              <div class="linha-acao"><input class="fi" id="res-nnome" placeholder="Nome / Razão Social *" style="flex:2;margin:0">
                <input class="fi" id="res-ncnpj" placeholder="CNPJ / CPF *" style="flex:1;margin:0" onblur="resBuscaCNPJ()"></div>
@@ -8132,7 +8141,16 @@ function pedirResumoReuniao(id,restantes){
        <textarea class="fta" id="res-txt" rows="4" placeholder="Narre um breve histórico do que foi ajustado na reunião, informações que o cliente passou e de onde veio essa reunião (franqueado, funil específico etc.)">${esc(jaTexto)}</textarea></div>
      <button class="btn btp btw" style="margin-top:8px" onclick="umaVez(()=>salvarResumoReuniao('${esc(id)}'))">&#128190; Salvar</button>
      <div style="text-align:center;margin-top:6px"><a href="javascript:marcarReuniaoNaoAconteceu('${esc(id)}')" style="font-size:11px;color:var(--gray)">a reunião não aconteceu / foi cancelada</a></div>`);
+  resSelDesenha();
 }
+// chips dos clientes vinculados ao resumo — o da reunião é fixo; extras têm ✕
+function resSelDesenha(){
+  const el=ge("res-sel");if(!el)return;
+  const L=E._resClis||[];
+  el.innerHTML=L.map(x=>`<span class="tag tda" style="margin:2px 4px 2px 0;font-size:12px">&#9989; ${esc(x.nome)}${x.fixo?"":` <a style="cursor:pointer;color:var(--red)" title="desvincular" onclick='resDesvincular(${JSON.stringify(x.id)})'>&#10005;</a>`}</span>`).join("")
+    +(L.length>1?`<div style="font-size:10.5px;color:var(--gray);margin-top:2px">O resumo ficará gravado no cadastro dos ${L.length} clientes.</div>`:"");
+}
+function resDesvincular(id){E._resClis=(E._resClis||[]).filter(x=>x.id!==id||x.fixo);resSelDesenha();}
 function buscaResCli(){
   const q=(ge("res-q").value||"").trim(),box=ge("res-res");if(!box)return;
   if(q.length<2){box.innerHTML="";return;}
@@ -8142,9 +8160,12 @@ function buscaResCli(){
   box.innerHTML=f.map(c=>`<div class="linha-item" style="cursor:pointer" onclick='escolherResCli(${JSON.stringify(c.id_cliente)})'><span><b>${esc(c.nome)}</b> <span style="color:var(--gray);font-size:11px">${esc(c.cnpj_cpf||"")}</span></span></div>`).join("")
     ||'<div style="font-size:11px;color:var(--gray)">Nenhum cliente.</div>';
 }
-function escolherResCli(id){E._resCli=id;const c=(E._cli||{})[id];
-  ge("res-res").innerHTML="";if(ge("res-q"))ge("res-q").value=c?c.nome:"";
-  if(ge("res-sel"))ge("res-sel").innerHTML=c?"&#9989; Vinculado a: <b>"+esc(c.nome)+"</b>":"";}
+function escolherResCli(id){
+  const c=(E._cli||{})[id];E._resClis=E._resClis||[];
+  if(E._resClis.some(x=>x.id===id)){toast("Esse cliente já está vinculado.","erro");return;}
+  E._resClis.push({id,nome:c?c.nome:id});
+  ge("res-res").innerHTML="";if(ge("res-q"))ge("res-q").value="";
+  resSelDesenha();}
 function toggleSemCli(){const cb=ge("res-semcli"),w=ge("res-cli-w");if(w)w.style.display=(cb&&cb.checked)?"none":"block";}
 // head indica um assessor para preencher o resumo (Bruna, 23/10/2026) — a
 // cobrança obrigatória passa a ser do indicado
@@ -8163,7 +8184,7 @@ async function indicarResumo(id){
 // (caso do Nicholas — Bruna, 29/09/2026)
 function toggleResNovo(){const cb=ge("res-novo"),w=ge("res-novo-w");
   if(w)w.style.display=(cb&&cb.checked)?"block":"none";
-  if(cb&&cb.checked){E._resCli="";if(ge("res-sel"))ge("res-sel").innerHTML="";if(ge("res-res"))ge("res-res").innerHTML="";}}
+  if(cb&&cb.checked&&ge("res-res"))ge("res-res").innerHTML="";}
 async function resBuscaCNPJ(){
   const dig=String((ge("res-ncnpj")||{}).value||"").replace(/\D/g,"");
   E._resNovoUF="";E._resNovoMun="";const info=ge("res-ninfo");
@@ -8185,7 +8206,8 @@ async function salvarResumoReuniao(id){
   }
   const txt=(ge("res-txt").value||"").trim();
   if(!txt){toast("Escreva o resumo — ou marque 'sem cliente envolvido'.","erro");return;}
-  let idc=r.id_cliente||E._resCli||"";
+  const ids=(E._resClis||[]).map(x=>x.id);
+  let idc=ids[0]||"";
   // cadastrar o cliente novo dali mesmo (caso do Nicholas — Bruna, 29/09/2026)
   if(!r.id_cliente&&(ge("res-novo")||{}).checked){
     const nnome=((ge("res-nnome")||{}).value||"").trim();
@@ -8199,24 +8221,30 @@ async function salvarResumoReuniao(id){
     if(!todos||!todos.length){try{todos=await DB.clientes("");E._clsTodos=todos;}catch(e){todos=[];}}
     const dg=s=>String(s||"").replace(/\D/g,"");
     const ja=(todos||[]).find(x=>dg(x.cnpj_cpf)===dg(ncnpj));
-    if(ja){idc=ja.id_cliente;toast("Este documento já era do cliente "+ja.nome+" — vinculei a reunião a ele.","ok");}
+    let novoId="",novoNome="";
+    if(ja){novoId=ja.id_cliente;novoNome=ja.nome;toast("Este documento já era do cliente "+ja.nome+" — vinculei a reunião a ele.","ok");}
     else{
       try{const rc=await DB.criarCliente({nome:nnome,cnpj:ncnpj,head:nhead,vertical:"PROSPECÇÃO",
         situacao:"PROSPECCAO",municipio:E._resNovoMun||"",uf:E._resNovoUF||"",
         resumo:"Cadastrado pelo resumo de reunião de "+E.perfil.nome_sistema+(r.data?" ("+r.data+")":"")});
-        idc=rc.id;E._clsTodos=null;   // lista local fica velha — recarrega na próxima busca
+        novoId=rc.id;novoNome=nnome;E._clsTodos=null;   // lista local fica velha — recarrega na próxima busca
         toast("✓ Cliente novo "+rc.id+" cadastrado (prospecção, carteira "+nhead+").","ok");}
-      catch(e){toast("Erro ao cadastrar o cliente: "+e.message,"erro");return;}}}
+      catch(e){toast("Erro ao cadastrar o cliente: "+e.message,"erro");return;}}
+    if(novoId&&!ids.includes(novoId)){ids.push(novoId);(E._resClis=E._resClis||[]).push({id:novoId,nome:novoNome});}
+    if(!idc)idc=ids[0]||"";}
   if(!idc){toast("Vincule o cliente da reunião — ou marque 'sem cliente envolvido'.","erro");return;}
   const campos={resumo:txt,resumo_dt:hojeISO(),resumo_por:E.perfil.nome_sistema,sem_cliente:false};
-  if(!r.id_cliente){campos.id_cliente=idc;const c=(E._cli||{})[idc];
-    campos.cliente=c?c.nome:(((ge("res-novo")||{}).checked?((ge("res-nnome")||{}).value||"").trim():"")||r.cliente||"");}
+  if(!r.id_cliente){campos.id_cliente=idc;
+    campos.cliente=((E._resClis||[]).find(x=>x.id===idc)||{}).nome||r.cliente||"";}
+  // o resumo vai para o cadastro de TODOS os clientes vinculados (29/10/2026)
   try{await DB.reuniaoResumo(id,campos);
-    await DB.nota({id_tarefa:"",id_cliente:idc,tipo:"HISTORICO",
-      texto:"📝 Resumo de reunião"+(r.data?" ("+r.data+")":"")+" por "+E.perfil.nome_sistema+": "+txt});}
+    for(const cid of ids)
+      await DB.nota({id_tarefa:"",id_cliente:cid,tipo:"HISTORICO",
+        texto:"📝 Resumo de reunião"+(r.data?" ("+r.data+")":"")+" por "+E.perfil.nome_sistema
+          +(ids.length>1?" (reunião conjunta: "+(E._resClis||[]).map(x=>x.nome).join(" + ")+")":"")+": "+txt});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   if(E._reuMap[id]){E._reuMap[id].resumo=txt;E._reuMap[id].sem_cliente=false;}
-  toast("Resumo salvo no cadastro do cliente.","ok");fecharModal2();
+  toast(ids.length>1?"Resumo salvo no cadastro dos "+ids.length+" clientes.":"Resumo salvo no cadastro do cliente.","ok");fecharModal2();
   try{if(!(await checarResumosPendentes(await DB.reunioes())))recarregarTelaAtual();}catch(e){}
 }
 async function marcarReuniaoNaoAconteceu(id){
