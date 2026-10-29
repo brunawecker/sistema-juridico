@@ -2370,12 +2370,26 @@ async function puxarCorrecao(id,linha){
   catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Correção agora é sua — novo prazo registrado.","ok");recarregar();
 }
-async function devolverCorrecao(id,linha){
-  // trava anti-clique acidental (Bruna devolveu uma sem querer em 29/10/2026)
-  if(!confirm("Devolver esta correção ao assessor como CONCLUÍDA?\n\nEle terá 1 dia útil para aplicar. Se a correção ainda não foi feita, use Repassar."))return;
-  try{await DB.correcaoDevolver({id_tarefa:id,linha:linha,id_cliente:(E.tarefas.find(x=>x.id_tarefa===id)||{}).id_cliente});}
-  catch(e){toast("Erro: "+e.message,"erro");return;}
-  toast("Devolvida ao assessor (imediato)!","ok");recarregar();
+// devolver abre modal com ORIENTAÇÃO (sugestão via Bruna, 29/10/2026) — também
+// serve de trava anti-clique acidental (Bruna devolveu uma sem querer em 29/10)
+function devolverCorrecao(id,linha){
+  const t=(E._todasBanco||E.tarefas||[]).find(x=>x.id_tarefa===id)||{};
+  modal2("&#8617; Devolver correção ao assessor",esc(t.cliente||""),`
+    <div style="font-size:12px;color:var(--gray);margin-bottom:6px">Correção pronta? Deixe a <b>orientação</b> do que o assessor deve aplicar — fica destacada no histórico do card. Ele terá <b>1 dia útil</b>.</div>
+    <textarea class="fta" id="dc-orienta" rows="4" placeholder="Orientação da correção — o que foi ajustado e o que o assessor deve aplicar (opcional)"></textarea>
+    <button class="btn btp btw" style="margin-top:8px" onclick="devolverCorrecaoGo('${esc(id)}',${linha})">&#8617; Devolver ao assessor</button>`);
+}
+async function devolverCorrecaoGo(id,linha){
+  const t=(E._todasBanco||E.tarefas||[]).find(x=>x.id_tarefa===id)||{};
+  const txt=(ge("dc-orienta").value||"").trim();
+  try{
+    // a orientação vai ANTES da devolução (depois dela a corretora pode perder a linha)
+    if(txt)await DB.nota({id_tarefa:id,id_cliente:t.id_cliente,tipo:"SUPERVISÃO",
+      texto:"✏ Orientação da correção ("+E.perfil.nome_sistema+"): "+txt});
+    await DB.correcaoDevolver({id_tarefa:id,linha:linha,id_cliente:t.id_cliente});
+  }catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast(txt?"Devolvida ao assessor — orientação registrada no card!":"Devolvida ao assessor (imediato)!","ok");
+  fecharModal2();recarregar();
 }
 // 👥 Repassar correção (Bruna, 29/10/2026): head manda a correção — vencida ou
 // não — para quem tiver fôlego, sem devolver ao assessor e sem perder o rastro
@@ -3058,7 +3072,9 @@ async function salvarNota(tipo){
   // regra da Bruna (16/09/2026): IMEDIATO é só o exigido para o DIA — deu
   // andamento (execução, não supervisão), o cartão sai de imediato e a
   // pessoa escolhe a próxima frequência na hora
-  if(tipo==="ASSESSOR"&&String(t.check_||"").toUpperCase()==="IMEDIATO"&&ehMeuNome(t.assessor)){
+  // em CORREÇÃO não pergunta "quando volta" (Bruna, 29/10/2026): o retorno é
+  // regido pela própria correção (devolver = 1 dia útil para o assessor)
+  if(tipo==="ASSESSOR"&&String(t.check_||"").toUpperCase()==="IMEDIATO"&&ehMeuNome(t.assessor)&&!t._emCorrecao){
     toast("Salvo!","ok");abrirProxFreq();return;}
   toast("Salvo!","ok");abrirTarefa(t.id_tarefa);}
 // andamento em PRAZO FATAL → escolher a retomada (ou manter no topo)
