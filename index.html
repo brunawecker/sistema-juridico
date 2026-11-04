@@ -1242,35 +1242,74 @@ async function pfCarregaRede(){
   try{const r=await supa.rpc("fp_minha_rede",E.franq&&E.franq._verComo?{p_fid:E.franq.id}:{});
     if(!r.error)d=r.data;}catch(e){}
   if(!d||!(d.rede||[]).length)return;
-  // visual compacto (feedback da Bruna, 04/11/2026): números no topo, detalhe
-  // só de quem se MOVIMENTA; os que nunca entraram viram etiquetas recolhidas
-  const semana=d.rede.reduce((s,f)=>s+(+f.pedidos_7d||0),0);
-  const ativos=d.rede.filter(f=>f.entrou||(+f.pedidos_total)>0||(f.reunioes||[]).length)
-    .sort((a,b)=>(+b.pedidos_7d)-(+a.pedidos_7d)||String(b.ultimo_acesso||"").split("/").reverse().join("").localeCompare(String(a.ultimo_acesso||"").split("/").reverse().join("")));
-  const nunca=d.rede.filter(f=>!ativos.includes(f));
-  const num=(n,rot,cor)=>`<div style="flex:1;min-width:110px;background:${cor};border-radius:10px;padding:8px 12px;text-align:center">
-    <div style="font-size:22px;font-weight:700;line-height:1.1">${n}</div><div style="font-size:10.5px;opacity:.8">${rot}</div></div>`;
+  // ferramenta de gestão (Bruna, 04/11/2026): semáforo, tabela ordenável,
+  // funil pedidos → propostas → fechadas, busca e detalhe por franqueado
+  E._fpDados=d;E._fpQ="";E._fpPer=7;E._fpSort={c:"p",d:-1};E._fpAberto="";
   box.innerHTML=`<div class="painel" style="border-color:#B9D8E1">
     <div class="bloco-t">&#128101; Minha rede</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:9px">
-      ${num(d.rede.length,"franqueados na rede","var(--ice)")}
-      ${num(ativos.length,"em movimento","var(--green-lt)")}
-      ${num(nunca.length,"nunca entraram","var(--red-lt)")}
-      ${num(semana,"pedido(s) na semana",semana?"var(--amber-lt)":"var(--gray-lt)")}</div>
-    ${ativos.length?ativos.map(f=>{const reu=(f.reunioes||[])[0];
-      return `<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--gray-lt);padding:5px 0;font-size:12.5px">
-        <span><b style="color:var(--navy)">${esc(f.franqueado)}</b>
-          ${reu?`<br><span style="font-size:11px;color:var(--dani)">&#128197; reunião de devolução${reu.empresa?" ("+esc(reu.empresa)+")":""} com a head <b>${esc(reu.head||"—")}</b> em <b>${esc(reu.data)}</b>${reu.hora?" às "+esc(reu.hora):""}</span>`:""}</span>
-        <span style="white-space:nowrap;font-size:11px;color:var(--gray)">${(+f.pedidos_7d)>0?`<b style="color:#B2502B">${f.pedidos_7d} na semana</b> · `:""}${f.pedidos_total} pedido(s)${f.ultimo_acesso?` · entrou ${esc(f.ultimo_acesso)}`:""}</span></div>`;}).join("")
-      :'<div style="font-size:12px;color:var(--gray)">Ninguém da rede se movimentou ainda.</div>'}
-    ${nunca.length?`<details style="margin-top:7px"><summary style="cursor:pointer;font-size:11.5px;color:var(--red)">&#9888; ${nunca.length} ainda não entraram no sistema — toque para ver quem</summary>
-      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">${nunca.map(f=>`<span class="tag tm" style="font-size:10.5px">${esc(f.franqueado)}</span>`).join("")}</div>
-      <div style="font-size:10.5px;color:var(--gray);margin-top:4px">O login deles é nome.sobrenome + senha padrão — cobre o primeiro acesso.</div></details>`:""}
-    ${(d.eventos||[]).length?`<details style="margin-top:4px"><summary style="cursor:pointer;font-size:11.5px;color:var(--gray)">&#128203; últimos pedidos da rede (${d.eventos.length})</summary>
-      ${d.eventos.map(ev=>`<div style="font-size:11.5px;padding:3px 0;border-bottom:1px solid var(--gray-lt)">
-        <span style="font-family:'DM Mono';color:var(--gray)">${esc(ev.quando)}</span> · <b>${esc(ev.franqueado)}</b> pediu ${esc(String(ev.tipo||"parecer").toLowerCase())} — ${esc(ev.empresa||"")}
-        <span class="tag ${ev.status==="CONCLUIDA"?"tek":ev.status==="RESPONDIDA"?"tda":"tm"}">${esc(String(ev.status||"").replace(/_/g," ").toLowerCase())}</span></div>`).join("")}</details>`:""}
-  </div>`;
+    <input class="fi" id="pf-rede-q" placeholder="&#128269; buscar franqueado..." style="margin-bottom:7px" oninput="E._fpQ=this.value;pfRedeTabela()">
+    <div id="pf-rede-tb"></div></div>`;
+  pfRedeTabela();
+}
+// semáforo: 2=🟢 pediu nos últimos 30d · 1=🟡 entrou/já pediu, mas parado · 0=🔴 nunca entrou
+function pfSem(f){
+  const corte=new Date(Date.now()-30*86400000).toISOString().slice(0,10);
+  if(f.ult_pedido_iso&&f.ult_pedido_iso>=corte)return 2;
+  if(f.entrou||(+f.ptot)>0)return 1;
+  return 0;
+}
+function pfOrdena(c){const st=E._fpSort||{};E._fpSort=st.c===c?{c:c,d:-st.d}:{c:c,d:-1};pfRedeTabela();}
+function pfAbrir(nome){E._fpAberto=E._fpAberto===nome?"":nome;pfRedeTabela();}
+function pfRedeTabela(){
+  const el=ge("pf-rede-tb");if(!el||!E._fpDados)return;
+  const d=E._fpDados,q=semAc(E._fpQ||"").trim(),per=E._fpPer||7,st=E._fpSort||{c:"sem",d:1};
+  const SEM=[["#C0392B","nunca entrou no sistema"],["#D68910","entrou, mas sem pedidos há 30+ dias"],["#1E8449","ativo — pediu nos últimos 30 dias"]];
+  const bola=f=>{const s2=pfSem(f);return `<span title="${SEM[s2][1]}" style="color:${SEM[s2][0]};font-size:13px">&#9679;</span>`;};
+  const num=(n,rot,cor)=>`<div style="flex:1;min-width:104px;background:${cor};border-radius:10px;padding:7px 10px;text-align:center">
+    <div style="font-size:21px;font-weight:700;line-height:1.1">${n}</div><div style="font-size:10px;opacity:.8">${rot}</div></div>`;
+  const nSem=s2=>d.rede.filter(f=>pfSem(f)===s2).length;
+  const totP=d.rede.reduce((s,f)=>s+ +(per===7?f.p7:f.p30),0);
+  const rows=d.rede.filter(f=>!q||semAc(f.franqueado).indexOf(q)>=0);
+  const val=(f,c)=>c==="nome"?String(f.franqueado):c==="sem"?pfSem(f):c==="p"?+(per===7?f.p7:f.p30)
+    :c==="tot"?+f.ptot:c==="props"?+f.props:c==="fech"?+f.fechadas
+    :c==="ult"?String(f.ult_pedido_iso||""):c==="ac"?String(f.ultimo_acesso||"").split("/").reverse().join(""):0;
+  rows.sort((a,b)=>{const x=val(a,st.c),y=val(b,st.c);
+    const r=(typeof x==="string")?x.localeCompare(y):(x-y);
+    return r*st.d||String(a.franqueado).localeCompare(String(b.franqueado));});
+  const th=(c,rot,tit)=>`<th style="cursor:pointer;white-space:nowrap;padding:4px 7px;font-size:10px;color:var(--gray);text-align:${c==="nome"?"left":"center"}" title="${tit||"clique para ordenar"}" onclick="pfOrdena('${c}')">${rot}${st.c===c?(st.d<0?" &#9662;":" &#9652;"):""}</th>`;
+  const linha=f=>{const reu=f.reuniao,aberto=E._fpAberto===f.franqueado;
+    const peds=aberto?(d.pedidos||[]).filter(p=>p.franqueado===f.franqueado):[];
+    return `<tr style="cursor:pointer;border-top:1px solid var(--gray-lt);background:${aberto?"var(--bg)":"white"}" onclick='pfAbrir(${JSON.stringify(f.franqueado)})'>
+      <td style="padding:5px 7px;text-align:center">${bola(f)}</td>
+      <td style="padding:5px 7px;font-size:12px"><b style="color:var(--navy)">${esc(f.franqueado)}</b>
+        ${reu?`<br><span style="font-size:10.5px;color:${reu.futura?"var(--dani)":"var(--gray)"}">&#128197; devolução${reu.empresa?" ("+esc(reu.empresa)+")":""} c/ head ${esc(reu.head||"—")} ${esc(reu.data)}${reu.hora?" "+esc(reu.hora):""}</span>`:""}</td>
+      <td style="text-align:center;font-size:12.5px">${val(f,"p")?`<b style="color:#B2502B">${val(f,"p")}</b>`:'<span style="color:var(--gray)">0</span>'}</td>
+      <td style="text-align:center;font-size:12.5px">${f.ptot}</td>
+      <td style="text-align:center;font-size:12.5px">${(+f.props)?`<b style="color:var(--navy)">${f.props}</b>`:'<span style="color:var(--gray)">0</span>'}</td>
+      <td style="text-align:center;font-size:12.5px">${(+f.fechadas)?`<b style="color:var(--green)">${f.fechadas}</b>`:'<span style="color:var(--gray)">0</span>'}</td>
+      <td style="text-align:center;font-size:11px;color:var(--gray);white-space:nowrap">${esc(f.ult_pedido||"—")}</td>
+      <td style="text-align:center;font-size:11px;color:var(--gray);white-space:nowrap">${f.entrou?esc(f.ultimo_acesso||"sim"):'<span style="color:var(--red)">nunca</span>'}</td></tr>`
+      +(aberto?`<tr style="background:var(--bg)"><td></td><td colspan="7" style="padding:2px 7px 8px">
+        ${peds.length?peds.map(p=>`<div style="font-size:11.5px;padding:3px 0;border-top:1px dashed var(--border)">
+          <span style="font-family:'DM Mono';color:var(--gray)">${esc(p.quando)}</span> · ${esc(String(p.tipo||"parecer").toLowerCase())} — <b>${esc(p.empresa||"")}</b> · head ${esc(p.head||"—")}
+          <span class="tag ${p.status==="CONCLUIDA"?"tek":p.status==="RESPONDIDA"?"tda":"tm"}">${esc(String(p.status||"").replace(/_/g," ").toLowerCase())}</span>
+          ${p.reu_data?`<span style="color:var(--dani)">&#128197; devolução ${esc(p.reu_data)}${p.reu_hora?" "+esc(p.reu_hora):""}</span>`:""}</div>`).join("")
+        :'<div style="font-size:11.5px;color:var(--gray);padding-top:3px">Nenhum pedido deste franqueado ainda.</div>'}</td></tr>`:"");};
+  el.innerHTML=`
+    <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:8px">
+      ${num(d.rede.length,"na rede","var(--ice)")}
+      ${num(nSem(2),"&#128994; ativos","var(--green-lt)")}
+      ${num(nSem(1),"&#128993; parados","var(--amber-lt)")}
+      ${num(nSem(0),"&#128308; nunca entraram","var(--red-lt)")}
+      ${num(totP,per===7?"pedidos na semana":"pedidos no mês","var(--gray-lt)")}</div>
+    <div style="margin-bottom:5px">
+      <button class="btn ${per===7?"btp":"bts"} btsm" onclick="E._fpPer=7;pfRedeTabela()">semana</button>
+      <button class="btn ${per===30?"btp":"bts"} btsm" onclick="E._fpPer=30;pfRedeTabela()">mês</button>
+      <span style="font-size:10.5px;color:var(--gray);margin-left:6px">toque no nome para ver os pedidos · toque no título da coluna para ordenar</span></div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:620px">
+      <tr>${th("sem","&#9679;","semáforo: verde pediu em 30d · amarelo parado · vermelho nunca entrou")}${th("nome","Franqueado")}${th("p",per===7?"Pedidos 7d":"Pedidos 30d")}${th("tot","Total")}${th("props","Propostas","propostas geradas no jurídico a partir dos pedidos")}${th("fech","Fechadas","propostas fechadas (contrato)")}${th("ult","Último pedido")}${th("ac","Acesso")}</tr>
+      ${rows.map(linha).join("")||'<tr><td colspan="8" style="padding:8px;font-size:12px;color:var(--gray)">Ninguém com esse nome.</td></tr>'}
+    </table></div>`;
 }
 async function pfCarregaHeads(){
   const sel=ge("pf-head");if(!sel)return;
