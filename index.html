@@ -1242,19 +1242,31 @@ async function pfCarregaRede(){
   try{const r=await supa.rpc("fp_minha_rede",E.franq&&E.franq._verComo?{p_fid:E.franq.id}:{});
     if(!r.error)d=r.data;}catch(e){}
   if(!d||!(d.rede||[]).length)return;
+  // visual compacto (feedback da Bruna, 04/11/2026): números no topo, detalhe
+  // só de quem se MOVIMENTA; os que nunca entraram viram etiquetas recolhidas
   const semana=d.rede.reduce((s,f)=>s+(+f.pedidos_7d||0),0);
+  const ativos=d.rede.filter(f=>f.entrou||(+f.pedidos_total)>0||(f.reunioes||[]).length)
+    .sort((a,b)=>(+b.pedidos_7d)-(+a.pedidos_7d)||String(b.ultimo_acesso||"").split("/").reverse().join("").localeCompare(String(a.ultimo_acesso||"").split("/").reverse().join("")));
+  const nunca=d.rede.filter(f=>!ativos.includes(f));
+  const num=(n,rot,cor)=>`<div style="flex:1;min-width:110px;background:${cor};border-radius:10px;padding:8px 12px;text-align:center">
+    <div style="font-size:22px;font-weight:700;line-height:1.1">${n}</div><div style="font-size:10.5px;opacity:.8">${rot}</div></div>`;
   box.innerHTML=`<div class="painel" style="border-color:#B9D8E1">
-    <div class="bloco-t">&#128101; Minha rede — visão geral <span style="font-weight:400;text-transform:none;letter-spacing:0">· ${d.rede.length} franqueado(s) · ${semana} pedido(s) na semana</span></div>
-    ${d.rede.map(f=>{const reu=(f.reunioes||[])[0];
-      return `<div style="border-bottom:1px solid var(--gray-lt);padding:7px 0">
-        <b style="color:var(--navy)">${esc(f.franqueado)}</b>
-        ${f.entrou?`<span class="tag tek">usa o sistema${f.ultimo_acesso?" · último acesso "+esc(f.ultimo_acesso):""}</span>`
-          :`<span class="tag ti">nunca entrou no sistema</span>`}
-        <span class="tag ${(+f.pedidos_7d)>0?"tda":"tm"}">${f.pedidos_7d} pedido(s) na semana</span>
-        <span class="tag tm">${f.pedidos_total} no total</span>
-        ${reu?`<div style="font-size:11.5px;color:var(--dani);margin-top:3px">&#128197; Reunião de devolução${reu.empresa?" ("+esc(reu.empresa)+")":""} com a head <b>${esc(reu.head||"—")}</b> em <b>${esc(reu.data)}</b>${reu.hora?" às "+esc(reu.hora):""}</div>`:""}
-      </div>`;}).join("")}
-    ${(d.eventos||[]).length?`<details style="margin-top:6px"><summary style="cursor:pointer;font-size:11.5px;color:var(--gray)">&#128203; últimos pedidos da rede (${d.eventos.length})</summary>
+    <div class="bloco-t">&#128101; Minha rede</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:9px">
+      ${num(d.rede.length,"franqueados na rede","var(--ice)")}
+      ${num(ativos.length,"em movimento","var(--green-lt)")}
+      ${num(nunca.length,"nunca entraram","var(--red-lt)")}
+      ${num(semana,"pedido(s) na semana",semana?"var(--amber-lt)":"var(--gray-lt)")}</div>
+    ${ativos.length?ativos.map(f=>{const reu=(f.reunioes||[])[0];
+      return `<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--gray-lt);padding:5px 0;font-size:12.5px">
+        <span><b style="color:var(--navy)">${esc(f.franqueado)}</b>
+          ${reu?`<br><span style="font-size:11px;color:var(--dani)">&#128197; reunião de devolução${reu.empresa?" ("+esc(reu.empresa)+")":""} com a head <b>${esc(reu.head||"—")}</b> em <b>${esc(reu.data)}</b>${reu.hora?" às "+esc(reu.hora):""}</span>`:""}</span>
+        <span style="white-space:nowrap;font-size:11px;color:var(--gray)">${(+f.pedidos_7d)>0?`<b style="color:#B2502B">${f.pedidos_7d} na semana</b> · `:""}${f.pedidos_total} pedido(s)${f.ultimo_acesso?` · entrou ${esc(f.ultimo_acesso)}`:""}</span></div>`;}).join("")
+      :'<div style="font-size:12px;color:var(--gray)">Ninguém da rede se movimentou ainda.</div>'}
+    ${nunca.length?`<details style="margin-top:7px"><summary style="cursor:pointer;font-size:11.5px;color:var(--red)">&#9888; ${nunca.length} ainda não entraram no sistema — toque para ver quem</summary>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">${nunca.map(f=>`<span class="tag tm" style="font-size:10.5px">${esc(f.franqueado)}</span>`).join("")}</div>
+      <div style="font-size:10.5px;color:var(--gray);margin-top:4px">O login deles é nome.sobrenome + senha padrão — cobre o primeiro acesso.</div></details>`:""}
+    ${(d.eventos||[]).length?`<details style="margin-top:4px"><summary style="cursor:pointer;font-size:11.5px;color:var(--gray)">&#128203; últimos pedidos da rede (${d.eventos.length})</summary>
       ${d.eventos.map(ev=>`<div style="font-size:11.5px;padding:3px 0;border-bottom:1px solid var(--gray-lt)">
         <span style="font-family:'DM Mono';color:var(--gray)">${esc(ev.quando)}</span> · <b>${esc(ev.franqueado)}</b> pediu ${esc(String(ev.tipo||"parecer").toLowerCase())} — ${esc(ev.empresa||"")}
         <span class="tag ${ev.status==="CONCLUIDA"?"tek":ev.status==="RESPONDIDA"?"tda":"tm"}">${esc(String(ev.status||"").replace(/_/g," ").toLowerCase())}</span></div>`).join("")}</details>`:""}
