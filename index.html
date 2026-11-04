@@ -1292,11 +1292,16 @@ function pfRedeTabela(){
       <td style="text-align:center;font-size:12.5px">${(+f.fechadas)?`<b style="color:var(--green)">${f.fechadas}</b>`:'<span style="color:var(--gray)">0</span>'}</td>
       <td style="text-align:center;font-size:11px;color:var(--gray);white-space:nowrap">${esc(f.ult_pedido||"—")}</td>
       <td style="text-align:center;font-size:11px;color:var(--gray);white-space:nowrap">${f.entrou?esc(f.ultimo_acesso||"sim"):'<span style="color:var(--red)">nunca</span>'}</td></tr>`
-      +(aberto?`<tr style="background:var(--bg)"><td></td><td colspan="7" style="padding:2px 7px 8px">
-        ${peds.length?peds.map(p=>`<div style="font-size:11.5px;padding:3px 0;border-top:1px dashed var(--border)">
-          <span style="font-family:'DM Mono';color:var(--gray)">${esc(p.quando)}</span> · ${esc(String(p.tipo||"parecer").toLowerCase())} — <b>${esc(p.empresa||"")}</b> · head ${esc(p.head||"—")}
-          <span class="tag ${p.status==="CONCLUIDA"?"tek":p.status==="RESPONDIDA"?"tda":"tm"}">${esc(String(p.status||"").replace(/_/g," ").toLowerCase())}</span>
-          ${p.reu_data?`<span style="color:var(--dani)">&#128197; devolução ${esc(p.reu_data)}${p.reu_hora?" "+esc(p.reu_hora):""}</span>`:""}</div>`).join("")
+      +(aberto?`<tr style="background:var(--bg)"><td></td><td colspan="7" style="padding:2px 7px 10px">
+        ${peds.length?peds.map(p=>{
+          const ROT={NOVA:["tm","parecer na fila"],EM_ANALISE:["td2","parecer em análise"],
+            RESPONDIDA:["tda","parecer devolvido"],CONCLUIDA:["tek","concluído — proposta criada"],
+            RECUSADA:["ti","recusado"]};
+          const st2=ROT[p.status]||["tm",String(p.status||"").replace(/_/g," ").toLowerCase()];
+          return `<div style="font-size:11.5px;padding:6px 0;border-top:1px dashed var(--border)">
+          <b style="color:var(--navy)">&#127970; ${esc(p.empresa||"(empresa sem nome)")}</b> <span class="tag ${st2[0]}">${st2[1]}</span><br>
+          <span style="color:var(--gray)">pedido em ${esc(p.quando)} · head escolhida no pedido: <b>${esc(p.head||"—")}</b>${p.head_cli?` · responsável pelo cliente no sistema: <b>${esc(p.head_cli)}</b>`:" · <i>cliente ainda não cadastrado no sistema</i>"}</span>
+          ${p.reu_data?`<br><span style="color:${p.reu_futura?"var(--dani)":"var(--gray)"}">&#128197; reunião de devolução ${p.reu_futura?"<b>marcada para":"feita em <b>"} ${esc(p.reu_data)}</b>${p.reu_hora?" às "+esc(p.reu_hora):""}</span>`:""}</div>`;}).join("")
         :'<div style="font-size:11.5px;color:var(--gray);padding-top:3px">Nenhum pedido deste franqueado ainda.</div>'}</td></tr>`:"");};
   el.innerHTML=`
     <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:8px">
