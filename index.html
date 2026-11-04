@@ -6748,10 +6748,13 @@ async function addNotaCli(id){
 async function carregarNotasCli(id){
   const box=ge("notas-cli-"+id);if(!box)return;
   let ns=[];try{ns=await DB.notasCli(id);}catch(e){return;}
-  const notas=(ns||[]).filter(n=>String(n.texto||"").startsWith("📝 Nota"));
+  // notas rápidas E resumos de reunião (caso Paulo Cesar — Bruna, 04/11/2026:
+  // o resumo do Nicholas não aparecia porque o filtro só pegava "📝 Nota")
+  const notas=(ns||[]).filter(n=>String(n.texto||"").startsWith("📝 Nota")||String(n.texto||"").startsWith("📝 Resumo de reunião"));
   if(!notas.length){box.innerHTML='<div style="font-size:11px;color:var(--gray)">Nenhuma nota ainda.</div>';return;}
-  box.innerHTML=notas.slice(0,15).map(n=>`<div style="font-size:12px;padding:4px 0;border-top:1px solid var(--gray-lt);white-space:pre-wrap;line-height:1.5">
-    <span style="color:var(--gray);font-size:10px">${esc(String(n.data||"").slice(0,10))}</span> ${esc(String(n.texto||"").replace(/^📝 Nota — /,""))}</div>`).join("")
+  box.innerHTML=notas.slice(0,15).map(n=>{const ehReu=String(n.texto||"").startsWith("📝 Resumo de reunião");
+    return `<div style="font-size:12px;padding:4px 0;border-top:1px solid var(--gray-lt);white-space:pre-wrap;line-height:1.5">
+    <span style="color:var(--gray);font-size:10px">${esc(String(n.data||"").slice(0,10))}</span>${ehReu?' <span class="tag tda" style="font-size:9px">&#128197; reunião</span>':""} ${esc(String(n.texto||"").replace(/^📝 Nota — /,"").replace(/^📝 Resumo de reunião\s*/,"Resumo de reunião "))}</div>`;}).join("")
     +(notas.length>15?`<div style="font-size:10px;color:var(--gray)">+${notas.length-15} nota(s) mais antigas</div>`:"");
 }
 // lembretes das heads na ficha do cliente — SÓ heads veem (a função do
