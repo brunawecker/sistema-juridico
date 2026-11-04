@@ -1242,6 +1242,9 @@ async function pfCarregaRede(){
   try{const r=await supa.rpc("fp_minha_rede",E.franq&&E.franq._verComo?{p_fid:E.franq.id}:{});
     if(!r.error)d=r.data;}catch(e){}
   if(!d||!(d.rede||[]).length)return;
+  // FP tem painel de gestão → o portal alarga para a tabela caber inteira
+  const wrap=ge("portal-franq")&&ge("portal-franq").firstElementChild;
+  if(wrap)wrap.style.maxWidth="1000px";
   // ferramenta de gestão (Bruna, 04/11/2026): semáforo, tabela ordenável,
   // funil pedidos → propostas → fechadas, busca e detalhe por franqueado
   E._fpDados=d;E._fpQ="";E._fpPer=7;E._fpSort={c:"p",d:-1};E._fpAberto="";
@@ -1306,8 +1309,8 @@ function pfRedeTabela(){
       <button class="btn ${per===7?"btp":"bts"} btsm" onclick="E._fpPer=7;pfRedeTabela()">semana</button>
       <button class="btn ${per===30?"btp":"bts"} btsm" onclick="E._fpPer=30;pfRedeTabela()">mês</button>
       <span style="font-size:10.5px;color:var(--gray);margin-left:6px">toque no nome para ver os pedidos · toque no título da coluna para ordenar</span></div>
-    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:620px">
-      <tr>${th("sem","&#9679;","semáforo: verde pediu em 30d · amarelo parado · vermelho nunca entrou")}${th("nome","Franqueado")}${th("p",per===7?"Pedidos 7d":"Pedidos 30d")}${th("tot","Total")}${th("props","Propostas","propostas geradas no jurídico a partir dos pedidos")}${th("fech","Fechadas","propostas fechadas (contrato)")}${th("ult","Último pedido")}${th("ac","Acesso")}</tr>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:560px">
+      <tr>${th("sem","&#9679;","semáforo: verde pediu em 30d · amarelo parado · vermelho nunca entrou")}${th("nome","Franqueado")}${th("p",per===7?"7 dias":"30 dias","pedidos no período")}${th("tot","Total")}${th("props","Prop.","propostas geradas no jurídico a partir dos pedidos")}${th("fech","Fech.","propostas fechadas (contrato)")}${th("ult","Últ. pedido")}${th("ac","Acesso")}</tr>
       ${rows.map(linha).join("")||'<tr><td colspan="8" style="padding:8px;font-size:12px;color:var(--gray)">Ninguém com esse nome.</td></tr>'}
     </table></div>`;
 }
