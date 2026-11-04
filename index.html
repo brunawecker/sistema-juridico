@@ -1282,9 +1282,13 @@ function pfRedeTabela(){
     return `<span style="color:${s2===2?"#1E8449":"#8A5B00"}">${ped}</span><span style="color:var(--gray)">${ac}</span>${r2}`;};
   const card=f=>{const s2=pfSem(f),aberto=E._fpAberto===f.franqueado;
     const peds=aberto?(d.pedidos||[]).filter(p=>p.franqueado===f.franqueado):[];
+    // rastro da absorção (Bruna, 04/11/2026): de quem o franqueado era antes
+    const ant=f.fp_ant?(semAc(f.fp_ant)===semAc(f.franqueado)
+      ?` <span class="tag ts" style="font-size:10px" title="era FP e a equipe dele foi absorvida pela sua">ex-FP — equipe absorvida</span>`
+      :` <span class="tag ts" style="font-size:10px">antes na equipe de ${esc(f.fp_ant)}</span>`):"";
     return `<div onclick='pfAbrir(${JSON.stringify(f.franqueado)})' style="border:1px solid var(--border);border-left:5px solid ${COR[s2]};border-radius:10px;padding:9px 12px;margin-bottom:6px;cursor:pointer;background:${aberto?"var(--bg)":"white"}">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-        <b style="font-size:13.5px;color:var(--navy)">${esc(f.franqueado)}</b>
+        <span><b style="font-size:13.5px;color:var(--navy)">${esc(f.franqueado)}</b>${ant}</span>
         <span style="font-size:13px;color:var(--gray)">${aberto?"&#9662;":"&#9656;"}</span></div>
       <div style="font-size:12px;margin-top:2px">${frase(f)}</div>
       ${aberto?`<div onclick="event.stopPropagation()" style="margin-top:7px;border-top:1px solid var(--border);padding-top:6px;cursor:default">
