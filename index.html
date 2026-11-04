@@ -7029,6 +7029,7 @@ function toggleEd(id){
     <div style="grid-column:1/-1"><label style="font-size:11px">Tipo(s) de contrato (marque quantos precisar)</label>${vertCheckboxes("edvert-"+id,c.vertical)}</div>
     <div><label style="font-size:11px">&#128197; Entrou na casa</label><input type="date" class="fsel" id="ed-inicio-${id}" value="${esc(String(c.data_inicio_dt||"").slice(0,10))}" style="width:100%;margin-bottom:6px"></div>
     <div><label style="font-size:11px">Regime</label>${sel("regime",REGIMES,c.regime)}</div>
+    ${E.perfil.head_sim?`<div style="grid-column:1/-1"><label style="font-size:11px" title="Advogada da carteira — só heads alteram; as tarefas ativas acompanham">&#9878; Head responsável</label>${sel("headcli",["Danielly","Bruna","Eduarda"],String(c.head||"").trim())}</div>`:""}
     <div><label style="font-size:11px">CAPAG</label>${sel("capag",["A","B","C","D","SEM ACESSO","sem ecac"],c.capag)}</div>
     <div><label style="font-size:11px">e-CAC</label>${inp("e_cac",c.e_cac)}</div>
     <div><label style="font-size:11px">Franqueado</label>${inp("franqueado",c.franqueado)}</div>
@@ -7082,8 +7083,24 @@ async function salvarCliente(id){
   const ini=g("inicio");if(ini!==undefined){                // data de entrada na casa
     const ok=/^\d{4}-\d{2}-\d{2}$/.test(ini);
     campos.data_inicio_dt=ok?ini:null;campos.data_inicio=ok?brData(ini):null;}
+  // ⚖ troca de HEAD da carteira — só heads (Bruna, 04/11/2026): as tarefas
+  // ativas acompanham (advogada) e a troca fica no histórico do cliente
+  const headAntiga=String((E._cli[id]||{}).head||"").trim();
+  let headNova="";
+  if(E.perfil.head_sim){const hv=g("headcli");
+    if(hv!==undefined&&hv&&hv!==headAntiga){
+      if(!confirm(`Trocar a HEAD responsável de "${(E._cli[id]||{}).nome}"?\n\n${headAntiga||"—"} → ${hv}\n\nAs tarefas ativas do cliente passam para a carteira da nova head.`))return;
+      headNova=hv;campos.head=hv;}}
   try{await DB.clienteUpdate(id,campos);}catch(e){toast("Erro: "+e.message,"erro");return;}
-  Object.assign(E._cli[id],campos);toast("Cadastro atualizado!","ok");
+  if(headNova){
+    let n=0;
+    try{E._cacheT=null;const ts=(await DB.tarefas()).filter(t=>t.id_tarefa&&t.id_cliente===id);
+      for(const t of ts){try{await DB.tarefaUpdate(t,{campos:{advogada:headNova}});n++;}catch(e){}}}catch(e){}
+    try{await DB.nota({id_tarefa:"",id_cliente:id,tipo:"HISTORICO",
+      texto:`⚖ Head responsável alterada: ${headAntiga||"—"} → ${headNova} (por ${E.perfil.nome_sistema}). ${n} tarefa(s) ativa(s) acompanharam a carteira.`});}catch(e){}
+    E._cacheT=null;}
+  Object.assign(E._cli[id],campos);
+  toast(headNova?`Cadastro atualizado — head agora é ${headNova} (tarefas ativas acompanharam).`:"Cadastro atualizado!","ok");
 }
 async function salvarRespCliente(id){
   const novo=ge("ra-"+id).value;const c=E._cli[id];
