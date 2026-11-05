@@ -1245,6 +1245,11 @@ const PF_ST={NOVA:["tda","recebida"],EM_ANALISE:["td2","em análise"],CONCLUIDA:
 async function portalFranqueado(){
   if(!E.franq.senha_trocada)return portalTrocaSenha();
   E._pfEmpI=0;
+  // login ainda é o fictício nome.sobrenome? Oferece vincular o e-mail
+  // pessoal MESMO depois de já ter criado senha (Bruna, 05/11/2026)
+  let _emailLogin="";
+  try{const u=await supa.auth.getUser();_emailLogin=String((u&&u.data&&u.data.user&&u.data.user.email)||"").toLowerCase();}catch(e){}
+  const _semEmailPessoal=_emailLogin.endsWith("@franqueados.villela.com");
   portalWrap(`
     <div id="pf-rede"></div>
     <div id="pf-cli"></div>
@@ -1264,6 +1269,11 @@ async function portalFranqueado(){
         <span style="font-size:10.5px;color:var(--gray)">dia e horário obrigatórios · <b>mínimo 24 horas de antecedência</b> — o jurídico mira essa data</span></div>
       <button class="btn btp btw" id="pf-enviar" onclick="portalSolicitar()">Enviar para o jurídico</button>
       <div id="pf-aviso"></div></div>
+    ${_semEmailPessoal?`<div class="painel"><div class="bloco-t">&#128231; Cadastre seu e-mail pessoal</div>
+      <div style="font-size:12px;color:var(--gray);margin-bottom:8px">Seu login atual (<b>${esc(_emailLogin.split("@")[0])}</b>) não recebe e-mail. Vinculando o seu e-mail pessoal, ele vira o seu login, dá para entrar pelo botão do Google e para <b>recuperar a senha sozinho</b> pelo "Esqueci minha senha".</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><input class="fi" id="pf-novo-email" type="email" placeholder="seuemail@gmail.com" style="flex:1;min-width:200px;margin:0">
+        <button class="btn btp" onclick="pfVincularEmail()">Vincular e-mail</button></div>
+      <div id="pf-em-aviso"></div></div>`:""}
     <div class="painel"><div class="bloco-t">&#128203; Minhas solicitações</div>
       <div id="pf-lista"><div class="vazio">Carregando…</div></div></div>`);
   pfCarregaHeads(); portalLista(); pfCarregaRede(); pfCarregaClientes();
@@ -1415,6 +1425,20 @@ function pfRedeTabela(){
     ${rows.map(card).join("")||'<div style="font-size:12px;color:var(--gray)">Ninguém com esse nome.</div>'}`;
 }
 
+// vincular e-mail pessoal depois do 1º acesso (Bruna, 05/11/2026) — mesma
+// função oficial do primeiro acesso (franq_meu_email); a senha não muda
+async function pfVincularEmail(){
+  if(E.franq&&(E.franq._preview||E.franq._verComo))return pfAviso("Visualização: aqui o franqueado vincularia o e-mail pessoal dele.","info");
+  const em=(ge("pf-novo-email").value||"").trim().toLowerCase();
+  const box=ge("pf-em-aviso");
+  const diz=(m,t)=>{if(box)box.innerHTML=`<div class="aviso ${t||"erro"}" style="margin-top:8px">${esc(m)}</div>`;};
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em))return diz("Esse e-mail não parece completo — confira (ex.: nome@gmail.com).");
+  if(em.endsWith("@franqueados.villela.com"))return diz("Use o seu e-mail PESSOAL (Gmail, Hotmail…) — não o login do portal.");
+  const r=await supa.rpc("franq_meu_email",{p_email:em});
+  if(r.error)return diz(r.error.message);
+  try{await supa.auth.refreshSession();}catch(_e){}
+  diz("✓ E-mail vinculado! A partir de agora o seu login é "+em+" — a senha continua a mesma, e o botão do Google também funciona.","info");
+}
 async function pfCarregaHeads(){
   const sel=ge("pf-head");if(!sel)return;
   let hs=[];
