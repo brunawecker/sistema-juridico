@@ -1264,10 +1264,10 @@ function pfCliDesenha(){
   const todos=E._pfCli.filter(c=>!q||semAc(c.nome).indexOf(q)>=0||(dig(q)&&dig(c.cnpj).indexOf(dig(q))>=0));
   const comT=todos.filter(c=>(c.tarefas||[]).length),semT=todos.filter(c=>!(c.tarefas||[]).length);
   const card=c=>`<div style="border:1px solid var(--border);border-radius:10px;padding:9px 12px;margin-bottom:6px;background:white">
-    <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center">
-      <span><b style="font-size:13px;color:var(--navy)">${esc(c.nome)}</b>
-        <span style="font-size:10.5px;color:var(--gray);font-family:'DM Mono'">${esc(c.cnpj||"")}</span></span>
-      <button class="btn bts btsm" onclick='pfVerAndamentos(${JSON.stringify(c.id)},${JSON.stringify(c.nome)})'>&#128220; ver andamentos</button></div>
+    <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
+      <span style="flex:1;min-width:0"><b style="font-size:13px;color:var(--navy)">${esc(c.nome)}</b>
+        <span style="font-size:10.5px;color:var(--gray);font-family:'DM Mono';white-space:nowrap">${esc(c.cnpj||"")}</span></span>
+      <button class="btn bts btsm" style="flex-shrink:0;white-space:nowrap" onclick='pfVerAndamentos(${JSON.stringify(c.id)},${JSON.stringify(c.nome)})'>&#128220; ver andamentos</button></div>
     ${(c.tarefas||[]).map(t=>`<div style="font-size:12px;margin-top:4px;padding-top:4px;border-top:1px dashed var(--border)">
       <b>${esc(t.op||"")}</b> — assessor <b>${esc(t.assessor||"—")}</b> ${pfCliStatus(t)}
       ${t.ult?`<span style="font-size:11px;color:var(--gray)">· último movimento ${esc(t.ult)}</span>`:""}</div>`).join("")
