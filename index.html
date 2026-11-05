@@ -1212,6 +1212,7 @@ async function portalFranqueado(){
   E._pfEmpI=0;
   portalWrap(`
     <div id="pf-rede"></div>
+    <div id="pf-cli"></div>
     <div class="painel"><div class="bloco-t">&#128232; Pedir parecer tributário (proposta comercial)</div>
       <div style="font-size:12px;color:var(--gray);margin-bottom:8px">Preencha o CNPJ que o resto vem sozinho da Receita. O pedido entra como <b>imediato</b> no jurídico, aos cuidados da head que você escolher.<br><b>Mesmo dono com mais de um CNPJ?</b> Clique em &#8220;+ Adicionar outra empresa&#8221; e mande todas de uma vez.</div>
       <div id="pf-empresas">${pfEmpRow(0)}</div>
@@ -1230,7 +1231,64 @@ async function portalFranqueado(){
       <div id="pf-aviso"></div></div>
     <div class="painel"><div class="bloco-t">&#128203; Minhas solicitações</div>
       <div id="pf-lista"><div class="vazio">Carregando…</div></div></div>`);
-  pfCarregaHeads(); portalLista(); pfCarregaRede();
+  pfCarregaHeads(); portalLista(); pfCarregaRede(); pfCarregaClientes();
+}
+// 📂 Meus clientes (Bruna, 05/11/2026): franqueado com clientes etiquetados
+// acompanha as tarefas e o histórico — TUDO só leitura, garantido no banco
+async function pfCarregaClientes(){
+  const box=ge("pf-cli");if(!box)return;
+  if(E.franq&&E.franq._preview)return;
+  let d=null;
+  try{const r=await supa.rpc("franq_meus_clientes",E.franq&&E.franq._verComo?{p_fid:E.franq.id}:{});
+    if(!r.error)d=r.data;}catch(e){}
+  if(!d||!(d.clientes||[]).length)return;
+  E._pfCli=d.clientes;E._pfCliQ="";
+  box.innerHTML=`<div class="painel" style="border-color:#B9D8E1">
+    <div class="bloco-t">&#128194; Meus clientes</div>
+    <div style="font-size:11.5px;color:var(--gray);margin-bottom:6px">Acompanhamento do jurídico: tarefas, quem executa e o histórico de andamentos. Visualização apenas — quem movimenta é a equipe.</div>
+    <input class="fi" id="pf-cli-q" placeholder="&#128269; buscar por nome ou CNPJ..." style="margin-bottom:7px" oninput="E._pfCliQ=this.value;pfCliDesenha()">
+    <div id="pf-cli-tb"></div></div>`;
+  pfCliDesenha();
+}
+function pfCliStatus(t){
+  if(t.em_correcao)return '<span class="tag td2">em revisão interna</span>';
+  if(/^EM DIA/i.test(t.status_raw||""))return '<span class="tag tek">concluída &#10003;</span>';
+  const del=(String(t.status_raw||"").match(/DELEGADA[^→]*→\s*(.+)$/)||[])[1];
+  const atr=t.atrasada?' <span class="tag ti">em atraso</span>':"";
+  return `<span class="tag tda">em andamento</span>${atr}${del?` <span class="tag tm">com ${esc(del.trim())}</span>`:""}`;
+}
+function pfCliDesenha(){
+  const el=ge("pf-cli-tb");if(!el||!E._pfCli)return;
+  const q=semAc(E._pfCliQ||"").trim();
+  const dig=s=>String(s||"").replace(/\D/g,"");
+  const todos=E._pfCli.filter(c=>!q||semAc(c.nome).indexOf(q)>=0||(dig(q)&&dig(c.cnpj).indexOf(dig(q))>=0));
+  const comT=todos.filter(c=>(c.tarefas||[]).length),semT=todos.filter(c=>!(c.tarefas||[]).length);
+  const card=c=>`<div style="border:1px solid var(--border);border-radius:10px;padding:9px 12px;margin-bottom:6px;background:white">
+    <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center">
+      <span><b style="font-size:13px;color:var(--navy)">${esc(c.nome)}</b>
+        <span style="font-size:10.5px;color:var(--gray);font-family:'DM Mono'">${esc(c.cnpj||"")}</span></span>
+      <button class="btn bts btsm" onclick='pfVerAndamentos(${JSON.stringify(c.id)},${JSON.stringify(c.nome)})'>&#128220; ver andamentos</button></div>
+    ${(c.tarefas||[]).map(t=>`<div style="font-size:12px;margin-top:4px;padding-top:4px;border-top:1px dashed var(--border)">
+      <b>${esc(t.op||"")}</b> — assessor <b>${esc(t.assessor||"—")}</b> ${pfCliStatus(t)}
+      ${t.ult?`<span style="font-size:11px;color:var(--gray)">· último movimento ${esc(t.ult)}</span>`:""}</div>`).join("")
+      ||'<div style="font-size:11.5px;color:var(--gray);margin-top:3px">sem tarefa ativa no momento</div>'}
+  </div>`;
+  el.innerHTML=`<div style="font-size:11.5px;color:var(--gray);margin-bottom:6px"><b>${todos.length}</b> cliente(s) · <b>${comT.length}</b> com tarefa ativa</div>`
+    +comT.map(card).join("")
+    +(semT.length?`<details style="margin-top:4px"><summary style="cursor:pointer;font-size:11.5px;color:var(--gray)">sem tarefa ativa no momento (${semT.length}) — toque para ver</summary>
+      <div style="margin-top:6px">${semT.map(card).join("")}</div></details>`:"")
+    +((comT.length+semT.length)?"":'<div style="font-size:12px;color:var(--gray)">Ninguém com esse nome ou CNPJ.</div>');
+}
+async function pfVerAndamentos(id,nome){
+  let ands=null;
+  try{const r=await supa.rpc("franq_cliente_andamentos",Object.assign({p_id_cliente:id},E.franq&&E.franq._verComo?{p_fid:E.franq.id}:{}));
+    if(r.error)throw r.error;ands=r.data;}catch(e){pfAviso("Não consegui abrir: "+(e.message||e),"erro");return;}
+  modal2("&#128220; Andamentos — acompanhamento",esc(nome||""),
+    `<div style="font-size:11px;color:var(--gray);margin-bottom:8px">Histórico registrado pela equipe jurídica (${(ands||[]).length} mais recentes) — somente leitura.</div>`
+    +((ands||[]).map(a=>`<div style="border-bottom:1px solid var(--gray-lt);padding:6px 0;font-size:12px">
+      <span style="font-family:'DM Mono';color:var(--gray)">${esc(a.data||"")}</span> · <b>${esc(a.autor||"")}</b>${a.op?` <span class="tag tm" style="font-size:10px">${esc(a.op)}</span>`:""}
+      <div style="white-space:pre-wrap;margin-top:2px">${esc(a.texto||"")}</div></div>`).join("")
+      ||'<div style="font-size:12px;color:var(--gray)">Nenhum andamento registrado ainda.</div>'));
 }
 // 👥 Visão geral da rede para FPs (Bruna, 04/11/2026): quem nunca entrou,
 // pedidos da semana/total, reunião de devolução marcada e últimos pedidos.
