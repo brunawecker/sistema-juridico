@@ -1285,11 +1285,20 @@ async function pfVerAndamentos(id,nome){
   let ands=null;
   try{const r=await supa.rpc("franq_cliente_andamentos",Object.assign({p_id_cliente:id},E.franq&&E.franq._verComo?{p_fid:E.franq.id}:{}));
     if(r.error)throw r.error;ands=r.data;}catch(e){pfAviso("Não consegui abrir: "+(e.message||e),"erro");return;}
+  // agrupado POR TAREFA (Bruna, 05/11/2026): cada operação é uma seção
+  const grupos={},ordem=[];
+  (ands||[]).forEach(a=>{const k=a.tid||"(geral)";
+    if(!grupos[k]){grupos[k]={op:a.op,itens:[]};ordem.push(k);}
+    if(!grupos[k].op&&a.op)grupos[k].op=a.op;
+    grupos[k].itens.push(a);});
+  const linhaAnd=a=>`<div style="border-bottom:1px solid var(--gray-lt);padding:5px 0;font-size:12px">
+      <span style="font-family:'DM Mono';color:var(--gray)">${esc(a.data||"")}</span> · <b>${esc(a.autor||"")}</b>
+      <div style="white-space:pre-wrap;margin-top:2px">${esc(a.texto||"")}</div></div>`;
   modal2("&#128220; Andamentos — acompanhamento",esc(nome||""),
-    `<div style="font-size:11px;color:var(--gray);margin-bottom:8px">Histórico registrado pela equipe jurídica (${(ands||[]).length} mais recentes) — somente leitura.</div>`
-    +((ands||[]).map(a=>`<div style="border-bottom:1px solid var(--gray-lt);padding:6px 0;font-size:12px">
-      <span style="font-family:'DM Mono';color:var(--gray)">${esc(a.data||"")}</span> · <b>${esc(a.autor||"")}</b>${a.op?` <span class="tag tm" style="font-size:10px">${esc(a.op)}</span>`:""}
-      <div style="white-space:pre-wrap;margin-top:2px">${esc(a.texto||"")}</div></div>`).join("")
+    `<div style="font-size:11px;color:var(--gray);margin-bottom:8px">Histórico registrado pela equipe jurídica, separado por tarefa (${(ands||[]).length} registros mais recentes) — somente leitura.</div>`
+    +(ordem.map(k=>{const g=grupos[k];
+      return `<div style="background:var(--ice);border-radius:8px;padding:5px 10px;margin:8px 0 2px;font-size:12px;font-weight:700;color:var(--dani)">&#9878; ${esc(g.op||(k==="(geral)"?"Registros gerais do cliente":"Tarefa já encerrada/arquivada"))} <span style="font-weight:400;color:var(--gray)">(${g.itens.length})</span></div>`
+        +g.itens.map(linhaAnd).join("");}).join("")
       ||'<div style="font-size:12px;color:var(--gray)">Nenhum andamento registrado ainda.</div>'));
 }
 // 👥 Visão geral da rede para FPs (Bruna, 04/11/2026): quem nunca entrou,
