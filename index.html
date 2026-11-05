@@ -1244,9 +1244,9 @@ async function pfCarregaClientes(){
   if(!d||!(d.clientes||[]).length)return;
   E._pfCli=d.clientes;E._pfCliQ="";
   box.innerHTML=`<div class="painel" style="border-color:#B9D8E1">
-    <div class="bloco-t">&#128194; Meus clientes</div>
-    <div style="font-size:11.5px;color:var(--gray);margin-bottom:6px">Acompanhamento do jurídico: tarefas, quem executa e o histórico de andamentos. Visualização apenas — quem movimenta é a equipe.</div>
-    <input class="fi" id="pf-cli-q" placeholder="&#128269; buscar por nome ou CNPJ..." style="margin-bottom:7px" oninput="E._pfCliQ=this.value;pfCliDesenha()">
+    <div class="bloco-t">&#128194; Meus clientes — consulta</div>
+    <div style="font-size:11.5px;color:var(--gray);margin-bottom:6px">Precisa saber como está um cliente seu? Busque pelo nome ou CNPJ: aparecem as tarefas, quem executa e o histórico de andamentos. Visualização apenas — quem movimenta é a equipe.</div>
+    <input class="fi" id="pf-cli-q" placeholder="&#128269; nome ou CNPJ do cliente (2+ letras)..." style="margin-bottom:7px" oninput="E._pfCliQ=this.value;pfCliDesenha()">
     <div id="pf-cli-tb"></div></div>`;
   pfCliDesenha();
 }
@@ -1261,7 +1261,9 @@ function pfCliDesenha(){
   const el=ge("pf-cli-tb");if(!el||!E._pfCli)return;
   const q=semAc(E._pfCliQ||"").trim();
   const dig=s=>String(s||"").replace(/\D/g,"");
-  const todos=E._pfCli.filter(c=>!q||semAc(c.nome).indexOf(q)>=0||(dig(q)&&dig(c.cnpj).indexOf(dig(q))>=0));
+  // lista fechada por padrão (Bruna, 05/11/2026): só mostra ao BUSCAR
+  if(q.length<2&&dig(q).length<2){el.innerHTML="";return;}
+  const todos=E._pfCli.filter(c=>semAc(c.nome).indexOf(q)>=0||(dig(q).length>=2&&dig(c.cnpj).indexOf(dig(q))>=0));
   const comT=todos.filter(c=>(c.tarefas||[]).length),semT=todos.filter(c=>!(c.tarefas||[]).length);
   const card=c=>`<div style="border:1px solid var(--border);border-radius:10px;padding:9px 12px;margin-bottom:6px;background:white">
     <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
