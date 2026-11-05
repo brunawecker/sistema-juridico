@@ -193,6 +193,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <input class="fi" id="li-senha" type="password" placeholder="Senha" autocomplete="current-password">
       <button class="btn bts btw" onclick="entrarSenha()">Entrar</button>
       <button class="btn bts btw" style="margin-top:7px" onclick="criarSenha()">Primeiro acesso — criar senha</button>
+      <div style="text-align:center;margin-top:9px"><a href="javascript:esqueciSenha()" style="font-size:12px;color:var(--gray)">&#128273; Esqueci minha senha</a></div>
     </div>
     <div id="login-aviso"></div>
   </div>
@@ -1106,13 +1107,47 @@ const DB = MODO_SUPABASE ? S : L;
 
 // ================================================================= LOGIN
 let _sessaoAtiva=false;
+// redefinição de senha pelo link do e-mail (Bruna, 05/11/2026)
+let _recuperandoSenha=/type=recovery/.test(String(location.hash||""));
 async function iniciar(){
   if(!MODO_SUPABASE) return iniciarLocal();
-  supa.auth.onAuthStateChange((_e,s)=>{
+  supa.auth.onAuthStateChange((ev,s)=>{
+    if(ev==="PASSWORD_RECOVERY")_recuperandoSenha=true;
+    if(_recuperandoSenha){if(s)telaNovaSenhaRecuperacao();return;}
     if(s){ if(!_sessaoAtiva){_sessaoAtiva=true;entrou();} }
     else if(_sessaoAtiva){_sessaoAtiva=false;sessaoExpirou();}
   });
-  const{data}=await supa.auth.getSession(); if(data.session&&!_sessaoAtiva){_sessaoAtiva=true;entrou();}
+  const{data}=await supa.auth.getSession();
+  if(data.session&&_recuperandoSenha){telaNovaSenhaRecuperacao();return;}
+  if(data.session&&!_sessaoAtiva){_sessaoAtiva=true;entrou();}
+}
+async function esqueciSenha(){
+  let em=(ge("li-email").value||"").trim().toLowerCase();
+  if(!em){avisoLogin("erro","Digite seu e-mail no campo acima e clique de novo em 'Esqueci minha senha'.");return;}
+  if(!em.includes("@"))em+="@franqueados.villela.com";
+  // o login padrão é fictício — não existe caixa de e-mail para receber o link
+  if(em.endsWith("@franqueados.villela.com")){
+    avisoLogin("info","O login nome.sobrenome não recebe e-mail. Se você já cadastrou seu E-MAIL PESSOAL no portal, digite ELE no campo e clique aqui de novo. Se nunca cadastrou, peça o reset à Villela (a senha volta para a padrão).");return;}
+  const{error}=await supa.auth.resetPasswordForEmail(em,{redirectTo:location.origin+location.pathname});
+  if(error){avisoLogin("erro",error.message);return;}
+  avisoLogin("info","Pronto! Enviamos um link de redefinição para "+em+". Abra o e-mail, clique no link e você volta para cá direto na tela de criar a senha nova. (Não chegou? Veja o spam e aguarde 1 minuto.)");
+}
+function telaNovaSenhaRecuperacao(){
+  const pf=ge("portal-franq");if(pf)pf.remove();
+  ge("app").style.display="none";ge("tela-login").style.display="";
+  ge("login-corpo").innerHTML=`
+    <div class="aviso info" style="margin-bottom:10px">&#128273; Link de redefinição reconhecido — crie a sua nova senha.</div>
+    <input class="fi" id="rs-1" type="password" placeholder="Nova senha (mínimo 8 caracteres)" autocomplete="new-password">
+    <input class="fi" id="rs-2" type="password" placeholder="Repita a nova senha" autocomplete="new-password">
+    <button class="btn btp btw" onclick="salvarSenhaRecuperada()">Salvar senha e entrar</button>`;
+}
+async function salvarSenhaRecuperada(){
+  const a=ge("rs-1").value,b=ge("rs-2").value;
+  if(a.length<8){avisoLogin("erro","A senha precisa ter ao menos 8 caracteres.");return;}
+  if(a!==b){avisoLogin("erro","As duas senhas não conferem.");return;}
+  const{error}=await supa.auth.updateUser({password:a});
+  if(error){avisoLogin("erro",error.message);return;}
+  _recuperandoSenha=false;location.hash="";location.reload();
 }
 function sessaoExpirou(){
   const _pf=ge("portal-franq");if(_pf)_pf.remove();
