@@ -6914,8 +6914,17 @@ async function carregarLembretesCli(id){
 async function verDocsCliente(id){
   const box=ge("cdoc-"+id);box.innerHTML=`<div class="carregando"><div class="spin"></div></div>`;
   let docs=[];try{docs=await DB.docsDe(id);}catch(e){box.innerHTML=`<div class="aviso info">${esc(e.message)}</div>`;return;}
-  box.innerHTML=`<div class="painel"><div class="bloco-t">&#128206; Documentos do cliente (${docs.length})</div>
+  // links juntados nas PROPOSTAS do cliente (Bruna, 06/11/2026): o levantamento/
+  // parecer do SharePoint da proposta aparece aqui como documento também
+  let linksProp=[];
+  try{linksProp=((await DB.propostas())||[]).filter(p=>p.id_cliente===id&&/^https?:\/\//i.test(String(p.link_sharepoint||"").trim()))
+    .map(p=>({url:String(p.link_sharepoint).trim(),prop:p.id_proposta,quem:p.executor||p.quem_pediu||"",data:p.data_proposta||""}));}catch(e){}
+  box.innerHTML=`<div class="painel"><div class="bloco-t">&#128206; Documentos do cliente (${docs.length}${linksProp.length?` + ${linksProp.length} link(s) de proposta`:""})</div>
     ${docs.length?docs.map(d=>linhaDoc(d)).join(""):`<div style="font-size:12px;color:var(--gray)">Nenhum documento ainda.</div>`}
+    ${linksProp.length?`<div style="font-size:11px;font-weight:700;color:var(--gray);margin-top:8px">&#128279; Juntados nas propostas</div>`
+      +linksProp.map(l=>`<div class="linha-item"><span style="cursor:pointer" onclick='window.open(${JSON.stringify(l.url)},"_blank")'>&#128279; <b>Levantamento / parecer (SharePoint)</b>
+        <span style="color:var(--gray);font-size:11px"> · ${esc(l.prop)} · ${esc(l.quem)}${l.data?" · "+esc(l.data):""}</span></span>
+        <span style="font-size:10px;color:var(--gray)">abre no SharePoint &#8599;</span></div>`).join(""):""}
     <div class="linha-acao" style="margin-top:6px"><input type="file" id="cdoc-file-${esc(id)}" class="fsel" style="max-width:260px">
       <button class="btn bts btsm" onclick="enviarDocCliente('${esc(id)}')">&#8613; Anexar ao cliente</button></div></div>`;
 }
