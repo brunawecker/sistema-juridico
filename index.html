@@ -6629,7 +6629,7 @@ async function exportarClientesPlanilhaGo(){
     qtd[t.id_cliente]=(qtd[t.id_cliente]||0)+1;
     const op=String(t.operacao||"").trim();if(op)(tiposPorCli[t.id_cliente]=tiposPorCli[t.id_cliente]||new Set()).add(op);});
   const cel=v=>{const s=String(v==null?"":v).replace(/"/g,'""');return /[";\n]/.test(s)?'"'+s+'"':s;};
-  const linhas=[["ID","Cliente","CNPJ/CPF","Situação","Head","Franqueado","Regime","Tarefas ativas","Tipos de tarefa ativas"].join(";")];
+  const linhas=[["ID","Cliente","CNPJ/CPF","Situação","Head","Franqueado","Regime","Acesso e-CAC","Tarefas ativas","Tipos de tarefa ativas"].join(";")];
   let total=0;
   (cs||[]).slice().sort((a,b)=>String(a.nome||"").localeCompare(String(b.nome||""))).forEach(c=>{
     const n=qtd[c.id_cliente]||0;
@@ -6648,7 +6648,7 @@ async function exportarClientesPlanilhaGo(){
     total++;
     const sit=sitRaw==="PROSPECCAO"?"PROSPECÇÃO":"OFICIAL";
     linhas.push([cel(c.id_cliente),cel(c.nome),cel(c.cnpj_cpf),sit,cel(c.head),
-      cel(c.franqueado||""),cel(c.regime||""),n,cel(meusTipos.sort().join(" | "))].join(";"));});
+      cel(c.franqueado||""),cel(c.regime||""),cel(c.e_cac||""),n,cel(meusTipos.sort().join(" | "))].join(";"));});
   if(!total){toast("Nenhum cliente nesse recorte.","erro");return;}
   const blob=new Blob(["﻿"+linhas.join("\r\n")],{type:"text/csv;charset=utf-8"});
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);
