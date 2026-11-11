@@ -5265,10 +5265,13 @@ async function painelRedirecionamentos(alvoId,ts,cls){
   const box=ge(alvoId);if(!box)return;
   const eu=E.perfil.nome_sistema;
   let peds=[];try{peds=await DB.redirListar();}catch(e){peds=[];}
-  const pend=(peds||[]).filter(r=>r.status==="PENDENTE"&&(E.perfil.admin_sim||loginDe(r.head||"")===eu));
+  // head: pedidos da carteira dela · gestora direta: pedidos das geridas (11/11/2026)
+  const pend=(peds||[]).filter(r=>r.status==="PENDENTE"&&(E.perfil.head_sim
+    ?(E.perfil.admin_sim||loginDe(r.head||"")===eu)
+    :ehGestoraDe(r.de_assessor)));
   const porId={};(cls||[]).forEach(c=>{if(c.id_cliente)porId[c.id_cliente]=c;});
   const jaPedido=new Set((peds||[]).filter(r=>r.status==="PENDENTE").map(r=>r.id_tarefa));
-  const errados=(ts||[]).filter(t=>t.prazo_fatal_dt&&!t._concluida&&!t._delegada&&!t._emCorrecao
+  const errados=(E.perfil.head_sim?(ts||[]):[]).filter(t=>t.prazo_fatal_dt&&!t._concluida&&!t._delegada&&!t._emCorrecao
       &&String(t.advogada||"").trim()===eu&&!jaPedido.has(t.id_tarefa))
     .map(t=>({t,resp:loginDe(String((porId[t.id_cliente]||{}).assessor_responsavel||"").trim())}))
     .filter(o=>o.resp&&o.resp!==loginDe(o.t.assessor||""));
@@ -5835,6 +5838,7 @@ async function telaRadarEquipe(){
   let h=`<div class="painel" style="border-left:4px solid #1F4E79">
     <div class="bloco-t" style="color:#1F4E79">&#129517; Fila da equipe — vencidas que N&Atilde;O couberam no dia de hoje</div>
     <div style="font-size:11px;color:var(--gray);margin-bottom:6px">Mesma régua da tela de cada assessor: o que está aqui venceu, mas ficou FORA do plano de hoje da pessoa (o dia já está cheio). Mais atrasadas primeiro.${alvoImp?` O botão &#129309; abre a delegação do impulso já apontada para <b>${esc(alvoImp)}</b> — prazo fatal e cartões que já são impulso não podem (o sistema trava).`:""}</div>`;
+  h+=`<div id="radar-redir"></div>`;
   let alguma=false;
   OPERACIONAIS.filter(n=>!geridas.includes(n)).forEach(n=>{
     const atv=ativasDe(n);if(!atv.length)return;
@@ -5869,6 +5873,8 @@ async function telaRadarEquipe(){
       <button class="btn bts btsm" onclick="radarLiberar('${esc(g)}')" title="Adianta para hoje até 5 semanais/mensais vencidas que o plano vinha segurando">&#128228; Liberar atrasadas (+5)</button>
       <button class="btn bts btsm" onclick="E._agPessoa='${esc(g)}';telaAgenda()">&#128197; Ver a agenda</button></div></div>`;});
   ge("conteudo").innerHTML=h;
+  // 🔁 pedidos de redirecionamento das geridas — a gestora também aprova (11/11/2026)
+  try{await painelRedirecionamentos("radar-redir",ts,[]);}catch(e){}
 }
 // atalho do radar: abre a delegação de impulso já apontada para a gerida
 async function radarImpulso(id){
