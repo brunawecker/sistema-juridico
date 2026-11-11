@@ -616,7 +616,7 @@ const urlPasta=v=>{v=String(v||"").trim();
 const alvosDelegacao=nome=>{const l=DELEGA_PARA[nome]||[];
   return (E.perfil&&E.perfil.head_sim&&nome===E.perfil.nome_sistema)||!l.length
     ?OPERACIONAIS.filter(a=>a!==nome):l.filter(a=>a!==nome);};
-const PROP_PRODUTOS=["MANDADO DE SEGURANÇA","MS MIGRAÇÃO","TIS","ÊXITO TRANSAÇÃO","HT","HT MUNICIPAL","LAUDO CAPAG","GARANTIAS","SCORE","ASSESSORIA","TAX","FGTS","BANCÁRIO","CONTABILIZE","RENEGOCIAÇÃO"];
+const PROP_PRODUTOS=["MANDADO DE SEGURANÇA","MS MIGRAÇÃO","TIS","ÊXITO TRANSAÇÃO","HT","HT MUNICIPAL","LAUDO CAPAG","GARANTIAS","SCORE","ASSESSORIA","TAX","FGTS","BANCÁRIO","CONTABILIZE","RENEGOCIAÇÃO","CRÉDITO NOVO - PREVIDENCIÁRIO"];
 const PROP_VERTICAIS=["REGULARIZE","AUDITE","BACARIZE","CONCILIE","CONTABILIZE","RECUPERE","RENEGOCIE","RNC","VILLELA IP","VBB"];
 const VERTICAIS_CLIENTE=["REGULARIZE","RECUPERE","RENEGOCIE","GOLDEN","CONCILIE","CONTABILIZE","VENDA CONJUGADA","A PREENCHER"];
 // cliente pode ter mais de um tipo de contrato (Bruna, 22/09/2026): checkboxes,
