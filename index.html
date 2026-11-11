@@ -401,6 +401,11 @@ const AUTORIZADOS_DELEGAR=["Malu","Ygor","Madu","Bruna","Danielly","Eduarda"];
 const OPERA_TUDO=[]; // pode_operar_tudo (config_permissoes): abre/anota qualquer card — ex.: Raquel
 // para quem cada autorizado pode delegar (Configurações; vazio = todos)
 const DELEGA_PARA={};
+// 🧭 gestora direta (Bruna, 11/11/2026): recursos de head travados nas
+// geridas — vem de config_permissoes.gere_de (plano B fixo: Madu → Raquel)
+const GERE={Madu:["Raquel"]};
+const minhasGeridas=()=>(!E.perfil||E.perfil.head_sim)?[]:(GERE[E.perfil.nome_sistema]||[]);
+const ehGestoraDe=n=>minhasGeridas().includes(loginDe(String(n||"")));
 // ⚡ exceção pontual (Bruna, 22/09/2026): a regra geral proíbe impulso IMEDIATO,
 // mas SÓ HOJE (22/09) a Madu pode delegar impulso imediato para o Thiago.
 // Auto-expira amanhã sozinha (comparação por data) — nada a reverter.
@@ -1690,8 +1695,11 @@ async function carregarConfig(){
     (cf.cap||[]).forEach(r=>{CAP[r.nome]=r.minutos;});
     (cf.tmp||[]).forEach(r=>{TEMPOS_PADRAO[r.operacao==="_PADRAO"?"_default":r.operacao]=r.minutos;});
     if((cf.per||[]).length){CORR_HEADS.length=0;AUTORIZADOS_DELEGAR.length=0;OPERA_TUDO.length=0;
+      Object.keys(GERE).forEach(k=>delete GERE[k]);
       cf.per.forEach(r=>{if(r.pode_corrigir)CORR_HEADS.push(r.nome);if(r.pode_delegar)AUTORIZADOS_DELEGAR.push(r.nome);
         if(r.pode_operar_tudo)OPERA_TUDO.push(r.nome);
+        const ger=String(r.gere_de||"").split(",").map(s=>s.trim()).filter(Boolean);
+        if(ger.length)GERE[r.nome]=ger;
         DELEGA_PARA[r.nome]=String(r.delega_para||"").split(",").map(s=>s.trim()).filter(Boolean);
         PROSPEC[r.nome]=parseInt(r.prospeccao_min)||0;
         PROSPEC_SEMPRE[r.nome]=!!r.prospeccao_sempre;
@@ -1788,7 +1796,13 @@ function montarMenu(){
   ];
   // quem pode delegar gere os impulsos num ambiente próprio (Bruna, 19/09/2026)
   if(AUTORIZADOS_DELEGAR.includes(p.nome_sistema))
-    itens.splice(1,0,["deleg","&#129309;","Tarefas Delegadas",telaDelegadas]);}
+    itens.splice(1,0,["deleg","&#129309;","Tarefas Delegadas",telaDelegadas]);
+  // 🧭 gestora direta (Bruna, 11/11/2026): telas de gestão travadas nas geridas
+  if(minhasGeridas().length)
+    itens.splice(1,0,
+      ["radar","&#129517;","Radar da Equipe",telaRadarEquipe],
+      ["assessor","&#128101;","Equipe: "+minhasGeridas().join(", "),telaPorAssessor],
+      ["agora","&#128994;","Em Andamento Agora",telaAgora]);}
   E._itens=itens;
   montarFab(vend);
   retomarSessaoAtiva();
@@ -2016,14 +2030,14 @@ function classificar(t){
   t._delegada=st.includes("DELEGADA");
   t._emCorrecao=!!String(t.correcao_head||"").trim();
   t._impulso=String(t.supervisao||"").includes("IMPULSO de");
-  // prazo do Simples Nacional entra como prazo fatal (rotulado), sem apagar um
-  // prazo fatal real: usamos o mais próximo dos dois para a urgência
-  const pf0=diasAte(t.prazo_fatal_dt), sp=diasAte(t.simples_prazo_dt); t._spDias=sp;
-  let pf=pf0; t._fatalSN=false;
-  if(sp!==null&&(pf0===null||sp<pf0)){pf=sp;t._fatalSN=true;}
+  // Simples Nacional (Bruna, 11/11/2026): o prazo de regularização já passou —
+  // o caso vira só a etiqueta "SIMPLES NACIONAL 2027" e NÃO entra mais na aba
+  // de prazos nem puxa urgência; o prazo fatal volta a ser só o processual
+  const pf=diasAte(t.prazo_fatal_dt); t._spDias=diasAte(t.simples_prazo_dt);
+  t._casoSN=!!t.simples_prazo_dt; t._fatalSN=false;
   t._pfDias=pf; t._prazoAlerta=(pf!==null&&pf<=5);
   const realFatalAtivo=!!t.prazo_fatal_dt&&!(t.retomada_fatal_dt&&String(t.retomada_fatal_dt).slice(0,10)>hojeISO());
-  t._fatalTopo=realFatalAtivo||(sp!==null);
+  t._fatalTopo=realFatalAtivo;
   t._impedimento=/impedimento/i.test(String(t.operacao||""));
   t._laudo=/laudo|capag|\bopf\b/i.test(String(t.operacao||""));
   t._laudoDias=t._laudo&&t.etapa_laudo_dt?(-diasAte(String(t.etapa_laudo_dt).slice(0,10))):null;
@@ -2122,7 +2136,7 @@ function cardTarefa(t,mostrarAssessor,mostrarTempo){
   return `<div class="tc ${t._urg===0?"uF":t._urg===0.5?"uP":"u"+(t._g||5)}" onclick="abrirTarefa('${esc(t.id_tarefa)}')"><div style="flex:1;min-width:0">
     <div class="tcc">${esc(t.cliente)}${fin}</div>
     <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${t._nproc>1?` <span class="tag ts" title="execução com vários processos — o tempo do dia já conta ×${t._nproc}">&#9878; ${t._nproc} proc.</span>`:""}${fasesChipsDe(t)}${t.numero_processual?` <span class="tco" style="font-family:'DM Mono';font-size:10px">${esc(t.numero_processual)}</span>`:""}${ec}${t._impulso?(()=>{const de=(String(t.supervisao||"").match(/IMPULSO de ([^|]+)\|/)||[])[1];return ` <span class="tag" style="background:#1F4E79;color:white" title="Cartinho de impulso — devolve ao dono quando finalizar">&#129309; impulso${de?" de "+esc(String(de).trim()):""}</span>`;})():""}${(/parecer|levantamento/i.test(t.operacao||"")&&!t._delegada&&!t._concluida)?(t.reuniao_cliente_dt?` <span class="tag" style="background:${String(t.reuniao_cliente_dt).slice(0,10)<=hojeISO()?"var(--red)":"#1E8449"};color:white" title="Reunião com o cliente marcada — o parecer precisa estar pronto antes">&#128197; reunião ${brData(t.reuniao_cliente_dt)}${t.reuniao_cliente_hora?" "+esc(t.reuniao_cliente_hora):""}</span>`:` <span class="tag" style="background:var(--gray-lt);color:var(--gray)" title="Ainda sem reunião marcada com o cliente — prioridade menor que as agendadas">reunião não agendada</span>`):""}${tagLanc(t)}${es}${hd}${pf}${ass}${tmp}</div></div>
-    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">${dt}${t.prazo_fatal_dt?`<span class="tdy ov" style="font-weight:700">FATAL: ${brData(t.prazo_fatal_dt)}</span>`:""}${t.simples_prazo_dt?`<span class="tdy ov" style="font-weight:700;background:#7B2D8B">&#9203; SIMPLES: ${brData(String(t.simples_prazo_dt).slice(0,10))}</span>`:""}${t.prazo_fatal_dt&&t.retomada_fatal_dt&&String(t.retomada_fatal_dt).slice(0,10)>hojeISO()?`<span class="tdy ok" title="Andamento do dia cumprido — dorme até a retomada">&#9203; retoma ${brData(t.retomada_fatal_dt)}</span>`:""}</div></div>`;
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">${dt}${t.prazo_fatal_dt?`<span class="tdy ov" style="font-weight:700">FATAL: ${brData(t.prazo_fatal_dt)}</span>`:""}${t.simples_prazo_dt?`<span class="tdy" style="font-weight:700;background:#EFE6F7;color:#7B2D8B" title="cliente marcado como caso do Simples Nacional — acompanhamento para 2027">&#9203; SIMPLES NACIONAL 2027</span>`:""}${t.prazo_fatal_dt&&t.retomada_fatal_dt&&String(t.retomada_fatal_dt).slice(0,10)>hojeISO()?`<span class="tdy ok" title="Andamento do dia cumprido — dorme até a retomada">&#9203; retoma ${brData(t.retomada_fatal_dt)}</span>`:""}</div></div>`;
 }
 // Banner de prazos fatais desta semana (clicável)
 function bannerPrazoFatal(ts){
@@ -2776,7 +2790,7 @@ function desenharCard(t,hist){
     ${t.prazo_fatal_dt?`<div>Prazo fatal:<br><b style="color:${t._prazoAlerta?"var(--red)":"var(--navy)"}">${brData(t.prazo_fatal_dt)}</b>
       ${t.retomada_fatal_dt&&String(t.retomada_fatal_dt).slice(0,10)>hojeISO()?`<br><span style="font-size:11px;color:var(--gray)">&#9203; dorme até ${brData(t.retomada_fatal_dt)}</span>`:""}
       ${(isHead||ehMeuNome(t.assessor))?` <button class="btn bts btsm" style="padding:1px 8px;font-size:10px" title="O prazo foi cumprido — limpar o alerta" onclick="marcarPrazoCumprido()">&#10003; cumprido</button>`:""}</div>`:""}
-    ${t.simples_prazo_dt?`<div>&#9203; Prazo <b>Simples Nacional</b>:<br><b style="color:${(t._spDias!==null&&t._spDias<=5)?"var(--red)":"#7B2D8B"}">${brData(String(t.simples_prazo_dt).slice(0,10))}</b>${t._spDias!==null?` <span style="font-size:11px;color:var(--gray)">(${t._spDias<0?(-t._spDias)+"d vencido":t._spDias===0?"hoje":t._spDias+"d"})</span>`:""}</div>`:""}
+    ${t.simples_prazo_dt?`<div>&#9203; <b style="color:#7B2D8B">caso de SIMPLES NACIONAL 2027</b></div>`:""}
     <div>Responsável:<br><b>${esc(t.assessor||"—")}</b></div>
     <div>Criada em:<br><b>${(()=>{if(t.data_inclusao_dt)return brData(String(t.data_inclusao_dt).slice(0,10));
       const v=String(t.data_inclusao||"").trim().split(" ")[0];
@@ -2819,7 +2833,7 @@ function desenharCard(t,hist){
   h+=`<div class="bloco"><div class="bloco-t">Adicionar andamento</div>
     <textarea class="fta" id="nota-texto" placeholder="Descreva o andamento…"></textarea>
     <div class="linha-acao"><button class="btn btp btsm" onclick="salvarNota('ASSESSOR')">Salvar andamento</button>
-    ${isHead?`<button class="btn bts btsm" onclick="salvarNota('SUPERVISÃO')">&#128204; Orientação (head)</button>`:""}
+    ${(isHead||ehGestoraDe(t.assessor))?`<button class="btn bts btsm" onclick="salvarNota('SUPERVISÃO')">&#128204; Orientação (${isHead?"head":"gestora"})</button>`:""}
     ${t.prazo_fatal_dt
       ?((ehMeuNome(t.assessor)||podeDelegar)?`<button class="btn bts btsm" style="color:#7B0000;border-color:#7B0000" onclick="abrirRedirecionar()" title="Tarefa com prazo fatal não pode ser delegada — só redirecionada com aprovação da head">&#128257; Pedir redirecionamento</button>`:"")
       :(podeDelegar?`<button class="btn bts btsm" onclick="abrirDelegar()">&#129309; Delegar</button>`:"")}
@@ -3118,9 +3132,8 @@ function prazoSNtagHTML(c){
   const fg=dd===null?"#666":dd<=7?"#B23B2E":dd<=30?"#8A5B00":"#1E8449";
   const lbl=d?brData(String(d).slice(0,10))+(dd<0?` (${-dd}d vencido)`:dd===0?" (hoje)":` (${dd}d)`):"—";
   return `<span class="tag" style="background:${bg};color:${fg};cursor:pointer" onclick="editarPrazoSimplesCard()" title="Prazo máximo para regularização do enquadramento no Simples Nacional">&#9203; Prazo Simples: ${lbl} &#9998;</span>`;}
-function prazoSNbadge(c){if(!c||!c.prazo_simples)return "";const dd=prazoSNDias(c.prazo_simples);
-  const bg=dd===null?"var(--gray)":dd<=7?"var(--red)":dd<=30?"var(--amber)":"var(--green)";
-  return `<span class="tag" style="background:${bg};color:#fff">&#9203; Simples ${brData(String(c.prazo_simples).slice(0,10))}${dd<0?` (${-dd}d venc.)`:dd===0?" (hoje)":` (${dd}d)`}</span>`;}
+function prazoSNbadge(c){if(!c||!c.prazo_simples)return "";
+  return `<span class="tag" style="background:#EFE6F7;color:#7B2D8B" title="cliente marcado como caso do Simples Nacional — acompanhamento para 2027">&#9203; SIMPLES NACIONAL 2027</span>`;}
 function editarPrazoSimplesCard(){const c=E._cliCard;if(!c)return;
   modal2("Prazo do Simples Nacional",esc(c.nome),`
     <div style="font-size:12px;color:var(--gray);margin-bottom:6px">Prazo máximo para <b>regularização</b> para o enquadramento no <b>Simples Nacional</b> (deixe em branco se não se aplica).</div>
@@ -3161,7 +3174,7 @@ async function carregarCliExtra(t){
       sd.style.display="block";
       sd.innerHTML=`Regime Tributário:<br><span class="tag" style="background:${ehSN?"#1565C0":c.regime?"var(--gray-lt)":"var(--amber-lt)"};color:${ehSN?"white":c.regime?"var(--text)":"#7F6000"};cursor:pointer;font-weight:700" onclick="editarRegimeCard()">&#127978; ${esc(c.regime||"definir")} &#9998;</span><br>`
         +(c.simples_na?`<span class="tag tm" style="cursor:pointer;margin-top:3px" onclick="editarPrazoSimplesCard()" title="marcado como fora do Simples — clique para rever">&#128683; NÃO é caso do Simples &#9998;</span>`
-          :c.prazo_simples?`<span class="tag" style="background:#E6F4EA;color:#1E8449;cursor:pointer;margin-top:3px" onclick="editarPrazoSimplesCard()">&#9989; caso do Simples — prazo ${brData(String(c.prazo_simples).slice(0,10))} &#9998;</span>`
+          :c.prazo_simples?`<span class="tag" style="background:#E6F4EA;color:#1E8449;cursor:pointer;margin-top:3px" onclick="editarPrazoSimplesCard()">&#9989; caso do SIMPLES NACIONAL 2027 &#9998;</span>`
           :`<span class="tag ta" style="cursor:pointer;margin-top:3px" onclick="editarPrazoSimplesCard()" title="informe o prazo de regularização ou marque que não é caso">&#10067; é caso do Simples? definir &#9998;</span>`);}
     box.innerHTML=`<span class="tag" style="background:var(--amber-lt);color:#7F6000;cursor:pointer" onclick="editarEcacCard()">&#128273; e-CAC: ${esc(c.e_cac||"—")} &#9998;</span>
       <span class="tag" style="background:#E8EAF6;color:#3949AB">&#128193; ${c.pasta_sharepoint
@@ -4484,7 +4497,9 @@ async function telaPorAssessor(){
   // agrupa pelo nome oficial (loginDe unifica apelidos/nome completo) e a
   // etiqueta de atrasadas usa a mesma régua do Painel (fora delegadas/correção)
   const grp={};ts.filter(t=>t.id_tarefa).forEach(t=>{const a=loginDe(t.assessor)||"(sem assessor)";(grp[a]=grp[a]||[]).push(t);});
-  const ord=Object.entries(grp).sort((a,b)=>b[1].length-a[1].length);
+  let ord=Object.entries(grp).sort((a,b)=>b[1].length-a[1].length);
+  // gestora direta (não-head): a tela mostra SÓ as geridas dela
+  if(!E.perfil.head_sim&&minhasGeridas().length)ord=ord.filter(([n])=>minhasGeridas().includes(n));
   // blocos comerciais reservados no dia de cada um (pedido da Bruna, 18/08):
   // a head enxerga aqui quanto do dia está tomado por prospecção e follow-up
   const blocosDe=n=>{const ch=[];
@@ -5798,13 +5813,90 @@ async function telaCapacidade(){
   ge("conteudo").innerHTML=termometro+h;
 }
 // =================================================== TELA: EM ANDAMENTO
+// =================================================== TELA: RADAR DA EQUIPE
+// (gestora direta — Bruna, 11/11/2026) Visão geral das VENCIDAS que não
+// couberam no dia de cada assessor (mesma régua do plano de cada um), com
+// atalho para delegar um impulso direto para a gerida. Abaixo, o dia das
+// geridas em detalhe, com liberar atrasadas e furar fila.
+async function telaRadarEquipe(){
+  const geridas=minhasGeridas();
+  if(!geridas.length&&!E.perfil.head_sim){erro("Esta tela é só para gestoras.");return;}
+  setNav("radar","Radar da Equipe"); carregando();
+  let ops,reuR,histR,propsR;
+  try{[ops,reuR,histR,propsR]=await Promise.all([DB.tarefas(),
+    DB.reunioes().catch(()=>[]),DB.historicoHoje().catch(()=>[]),DB.propostas().catch(()=>[])]);}
+  catch(e){return erro(e.message);}
+  const ts=(ops||[]).map(classificar);E.tarefas=ts;
+  try{await carregarTemposReais(ts);}catch(e){}
+  const alvoImp=geridas[0]||"";
+  const ativasDe=n=>ts.filter(t=>loginDe(t.assessor||"")===n&&t.id_tarefa
+    &&!t._emCorrecao&&!t._delegada&&!t._concluida);
+  // ---- fila da equipe: vencidas fora do plano de hoje, mais atrasadas primeiro
+  let h=`<div class="painel" style="border-left:4px solid #1F4E79">
+    <div class="bloco-t" style="color:#1F4E79">&#129517; Fila da equipe — vencidas que N&Atilde;O couberam no dia de hoje</div>
+    <div style="font-size:11px;color:var(--gray);margin-bottom:6px">Mesma régua da tela de cada assessor: o que está aqui venceu, mas ficou FORA do plano de hoje da pessoa (o dia já está cheio). Mais atrasadas primeiro.${alvoImp?` O botão &#129309; abre a delegação do impulso já apontada para <b>${esc(alvoImp)}</b> — prazo fatal e cartões que já são impulso não podem (o sistema trava).`:""}</div>`;
+  let alguma=false;
+  OPERACIONAIS.filter(n=>!geridas.includes(n)).forEach(n=>{
+    const atv=ativasDe(n);if(!atv.length)return;
+    let p;try{p=montarPlanoDia(n,atv,reuR,histR,propsR);}catch(e){return;}
+    const filaV=p.fila.filter(t=>atrasoDias(t)>0);
+    if(!filaV.length)return;
+    alguma=true;const c=corDe(n);
+    h+=`<details class="det"><summary><b style="color:${c.text}">${esc(n)}</b> &middot; <b style="color:var(--red)">${filaV.length}</b> vencida(s) fora do dia <span style="font-size:11px;color:var(--gray)">(hoje: ${p.plano.length} no plano, &asymp;${fmtMin(p.planejado)} de ${fmtMin(p.capDisp)})</span></summary>
+      <div style="padding:6px 10px">${filaV.slice(0,40).map(t=>{
+        const trava=t.prazo_fatal_dt?"&#9888;&#65039; fatal":(/IMPULSO de/.test(t.supervisao||"")?"&#129309; já é impulso":"");
+        return `<div class="linha-item"><span style="cursor:pointer;font-size:12px" onclick="abrirTarefa('${esc(t.id_tarefa)}')">${esc(t.cliente)} &middot; ${esc(t.operacao||"")} <span class="tag ti">${atrasoDias(t)}d vencida</span></span>
+        ${trava?`<span class="tag tm">${trava}</span>`:(alvoImp?`<button class="btn bts btsm" title="Delegar um impulso desta tarefa para ${esc(alvoImp)} — a tarefa-mãe dorme com ${esc(n)} até o impulso terminar" onclick='radarImpulso(${JSON.stringify(t.id_tarefa)})'>&#129309; p/ ${esc(alvoImp)}</button>`:"")}</div>`;}).join("")}
+      ${filaV.length>40?`<div class="vazio">… e mais ${filaV.length-40}</div>`:""}</div></details>`;});
+  if(!alguma)h+=`<div class="vazio">Ninguém tem vencida fora do dia. &#127881;</div>`;
+  h+=`</div>`;
+  // ---- o dia de cada gerida, em detalhe (plano + fila + ações de gestão)
+  geridas.forEach(g=>{
+    const atv=ativasDe(g);
+    let p=null;try{p=montarPlanoDia(g,atv,reuR,histR,propsR);}catch(e){}
+    const c=corDe(g);
+    h+=`<div class="painel" style="border-left:4px solid ${c.border||"var(--navy)"}">
+      <div class="bloco-t" style="color:${c.text}">&#128100; ${esc(g)} — o dia de hoje em detalhe</div>`;
+    if(!p){h+=`<div class="vazio">Sem tarefas ativas.</div></div>`;return;}
+    if(p.exclusivo)h+=`<div class="aviso info" style="margin:4px 0">&#128274; Dia exclusivo: o dia inteiro é uma tarefa só (${esc(p.exclusivo.operacao||"")}) — nada mais entra até finalizar.</div>`;
+    h+=`<div style="font-size:11px;color:var(--gray);margin-bottom:5px">Plano de hoje: <b>${p.plano.length}</b> tarefa(s) (&asymp;${fmtMin(p.planejado)} de ${fmtMin(p.capDisp)} livres)${p.reservaPros?` &middot; &#127919;${fmtMin(p.reservaPros)} prospecção`:""}${p.reservaFu?` &middot; &#128222;${fmtMin(p.reservaFu)} follow-up`:""}</div>`
+      +(p.plano.map(t=>`<div class="linha-item" style="cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')"><span style="font-size:12px">${t._urg===0?"&#9888;&#65039; ":t._urg===0.5?"&#128204; ":t._urg===1?"&#9889; ":""}${esc(t.cliente)} &middot; ${esc(t.operacao||"")} <span style="color:var(--gray);font-size:10px">&#9201;${t._tempo}min</span></span>${atrasoDias(t)>0?`<span class="tdy ov">${atrasoDias(t)}d atraso</span>`:""}</div>`).join("")
+        ||'<div style="font-size:12px;color:var(--gray);padding:4px 0">nada além dos blocos fixos</div>');
+    if(p.fila.length)h+=`<div style="font-size:11px;font-weight:700;color:var(--gray);margin:6px 0 3px">Na fila — não coube no dia (${p.fila.length}, mais atrasada primeiro)</div>`
+      +p.fila.slice(0,25).map(t=>`<div class="linha-item"><span style="cursor:pointer;font-size:12px" onclick="abrirTarefa('${esc(t.id_tarefa)}')">${esc(t.cliente)} &middot; ${esc(t.operacao||"")}${atrasoDias(t)>0?` <span class="tag ti">${atrasoDias(t)}d vencida</span>`:""}</span>
+        <button class="btn bts btsm" title="Tornar IMEDIATA: entra no plano de hoje na frente" onclick='furarFila(${JSON.stringify(t.id_tarefa)},${t.linha},${JSON.stringify(t.id_cliente||"")})'>&#9889; p/ hoje</button></div>`).join("");
+    h+=`<div class="linha-acao" style="margin-top:8px">
+      <button class="btn bts btsm" onclick="radarLiberar('${esc(g)}')" title="Adianta para hoje até 5 semanais/mensais vencidas que o plano vinha segurando">&#128228; Liberar atrasadas (+5)</button>
+      <button class="btn bts btsm" onclick="E._agPessoa='${esc(g)}';telaAgenda()">&#128197; Ver a agenda</button></div></div>`;});
+  ge("conteudo").innerHTML=h;
+}
+// atalho do radar: abre a delegação de impulso já apontada para a gerida
+async function radarImpulso(id){
+  const t=(E.tarefas||[]).find(x=>x.id_tarefa===id);if(!t)return;
+  E.atual=t;E._procsCard=[];
+  try{E._procsCard=okS(await supa.from("tarefa_processos").select("*").eq("id_tarefa",id).order("id"))||[];}catch(e){}
+  abrirDelegar();
+  const sel=ge("dg-para"),alvo=minhasGeridas()[0];
+  if(sel&&alvo){sel.value=alvo;
+    const w=ge("dg-head-w");if(w)w.style.display=precisaPedidoHead(E.perfil.nome_sistema,alvo)?"block":"none";
+    revalImpulsoFreq();}
+}
+async function radarLiberar(g){
+  try{const r=await DB.liberarAtrasadas(g,5);
+    toast(r.liberadas+" tarefa(s) liberada(s) para "+g+"!","ok");}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  telaRadarEquipe();
+}
 async function telaAgora(){
   setNav("agora","Em Andamento Agora"); carregando();
   let ses;try{ses=await DB.sessoesHoje();}catch(e){return erro(e.message);}
   const por={};(ses||[]).forEach(s=>{const a=loginDe(s.assessor);(por[a]=por[a]||{ativo:null,feitas:[]});
     if(String(s.status||"")==="ATIVO")por[a].ativo=s;else por[a].feitas.push(s);});
   const agora=new Date();
-  const cards=OPERACIONAIS.map(nome=>{const d=por[nome]||{ativo:null,feitas:[]};const a=d.ativo;
+  // gestora direta (não-head): só as geridas dela aparecem
+  const nomesAgora=(!E.perfil.head_sim&&minhasGeridas().length)
+    ?OPERACIONAIS.filter(n=>minhasGeridas().includes(n)):OPERACIONAIS;
+  const cards=nomesAgora.map(nome=>{const d=por[nome]||{ativo:null,feitas:[]};const a=d.ativo;
     let dur="—";if(a&&a.hora_inicio){const m=String(a.hora_inicio).match(/(\d{1,2}):(\d{2})/);
       if(m){const ini=new Date();ini.setHours(+m[1],+m[2],0,0);let mn=Math.round((agora-ini)/60000);if(mn<0)mn=0;dur=fmtMin(mn);}}
     const fMin=d.feitas.reduce((s,x)=>s+(parseInt(x.duracao_min_num||x.duracao_min)||0),0);
@@ -5906,7 +5998,7 @@ function capPrevDia(aN,k){const d=E._prevCapDados||{};
 async function furarFila(id,linha,idCli){
   if(!confirm("Tornar esta tarefa IMEDIATA para hoje?\n\nEla entra na frente do plano do assessor (imediata fura a fila sempre)."))return;
   try{await DB.tarefaUpdate({id_tarefa:id,linha:linha,id_cliente:idCli||""},{campos:{check_:"IMEDIATO"},data_revisao:hojeISO(),
-    hist_texto:"⚡ Priorizada pela head "+E.perfil.nome_sistema+": tornada IMEDIATA para hoje (fura a fila do plano).",hist_tipo:"SUPERVISÃO"});}
+    hist_texto:"⚡ Priorizada por "+E.perfil.nome_sistema+(E.perfil.head_sim?" (head)":" (gestora)")+": tornada IMEDIATA para hoje (fura a fila do plano).",hist_tipo:"SUPERVISÃO"});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("⚡ Agora é imediata de hoje.","ok");recarregar();}
 function filtraPrev(n){E._prevFiltro=n;desenhaPrevisao();}
@@ -6660,7 +6752,7 @@ async function exportarClientesPlanilhaGo(){
 }
 async function telaClientes(){
   setNav("cli",E.perfil.head_sim?"Gestão de Clientes":"Buscar Clientes"); carregando();
-  E._fSit="TODOS";E._fReg="TODOS";E._fAtivo="TODOS";E._fSN="TODOS";E._fImp="TODOS";E._clPag=0;
+  E._fSit="TODOS";E._fReg="TODOS";E._fAtivo="TODOS";E._fSN="TODOS";E._fImp="TODOS";E._clPag=0;E._clModo="cli";
   if(E._fHead===undefined)E._fHead=escHead()||"TODOS";
   let cs,ops;try{[cs,ops]=await Promise.all([DB.clientes(""),DB.tarefas()]);}catch(e){return erro(e.message);}
   // ⚖ fases processuais por tarefa (recursos ativos) — para filtro e sinalizador
@@ -6748,7 +6840,7 @@ function desenhaPills(){
     <span style="font-size:11px;color:var(--gray)">Situação:</span>
     ${[["TODOS","Todos"],["OFICIAL","&#10003; Clientes"],["PROSPECCAO","&#128270; Prospecção"]].map(([v,r])=>
       `<button class="btn ${E._fSit===v?"btp":"bts"} btsm" onclick="E._fSit='${v}';E._clPag=0;desenhaClientes();desenhaPills()">${r}</button>`).join("")}
-    <button class="btn ${E._fSN==="COM"?"btp":"bts"} btsm" onclick="E._fSN=E._fSN==='COM'?'TODOS':'COM';E._clPag=0;desenhaClientes();desenhaPills()" title="Só clientes com prazo do Simples Nacional — os mais urgentes primeiro">&#9203; Prazo Simples</button>
+    <button class="btn ${E._fSN==="COM"?"btp":"bts"} btsm" onclick="E._fSN=E._fSN==='COM'?'TODOS':'COM';E._clPag=0;desenhaClientes();desenhaPills()" title="Só clientes marcados como caso do Simples Nacional (acompanhamento 2027)">&#9203; Simples 2027</button>
     <button class="btn ${E._fImp==="COM"?"btp":"bts"} btsm" onclick="E._fImp=E._fImp==='COM'?'TODOS':'COM';E._clPag=0;desenhaClientes();desenhaPills()" title="Só clientes IMPEDIDOS — pela data de queda do impedimento informada na tarefa (queda mais próxima primeiro; sem data informada vão ao fim)">&#9940; Impedidos</button>
     <select class="fsel" onchange="E._fReg=this.value;E._clPag=0;desenhaClientes()">
       <option value="TODOS">Regime: todos</option><option value="CONFIRMAR">&#9888; Para confirmar</option>
@@ -6766,13 +6858,26 @@ function desenhaPills(){
       <option value="SEMHEAD" ${E._fHead==="SEMHEAD"?"selected":""}>&#9888; Sem head definida</option></select>`;
 }
 function modoClientes(m){
+  E._clModo=m;
   ge("tabcli").className="btn "+(m==="cli"?"btp":"bts")+" btsm";
   ge("tabop").className="btn "+(m==="op"?"btp":"bts")+" btsm";
   const ta=ge("tabass");if(ta)ta.className="btn "+(m==="ass"?"btp":"bts")+" btsm";
   ge("cl-oparea").style.display=m==="op"?"block":"none";
   const aa=ge("cl-assarea");if(aa)aa.style.display=m==="ass"?"block":"none";
   if(m==="cli")desenhaClientes();
+  else if(m==="op"&&ge("cl-opsel")?.value)buscaPorOperacao();
+  else if(m==="ass"&&ge("cl-asssel")?.value)buscaPorAssessor();
   else ge("cl-lista").innerHTML=`<div class="vazio">${m==="op"?"Escolha um tipo de operação acima.":"Escolha um assessor acima."}</div>`;
+}
+// 🔗 soma de filtros (Bruna, 11/11/2026): nos modos "Por Tipo de Operação" e
+// "Por Assessor", os filtros de cima (situação, regime, head, Prazo Simples,
+// impedidos, "Tarefas" e a busca por nome) também valem — devolve o conjunto
+// de clientes aprovados, ou null quando nenhum filtro de cima está ligado
+function cliFiltroSet(){
+  const q=(ge("cl-q")?.value||"").trim();
+  if(!q&&E._fSit==="TODOS"&&E._fReg==="TODOS"&&E._fAtivo==="TODOS"
+    &&E._fSN==="TODOS"&&E._fImp==="TODOS"&&(!E._fHead||E._fHead==="TODOS"))return null;
+  return new Set((q?filtraLocalClientes(E._clsTodos,q):E._clsTodos).filter(filtroCliente).map(c=>c.id_cliente));
 }
 // 👤 Por Assessor (Bruna, 07/10/2026): tudo que está na mesa de alguém,
 // mais urgente primeiro — delegadas contam no DONO da tarefa-mãe
@@ -6780,14 +6885,16 @@ function buscaPorAssessor(){
   const a=ge("cl-asssel").value;if(!a)return;
   const faseF=(ge("cl-assfase")?.value||"").trim();
   const varaF=(ge("cl-assvara")?.value||"").trim();
+  const okCli=cliFiltroSet();
   const f=semDuplicataImpulso((E.tarefas||[]).filter(t=>t.id_tarefa
       &&loginDe(t.assessor||"")===a
       &&!/IMPULSO de/.test(t.supervisao||"")
+      &&(!okCli||(t.id_cliente&&okCli.has(t.id_cliente)))
       &&(!faseF||((E._fasesPorTarefa||{})[t.id_tarefa]||[]).includes(faseF))
       &&(!varaF||((E._varasPorTarefa||{})[t.id_tarefa]||[]).includes(varaF))))
     .sort((x,y)=>(x._dias??9999)-(y._dias??9999));
-  ge("cl-lista").innerHTML=`<p style="font-size:12px;color:var(--gray);margin-bottom:8px">${nProcSum(f)} tarefa(s) com <b>${esc(a)}</b>${nProcSum(f)!==f.length?` em ${f.length} cards`:""} — delegadas aparecem aqui com o dono</p>`
-    +(f.length?f.map(t=>cardTarefa(t,true)).join(""):`<div class="vazio">Nada ativo com ${esc(a)}.</div>`);
+  ge("cl-lista").innerHTML=`<p style="font-size:12px;color:var(--gray);margin-bottom:8px">${nProcSum(f)} tarefa(s) com <b>${esc(a)}</b>${nProcSum(f)!==f.length?` em ${f.length} cards`:""}${okCli?` · <b>somando com os filtros de cima</b>`:""} — delegadas aparecem aqui com o dono</p>`
+    +(f.length?f.map(t=>cardTarefa(t,true)).join(""):`<div class="vazio">Nada ativo com ${esc(a)}${okCli?" dentro dos filtros escolhidos — limpe os filtros de cima para ver tudo":""}.</div>`);
 }
 function fasesChipsDe(t){
   const f=((E._fasesPorTarefa||{})[t.id_tarefa]||[]).filter(x=>x!=="1º grau");
@@ -6798,13 +6905,15 @@ function buscaPorOperacao(){
   const adv=(ge("cl-opadv")?.value||"").trim();
   const faseF=(ge("cl-opfase")?.value||"").trim();
   const varaF=(ge("cl-opvara")?.value||"").trim();
+  const okCli=cliFiltroSet();
   const f=semDuplicataImpulso((E.tarefas||[]).filter(t=>t.id_tarefa&&String(t.operacao||"").toLowerCase().includes(alvo)
       &&(!adv||String(t.advogada||"").trim()===adv)
+      &&(!okCli||(t.id_cliente&&okCli.has(t.id_cliente)))
       &&(!faseF||((E._fasesPorTarefa||{})[t.id_tarefa]||[]).includes(faseF))
       &&(!varaF||((E._varasPorTarefa||{})[t.id_tarefa]||[]).includes(varaF)))
     .sort((a,b)=>(a._dias??9999)-(b._dias??9999)));
-  ge("cl-lista").innerHTML=`<p style="font-size:12px;color:var(--gray);margin-bottom:8px">${f.length} tarefa(s) de "${esc(op)}"${adv?` · advogada <b>${esc(adv)}</b>`:""} em andamento</p>`
-    +(f.length?f.map(t=>cardTarefa(t,true)).join(""):`<div class="vazio">Nenhuma${adv?` de ${esc(adv)}`:""}.</div>`);
+  ge("cl-lista").innerHTML=`<p style="font-size:12px;color:var(--gray);margin-bottom:8px">${f.length} tarefa(s) de "${esc(op)}"${adv?` · advogada <b>${esc(adv)}</b>`:""} em andamento${okCli?` · <b>somando com os filtros de cima</b>`:""}</p>`
+    +(f.length?f.map(t=>cardTarefa(t,true)).join(""):`<div class="vazio">Nenhuma${adv?` de ${esc(adv)}`:""}${okCli?" dentro dos filtros escolhidos — limpe os filtros de cima para ver tudo":""}.</div>`);
 }
 function filtroCliente(c){
   if(E._fHead&&E._fHead!=="TODOS"){
@@ -6830,6 +6939,10 @@ function filtroCliente(c){
 }
 function desenhaClientes(){
   const alvo=ge("cl-lista");if(!alvo)return;
+  // nos modos Por Operação/Por Assessor, mexer nos filtros de cima refaz a
+  // MESMA lista (somando os filtros) em vez de voltar para a lista de clientes
+  if(E._clModo==="op"&&ge("cl-opsel")?.value)return buscaPorOperacao();
+  if(E._clModo==="ass"&&ge("cl-asssel")?.value)return buscaPorAssessor();
   const q=(ge("cl-q")?.value||"").trim();
   let f=(q?filtraLocalClientes(E._clsTodos,q):E._clsTodos).filter(filtroCliente);
   // 👥 mesmo dono (10/11/2026): achou uma empresa do grupo → vêm todas juntas
@@ -8258,8 +8371,9 @@ async function telaAgenda(){
   setNav("agenda","Minha Agenda"); carregando();
   let ops,reu,lembs,cls;try{[ops,reu,lembs,cls]=await Promise.all([DB.tarefas(),DB.reunioes(),DB.lembretes().catch(()=>[]),DB.clientes("").catch(()=>[])]);}catch(e){return erro(e.message);}
   const ehHeadAg=E.perfil.head_sim;
+  const gerAg=minhasGeridas(); // gestora direta vê também a agenda das geridas
   if(!E._agPessoa)E._agPessoa=E.perfil.nome_sistema;
-  const alvoAg=ehHeadAg?E._agPessoa:E.perfil.nome_sistema;
+  const alvoAg=ehHeadAg?E._agPessoa:(gerAg.includes(E._agPessoa)?E._agPessoa:E.perfil.nome_sistema);
   const todosAg=alvoAg==="__todos__";
   E.tarefas=(ops||[]).map(classificar);
   const ts=E.tarefas.filter(t=>todosAg?true:(alvoAg===E.perfil.nome_sistema?ehMeuNome(t.assessor):String(t.assessor||"").trim()===alvoAg));
@@ -8295,14 +8409,15 @@ async function telaAgenda(){
       <button class="btn btg btsm" onclick="abrirReuniao()" title="Conta as horas no seu dia">+ Reunião</button>
       <button class="btn bts btsm" onclick="abrirLembrete()" title="Só anotação, não conta horas">&#128278; Retomar depois</button></div>`
     +((alvoAg===E.perfil.nome_sistema&&!todosAg)?quadroRetomar(lembs||[]):"")
-    +(ehHeadAg?`<div class="painel" style="padding:8px 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    +((ehHeadAg||gerAg.length)?`<div class="painel" style="padding:8px 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <span style="font-size:12px;color:var(--gray)">&#128101; Agenda de:</span>
       <select class="fsel" onchange="E._agPessoa=this.value;telaAgenda()">
         <option value="${esc(E.perfil.nome_sistema)}" ${alvoAg===E.perfil.nome_sistema?"selected":""}>&#128100; minha</option>
-        <option value="__todos__" ${todosAg?"selected":""}>&#128506;&#65039; todos (equipe)</option>
+        ${ehHeadAg?`<option value="__todos__" ${todosAg?"selected":""}>&#128506;&#65039; todos (equipe)</option>
         <optgroup label="por pessoa">
         ${[...new Set((E.equipe||[]).filter(m=>String(m.status||"").toUpperCase()==="ATIVO").map(m=>m.nome_sistema))].filter(n=>n!==E.perfil.nome_sistema).sort().map(n=>`<option value="${esc(n)}" ${alvoAg===n?"selected":""}>${esc(n)}</option>`).join("")}
-        </optgroup></select>
+        </optgroup>`
+        :gerAg.map(n=>`<option value="${esc(n)}" ${alvoAg===n?"selected":""}>${esc(n)} (gerida)</option>`).join("")}</select>
       ${todosAg||alvoAg!==E.perfil.nome_sistema?`<span style="font-size:11px;color:var(--dani)">vendo ${todosAg?"a equipe toda":"a agenda de "+esc(alvoAg)}</span>`:""}</div>`:"")
     +legendaAgenda();
 
