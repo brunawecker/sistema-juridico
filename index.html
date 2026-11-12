@@ -6942,8 +6942,17 @@ function buscaPorOperacao(){
       &&(!faseF||((E._fasesPorTarefa||{})[t.id_tarefa]||[]).includes(faseF))
       &&(!varaF||((E._varasPorTarefa||{})[t.id_tarefa]||[]).includes(varaF)))
     .sort((a,b)=>(a._dias??9999)-(b._dias??9999)));
+  // vazio com filtros ligados: diz QUAIS tipos os clientes filtrados têm
+  // (Bruna, 12/11/2026 — "GO + tipo de operação não saiu nenhum cliente")
+  let dica="";
+  if(!f.length&&okCli){
+    const opsTem=[...new Set((E.tarefas||[]).filter(t=>t.id_tarefa&&t.id_cliente&&okCli.has(t.id_cliente)
+      &&!/IMPULSO de/.test(t.supervisao||"")&&!String(t.cliente||"").startsWith("📌"))
+      .map(t=>String(t.operacao||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+    dica=opsTem.length?`<div style="font-size:12px;color:var(--gray);margin-top:8px">Os clientes dos filtros escolhidos têm tarefas em andamento de: <b>${opsTem.map(esc).join("</b> · <b>")}</b>.</div>`
+      :`<div style="font-size:12px;color:var(--gray);margin-top:8px">Os clientes dos filtros escolhidos não têm <b>nenhuma</b> tarefa em andamento.</div>`;}
   ge("cl-lista").innerHTML=`<p style="font-size:12px;color:var(--gray);margin-bottom:8px">${f.length} tarefa(s) de "${esc(op)}"${adv?` · advogada <b>${esc(adv)}</b>`:""} em andamento${okCli?` · <b>somando com os filtros de cima</b>`:""}</p>`
-    +(f.length?f.map(t=>cardTarefa(t,true)).join(""):`<div class="vazio">Nenhuma${adv?` de ${esc(adv)}`:""}${okCli?" dentro dos filtros escolhidos — limpe os filtros de cima para ver tudo":""}.</div>`);
+    +(f.length?f.map(t=>cardTarefa(t,true)).join(""):`<div class="vazio">Nenhuma${adv?` de ${esc(adv)}`:""}${okCli?" dentro dos filtros escolhidos — limpe os filtros de cima para ver tudo":""}.${dica}</div>`);
 }
 function filtroCliente(c){
   if(E._fHead&&E._fHead!=="TODOS"){
