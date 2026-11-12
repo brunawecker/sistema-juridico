@@ -411,6 +411,8 @@ const ehGestoraDe=n=>minhasGeridas().includes(loginDe(String(n||"")));
 // Auto-expira amanhã sozinha (comparação por data) — nada a reverter.
 const IMP_IMEDIATO_EXCECOES=[{de:"Madu",para:"Thiago",dia:"2026-09-22"}];
 const impImediatoLiberado=(de,para)=>{const d=loginDe(de),p=loginDe(para);
+  // gestora direta pode mandar imediato para a gerida (Bruna, 12/11/2026)
+  if((GERE[d]||[]).includes(p))return true;
   return IMP_IMEDIATO_EXCECOES.some(x=>x.de===d&&x.para===p&&x.dia===hojeISO());};
 // janela de prospecção por pessoa (min/dia; Configurações — 0 = sem janela)
 const PROSPEC={};
@@ -3870,8 +3872,11 @@ function revalImpulsoFreq(){
   if(sel.value!=="IMEDIATO"){if(av)av.style.display="none";return;}
   const para=(ge("dg-para")||{}).value||"";
   if(impImediatoLiberado(E.perfil.nome_sistema,para)){
+    const ehGer=(GERE[loginDe(E.perfil.nome_sistema)]||[]).includes(loginDe(para));
     if(av){av.style.display="block";av.style.background="var(--green-lt)";av.style.borderColor="var(--green)";av.style.color="var(--green)";
-      av.innerHTML=`&#9889; <b>Exceção liberada só hoje:</b> este impulso vai como <b>IMEDIATO</b> para <b>${esc(para)}</b> — ele deve cumprir hoje.`;}
+      av.innerHTML=ehGer
+        ?`&#9889; <b>Liberado:</b> você é gestora direta de <b>${esc(para)}</b> — este impulso vai como <b>IMEDIATO</b> e entra na frente do dia dela.`
+        :`&#9889; <b>Exceção liberada só hoje:</b> este impulso vai como <b>IMEDIATO</b> para <b>${esc(para)}</b> — ele deve cumprir hoje.`;}
     return;}
   sel.value="DIÁRIO";
   if(av){av.style.display="block";av.style.background="var(--red-lt)";av.style.borderColor="var(--red)";av.style.color="var(--red)";
