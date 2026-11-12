@@ -5848,9 +5848,11 @@ async function telaRadarEquipe(){
     alguma=true;const c=corDe(n);
     h+=`<details class="det"><summary><b style="color:${c.text}">${esc(n)}</b> &middot; <b style="color:var(--red)">${filaV.length}</b> vencida(s) fora do dia <span style="font-size:11px;color:var(--gray)">(hoje: ${p.plano.length} no plano, &asymp;${fmtMin(p.planejado)} de ${fmtMin(p.capDisp)})</span></summary>
       <div style="padding:6px 10px">${filaV.slice(0,40).map(t=>{
-        const trava=t.prazo_fatal_dt?"&#9888;&#65039; fatal":(/IMPULSO de/.test(t.supervisao||"")?"&#129309; já é impulso":"");
+        const ehImp=/IMPULSO de/.test(t.supervisao||"");
         return `<div class="linha-item"><span style="cursor:pointer;font-size:12px" onclick="abrirTarefa('${esc(t.id_tarefa)}')">${esc(t.cliente)} &middot; ${esc(t.operacao||"")} <span class="tag ti">${atrasoDias(t)}d vencida</span></span>
-        ${trava?`<span class="tag tm">${trava}</span>`:(alvoImp?`<button class="btn bts btsm" title="Delegar um impulso desta tarefa para ${esc(alvoImp)} — a tarefa-mãe dorme com ${esc(n)} até o impulso terminar" onclick='radarImpulso(${JSON.stringify(t.id_tarefa)})'>&#129309; p/ ${esc(alvoImp)}</button>`:"")}</div>`;}).join("")}
+        ${t.prazo_fatal_dt?`<span class="tag tm">&#9888;&#65039; fatal</span>`
+          :ehImp?`<button class="btn bts btsm" title="Este card já é um impulso — abra para mandar nova orientação ou encerrar e passar o caso inteiro" onclick='abrirOrientarImpulso(${JSON.stringify(t.id_tarefa)},${JSON.stringify(t.cliente||"")},${JSON.stringify(t.assessor||"")})'>&#129309; já é impulso &middot; gerir</button>`
+          :(alvoImp?`<button class="btn bts btsm" title="Delegar um impulso desta tarefa para ${esc(alvoImp)} — a tarefa-mãe dorme com ${esc(n)} até o impulso terminar" onclick='radarImpulso(${JSON.stringify(t.id_tarefa)})'>&#129309; p/ ${esc(alvoImp)}</button>`:"")}</div>`;}).join("")}
       ${filaV.length>40?`<div class="vazio">… e mais ${filaV.length-40}</div>`:""}</div></details>`;});
   if(!alguma)h+=`<div class="vazio">Ninguém tem vencida fora do dia. &#127881;</div>`;
   h+=`</div>`;
@@ -7292,10 +7294,36 @@ async function copiarMsgPrePag(){
 // 📣 nova orientação num impulso em andamento — no lugar de empilhar outro
 // (Bruna, 13/10/2026, caso Euziene: dois caminhos criaram cards duplicados)
 function abrirOrientarImpulso(subId,cliente,quem){
+  // 👑 passar o caso inteiro (Bruna, 12/11/2026): quem delegou o impulso (ou
+  // head) pode encerrá-lo pelo sistema e entregar a tarefa-mãe a outra pessoa
+  // — gestora direta escolhe entre as geridas; head escolhe qualquer assessor
+  const eu=E.perfil.nome_sistema;
+  const sub=(E.tarefas||[]).find(x=>x.id_tarefa===subId);
+  const souAutor=sub?String(sub.supervisao||"").includes("IMPULSO de "+eu):AUTORIZADOS_DELEGAR.includes(eu);
+  const quemTem=quem||(sub&&sub.assessor)||"";
+  const alvosCaso=(E.perfil.head_sim?OPERACIONAIS:minhasGeridas()).filter(n=>n!==quemTem);
+  const blocoCaso=(alvosCaso.length&&(E.perfil.head_sim||souAutor))?`
+    <div style="border-top:1px dashed var(--border);margin-top:14px;padding-top:10px">
+      <div style="font-size:12.5px;font-weight:700;color:var(--roxo);margin-bottom:4px">&#128081; Ou: encerrar o impulso e passar o caso INTEIRO</div>
+      <div style="font-size:11.5px;color:var(--gray);margin-bottom:6px">O impulso é dado como <b>concluído pelo sistema</b>, tudo o que ${quemTem?("<b>"+esc(quemTem)+"</b>"):"o colega"} registrou fica guardado no histórico do card, e a tarefa-mãe passa a ser <b>do novo responsável</b> — sai de quem delegou e de quem estava com o impulso.</div>
+      <div class="linha-acao"><select class="fsel" id="oi-para"><option value="">Novo responsável…</option>${alvosCaso.map(a=>`<option>${esc(a)}</option>`).join("")}</select>
+      <button class="btn btsm" style="background:var(--roxo);color:white" onclick='umaVez(()=>passarCasoImpulso(${JSON.stringify(subId)}))'>&#128081; Passar o caso</button></div></div>`:"";
   modal2("&#128226; Nova orientação no impulso",esc(cliente||"")+(quem?" — está com "+esc(quem):""),`
     <div class="aviso info" style="margin-bottom:8px">Esta tarefa já tem um <b>impulso ativo</b>${quem?" com <b>"+esc(quem)+"</b>":""} — e a regra é <b>um impulso por card</b>. Escreva a nova orientação: ela entra no card do impulso e ele volta para o dia de quem está com ele.</div>
     <textarea class="fta" id="oi-txt" rows="4" placeholder="Ex.: além do agravo, verificar também o pedido administrativo de migração…"></textarea>
-    <button class="btn btp btw" style="margin-top:8px" onclick='salvarOrientarImpulso(${JSON.stringify(subId)})'>&#128226; Enviar orientação</button>`);
+    <button class="btn btp btw" style="margin-top:8px" onclick='salvarOrientarImpulso(${JSON.stringify(subId)})'>&#128226; Enviar orientação</button>${blocoCaso}`);
+}
+async function passarCasoImpulso(subId){
+  const para=(ge("oi-para")||{}).value||"";
+  if(!para){toast("Escolha o novo responsável.","erro");return;}
+  if(!confirm("Passar o caso INTEIRO para "+para+"?\n\n• O impulso é encerrado como concluído pelo sistema\n• Tudo o que foi registrado nele fica guardado no histórico do card\n• A tarefa passa a ser de "+para+" (sai de quem delegou e de quem estava com o impulso)"))return;
+  let maeId;
+  try{const hid=await novoIdS("HIS");
+    maeId=await rpcS("impulso_passar_caso",{p_sub_id:subId,p_para:para,p_hist_id:hid});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("&#128081; Caso passado para "+para+" — impulso encerrado e andamentos guardados.","ok");
+  fecharModal2();try{fecharModal();}catch(e){}
+  recarregar();
 }
 async function salvarOrientarImpulso(subId){
   const txt=(ge("oi-txt").value||"").trim();
