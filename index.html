@@ -6765,7 +6765,7 @@ async function exportarClientesPlanilhaGo(){
 }
 async function telaClientes(){
   setNav("cli",E.perfil.head_sim?"Gestão de Clientes":"Buscar Clientes"); carregando();
-  E._fSit="TODOS";E._fReg="TODOS";E._fAtivo="TODOS";E._fSN="TODOS";E._fImp="TODOS";E._clPag=0;E._clModo="cli";
+  E._fSit="TODOS";E._fReg="TODOS";E._fAtivo="TODOS";E._fSN="TODOS";E._fImp="TODOS";E._fUF="TODOS";E._fCid="TODOS";E._clPag=0;E._clModo="cli";
   if(E._fHead===undefined)E._fHead=escHead()||"TODOS";
   let cs,ops;try{[cs,ops]=await Promise.all([DB.clientes(""),DB.tarefas()]);}catch(e){return erro(e.message);}
   // ⚖ fases processuais por tarefa (recursos ativos) — para filtro e sinalizador
@@ -6849,6 +6849,14 @@ async function telaClientes(){
 }
 function desenhaPills(){
   const p=ge("cl-pills");if(!p)return;
+  // 📍 cidade/estado (Bruna, 12/11/2026): vêm do cadastro do cliente (Editar
+  // cadastro preenche UF + município pela lista do IBGE); cidade acompanha a UF
+  const ufSel=(E._fUF&&E._fUF!=="TODOS"&&E._fUF!=="SEMUF")?E._fUF:"";
+  const ufs=[...new Set((E._clsTodos||[]).map(c=>String(c.uf||"").trim().toUpperCase()).filter(Boolean))].sort();
+  const cidMap={};(E._clsTodos||[]).forEach(c=>{const m=String(c.municipio||"").trim();if(!m)return;
+    if(ufSel&&String(c.uf||"").trim().toUpperCase()!==ufSel)return;
+    const k=semAc(m);if(!cidMap[k])cidMap[k]=m;});
+  const cidades=Object.values(cidMap).sort((a,b)=>a.localeCompare(b));
   p.innerHTML=`
     <span style="font-size:11px;color:var(--gray)">Situação:</span>
     ${[["TODOS","Todos"],["OFICIAL","&#10003; Clientes"],["PROSPECCAO","&#128270; Prospecção"]].map(([v,r])=>
@@ -6868,7 +6876,15 @@ function desenhaPills(){
       <option value="TODOS">&#9878; Head: todas</option>
       ${[...new Set((E._clsTodos||[]).map(c=>String(c.head||"").trim()).filter(Boolean))].sort((x,y)=>x.localeCompare(y))
         .map(n=>`<option ${E._fHead===n?"selected":""}>${esc(n)}</option>`).join("")}
-      <option value="SEMHEAD" ${E._fHead==="SEMHEAD"?"selected":""}>&#9888; Sem head definida</option></select>`;
+      <option value="SEMHEAD" ${E._fHead==="SEMHEAD"?"selected":""}>&#9888; Sem head definida</option></select>
+    <select class="fsel" onchange="E._fUF=this.value;E._fCid='TODOS';E._clPag=0;desenhaPills();desenhaClientes()" title="Estado (UF) do cadastro do cliente — se faltar, preencha na ficha (Editar cadastro)">
+      <option value="TODOS">&#128205; Estado: todos</option>
+      ${ufs.map(u=>`<option ${E._fUF===u?"selected":""}>${esc(u)}</option>`).join("")}
+      <option value="SEMUF" ${E._fUF==="SEMUF"?"selected":""}>&#9888; Sem estado no cadastro</option></select>
+    <select class="fsel" onchange="E._fCid=this.value;E._clPag=0;desenhaClientes()" title="Cidade do cadastro do cliente${ufSel?" — mostrando só cidades de "+ufSel:""}">
+      <option value="TODOS">&#128205; Cidade: todas</option>
+      ${cidades.map(m=>`<option ${semAc(E._fCid)===semAc(m)?"selected":""}>${esc(m)}</option>`).join("")}
+      <option value="SEMCID" ${E._fCid==="SEMCID"?"selected":""}>&#9888; Sem cidade no cadastro</option></select>`;
 }
 function modoClientes(m){
   E._clModo=m;
@@ -6889,7 +6905,8 @@ function modoClientes(m){
 function cliFiltroSet(){
   const q=(ge("cl-q")?.value||"").trim();
   if(!q&&E._fSit==="TODOS"&&E._fReg==="TODOS"&&E._fAtivo==="TODOS"
-    &&E._fSN==="TODOS"&&E._fImp==="TODOS"&&(!E._fHead||E._fHead==="TODOS"))return null;
+    &&E._fSN==="TODOS"&&E._fImp==="TODOS"&&(!E._fHead||E._fHead==="TODOS")
+    &&(!E._fUF||E._fUF==="TODOS")&&(!E._fCid||E._fCid==="TODOS"))return null;
   return new Set((q?filtraLocalClientes(E._clsTodos,q):E._clsTodos).filter(filtroCliente).map(c=>c.id_cliente));
 }
 // 👤 Por Assessor (Bruna, 07/10/2026): tudo que está na mesa de alguém,
@@ -6948,6 +6965,13 @@ function filtroCliente(c){
   if(E._fAtivo==="LANCEI"&&!(E._lanceiCli||{})[c.id_cliente])return false;
   if(E._fAtivo==="SEMRESP"&&String(c.assessor_responsavel||"").trim()!=="")return false;
   if(E._fSN==="COM"&&!c.prazo_simples)return false;
+  // 📍 cidade/estado do cadastro (Bruna, 12/11/2026)
+  if(E._fUF&&E._fUF!=="TODOS"){const u=String(c.uf||"").trim().toUpperCase();
+    if(E._fUF==="SEMUF"){if(u)return false;}
+    else if(u!==E._fUF)return false;}
+  if(E._fCid&&E._fCid!=="TODOS"){const m=String(c.municipio||"").trim();
+    if(E._fCid==="SEMCID"){if(m)return false;}
+    else if(semAc(m)!==semAc(E._fCid))return false;}
   return true;
 }
 function desenhaClientes(){
@@ -6977,7 +7001,7 @@ function desenhaClientes(){
     f.slice(0,fim).map(c=>`<details class="det" id="cd-${esc(c.id_cliente)}"><summary onclick="prepCliente('${esc(c.id_cliente)}')">
       <div style="flex:1;min-width:0"><div style="font-weight:700;color:var(--navy)">${esc(c.nome)} ${tag(c)}
         ${E._temTarefa[c.id_cliente]?'<span class="tag tek">com tarefa</span>':'<span class="tag ti">sem tarefa ativa</span>'}${String(c.assessor_responsavel||"").trim()===""?'<span class="tag" style="background:var(--red);color:white">&#9888; sem responsável</span>':""}${(E._minhaQtd||{})[c.id_cliente]?`<span class="tag" style="background:var(--ice);color:var(--dani)">&#128100; ${E._minhaQtd[c.id_cliente]} sua(s)</span>`:""}${(E._impedCli||{})[c.id_cliente]?`<span class="tag" style="background:#7B0000;color:white" title="Cliente IMPEDIDO — pela data de queda informada na tarefa">&#9940; impedido${E._impedCli[c.id_cliente].q!=="?"?" até "+brData(E._impedCli[c.id_cliente].q):" · sem data de queda"}</span>`:""}${c.grupo_dono?`<span class="tag" style="background:#FDEFE7;color:#B2502B" title="empresas do mesmo dono — grupo de ${esc(((E._cli||{})[c.grupo_dono]||{}).nome||c.grupo_dono)}">&#128101; mesmo dono</span>`:""}${prazoSNbadge(c)}</div>
-      <div style="font-size:11px;color:var(--gray)">${esc(c.cnpj_cpf||"")} · ${esc(c.head||"—")}${c.vertical?" · "+esc(c.vertical):""}${c.regime?" · "+esc(c.regime):""}</div></div>
+      <div style="font-size:11px;color:var(--gray)">${esc(c.cnpj_cpf||"")} · ${esc(c.head||"—")}${c.vertical?" · "+esc(c.vertical):""}${c.regime?" · "+esc(c.regime):""}${(String(c.municipio||"").trim()||String(c.uf||"").trim())?" · &#128205; "+esc([String(c.municipio||"").trim(),String(c.uf||"").trim().toUpperCase()].filter(Boolean).join("/")):""}</div></div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
         ${c.head?`<span class="tag tda">${esc(c.head)}</span>`:""}
         ${(E._assPorCli&&E._assPorCli[c.id_cliente])?`<span class="tag" style="background:var(--gray-lt);color:var(--navy)" title="assessor(es) com as tarefas ativas deste cliente">&#128100; ${esc([...E._assPorCli[c.id_cliente]].sort().join(" · "))}</span>`:""}</div></summary>
