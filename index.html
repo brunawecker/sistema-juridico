@@ -1137,6 +1137,13 @@ const S = {
     if(up.error)throw new Error(up.error.message);return caminho;},
   async fbAnexoUrl(caminho){const r=await supa.storage.from("documentos").createSignedUrl(caminho,3600);
     if(r.error)throw new Error(r.error.message);return r.data.signedUrl;},
+  async fbPautas(){return okS(await supa.from("feedback_pautas").select("*").order("id",{ascending:false}).limit(200))||[];},
+  async fbPautaSalvar(p){
+    const ex=okS(await supa.from("feedback_pautas").select("id").eq("pessoa",p.pessoa)
+      .eq("periodo_ini",p.periodo_ini).eq("periodo_fim",p.periodo_fim))||[];
+    if(ex.length){okS(await supa.from("feedback_pautas").update({texto:p.texto,
+      gerado_por:p.gerado_por,gerado_em:new Date().toISOString()}).eq("id",ex[0].id));return{id:ex[0].id};}
+    const r=await supa.from("feedback_pautas").insert(p).select();okS(r);return (r.data||[])[0];},
 };
 const DB = MODO_SUPABASE ? S : L;
 
@@ -5194,6 +5201,7 @@ async function telaCentral(){
       :tarjaMeta("MINHA meta",0,pagoMeu)}
     <div id="ct-redir"></div>
     <div id="ct-corr"></div>
+    <div id="ct-pautas"></div>
     ${pedsPremHtml}
     ${conflitosNic.length?`<div class="painel" style="border-left:4px solid var(--red);background:#FDEDEC">
       <div class="bloco-t" style="color:var(--red)">&#9888; Conflito na agenda do Nicholas (${conflitosNic.length}) — reuniões sobrepostas</div>
@@ -5298,6 +5306,7 @@ async function telaCentral(){
     <div id="tric-box"></div>`;
   carregarTricount();
   painelRedirecionamentos("ct-redir",ts,cls);
+  fbPautasCentral();
   desenhaCorrCentral(ts);
   // ⏱ tempo real: enquanto a Central estiver aberta, o painel de correções
   // se atualiza sozinho a cada 60s (some se a tela mudar)
@@ -9165,6 +9174,122 @@ async function fbIaReescrever(){
   }catch(e){toast("IA: "+e.message,"erro");}
   if(btn){btn.disabled=false;btn.innerHTML="&#10024; Reescrever com IA";}
 }
+// espera a resposta da IA (polling na ponte do banco) e devolve o texto puro
+async function fbIaEsperar(req){
+  for(let i=0;i<40;i++){
+    await new Promise(res=>setTimeout(res,2500));
+    const r2=await supa.rpc("fb_ia_resposta",{p_req:req});
+    if(r2.error)throw new Error(r2.error.message);
+    if(r2.data&&r2.data.pronto){
+      const r=r2.data;
+      if(r.estourou)throw new Error("a chamada estourou o tempo — tente de novo");
+      if(r.erro)throw new Error(r.erro);
+      if(r.status!==200)throw new Error("API respondeu "+r.status+" "+String(JSON.stringify((r.corpo||{}).error||"")).slice(0,160));
+      let tx="";((r.corpo||{}).content||[]).forEach(b=>{if(b.type==="text"&&b.text)tx+=b.text;});
+      return tx.trim();
+    }
+  }
+  throw new Error("demorou demais — tente de novo");
+}
+// ----- 📋 pauta do 1:1 (Etapa 3, 16/11/2026): a IA junta os feedbacks do
+// período num roteiro de conversa. Guardada no banco (as 3 heads leem a
+// mesma); card na Central do Dia nos dias 1–10 com as pautas do mês fechado.
+function fbMesAnterior(){
+  const h=new Date();
+  const fim=new Date(h.getFullYear(),h.getMonth(),0);
+  const ini=new Date(fim.getFullYear(),fim.getMonth(),1);
+  const iso=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  return [iso(ini),iso(fim)];
+}
+async function fbPautaAbrir(pre){
+  const [i0,f0]=fbMesAnterior();
+  try{E._fbPautas=await DB.fbPautas();}catch(e){E._fbPautas=[];}
+  modal2("&#128203; Pauta do 1:1","A IA junta os feedbacks do período num roteiro para a conversa — rascunho só das heads",`
+    <div class="linha-acao">
+      <select class="fsel" id="fbpa-p">${FB_PESSOAS.map(n=>`<option ${pre===n?"selected":""}>${esc(n)}</option>`).join("")}</select>
+      <input type="date" class="fsel" id="fbpa-i" value="${i0}">
+      <input type="date" class="fsel" id="fbpa-f" value="${f0}">
+      <button class="btn btp btsm" id="fbpa-go" onclick="fbPautaGerar()">&#10024; Gerar pauta</button></div>
+    <div id="fbpa-out" style="margin-top:8px"></div>
+    <div class="bloco-t" style="margin-top:10px">Pautas já geradas</div>
+    <div id="fbpa-lista">${fbPautaListaHtml()}</div>`);
+}
+function fbPautaListaHtml(){
+  return (E._fbPautas||[]).map(p=>`<div class="linha-item" style="cursor:pointer" onclick="fbPautaVer(${p.id})">
+    <span style="font-size:12.5px"><b>${esc(p.pessoa)}</b> · ${brData(p.periodo_ini)} a ${brData(p.periodo_fim)}</span>
+    <span style="font-size:11px;color:var(--gray)">por ${esc(p.gerado_por||"?")} em ${brData(String(p.gerado_em||"").slice(0,10))}</span></div>`).join("")
+    ||`<div class="vazio">Nenhuma ainda.</div>`;
+}
+function fbPautaCorpo(pessoa,i,f,tx){
+  return `<div style="background:var(--bg);border-radius:10px;padding:10px 12px;font-size:13px;white-space:pre-wrap;line-height:1.5"><b>&#128203; ${esc(pessoa)} · ${brData(i)} a ${brData(f)}</b>
+
+${esc(tx)}</div>`;
+}
+async function fbPautaGerar(){
+  const b=ge("fbpa-go");if(b&&b.disabled)return;
+  const pessoa=ge("fbpa-p").value,i=ge("fbpa-i").value,f=ge("fbpa-f").value;
+  if(!i||!f||i>f){toast("Confira o período.","erro");return;}
+  if(b){b.disabled=true;b.innerHTML="&#10024; montando&hellip; (até 1 min)";}
+  try{
+    const r1=await supa.rpc("fb_ia_pauta",{p_pessoa:pessoa,p_ini:i,p_fim:f});
+    if(r1.error)throw new Error(r1.error.message);
+    const tx=await fbIaEsperar(r1.data);
+    if(!tx)throw new Error("resposta vazia — tente de novo");
+    await DB.fbPautaSalvar({pessoa,periodo_ini:i,periodo_fim:f,texto:tx,gerado_por:E.perfil.nome_sistema});
+    E._fbPautas=await DB.fbPautas();
+    const o=ge("fbpa-out");if(o)o.innerHTML=fbPautaCorpo(pessoa,i,f,tx);
+    const li=ge("fbpa-lista");if(li)li.innerHTML=fbPautaListaHtml();
+    toast("Pauta pronta e guardada!","ok");
+  }catch(e){toast("IA: "+e.message,"erro");}
+  if(b){b.disabled=false;b.innerHTML="&#10024; Gerar pauta";}
+}
+function fbPautaVer(id){
+  const p=(E._fbPautas||[]).find(x=>x.id===id);if(!p)return;
+  modal2("&#128203; Pauta do 1:1 — "+p.pessoa,brData(p.periodo_ini)+" a "+brData(p.periodo_fim)+" · rascunho só das heads",
+    fbPautaCorpo(p.pessoa,p.periodo_ini,p.periodo_fim,p.texto));
+}
+// card da Central do Dia: dias 1–10, pautas do mês que fechou
+async function fbPautasCentral(){
+  const el=ge("ct-pautas");if(!el)return;
+  if(new Date().getDate()>10){el.innerHTML="";return;}
+  const [i0,f0]=fbMesAnterior();
+  try{E._fbPautas=await DB.fbPautas();}catch(e){E._fbPautas=[];}
+  const doMes=n=>(E._fbPautas||[]).find(p=>p.pessoa===n
+    &&String(p.periodo_ini).slice(0,10)===i0&&String(p.periodo_fim).slice(0,10)===f0);
+  const faltam=FB_PESSOAS.filter(n=>!doMes(n));
+  const mesNome=new Date(i0+"T12:00:00").toLocaleDateString("pt-BR",{month:"long",year:"numeric"});
+  el.innerHTML=`<div class="painel" style="border-left:4px solid #1565C0">
+    <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px">
+      <div class="bloco-t" style="color:#1565C0">&#128203; Pautas do 1:1 — ${esc(mesNome)}</div>
+      ${faltam.length?`<button class="btn btp btsm" id="fbpc-go" onclick="fbPautasGerarTodas()">&#10024; Gerar as ${faltam.length} que faltam</button>`:`<span class="tag tek">todas prontas &#10003;</span>`}</div>
+    <div class="linha-acao" style="margin-top:6px">${FB_PESSOAS.map(n=>{const p=doMes(n);
+      return p?`<button class="btn bts btsm" onclick="fbPautaVer(${p.id})">&#9989; ${esc(n)}</button>`
+        :`<button class="btn bts btsm" style="opacity:.65" onclick="fbPautaAbrir('${esc(n)}')">&#9203; ${esc(n)}</button>`;}).join("")}</div>
+    <div style="font-size:11px;color:var(--gray);margin-top:4px">Roteiro do 1:1 gerado dos feedbacks do mês fechado — rascunho só das heads. Quem não recebeu feedback no mês fica sem pauta (aparece no aviso).</div></div>`;
+}
+async function fbPautasGerarTodas(){
+  const b=ge("fbpc-go");if(b&&b.disabled)return;
+  if(b)b.disabled=true;
+  const [i0,f0]=fbMesAnterior();
+  let ok=0,sem=[];
+  for(const n of FB_PESSOAS){
+    if((E._fbPautas||[]).find(p=>p.pessoa===n
+      &&String(p.periodo_ini).slice(0,10)===i0&&String(p.periodo_fim).slice(0,10)===f0))continue;
+    if(b)b.innerHTML="&#10024; "+esc(n)+"&hellip;";
+    try{
+      const r1=await supa.rpc("fb_ia_pauta",{p_pessoa:n,p_ini:i0,p_fim:f0});
+      if(r1.error)throw new Error(r1.error.message);
+      const tx=await fbIaEsperar(r1.data);
+      await DB.fbPautaSalvar({pessoa:n,periodo_ini:i0,periodo_fim:f0,texto:tx,gerado_por:E.perfil.nome_sistema});
+      ok++;
+    }catch(e){
+      if(/sem feedbacks/i.test(e.message))sem.push(n);
+      else toast(n+": "+e.message,"erro");
+    }
+  }
+  toast("Pautas geradas: "+ok+(sem.length?" · sem feedback no mês: "+sem.join(", "):""),"ok");
+  fbPautasCentral();
+}
 // print → JPEG comprimido em base64 (máx. 1200px) para ir como contexto da IA
 function fbImgB64(file){return new Promise((res,rej)=>{
   const img=new Image();const url=URL.createObjectURL(file);
@@ -9247,6 +9372,7 @@ async function fbMuralCarrega(){
         <select class="fsel" id="fbm-t" onchange="fbMuralLista()"><option value="">todos os tipos</option><option value="RECONHECIMENTO">&#127775; Reconhecimento</option><option value="AJUSTE">&#128295; Ajuste</option><option value="RETORNO TÉCNICO">&#128218; Retorno técnico</option></select>
         <select class="fsel" id="fbm-s" onchange="fbMuralLista()"><option value="">todas as situações</option><option value="RASCUNHO">rascunhos</option><option value="ABERTO">aguardando ciente</option><option value="VENCIDO">prazo vencido</option><option value="RESPONDIDO">respondidos</option></select>
         <button class="btn btp btsm" onclick="abrirFeedback()">&#10133; Novo feedback</button>
+        <button class="btn bts btsm" onclick="fbPautaAbrir()">&#128203; Pauta do 1:1</button>
         <button class="btn bts btsm" onclick="fbConfigAbrir()">&#9881;&#65039; Perfis e regras</button></div>
       <div id="fbm-lista"></div></div></details>`;
   fbMuralLista();
