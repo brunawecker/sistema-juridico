@@ -2083,7 +2083,9 @@ function classificar(t){
   t._chk=chk;
   // em correção não conta como atraso de quem enviou — o relógio é o prazo de
   // RETORNO (do corretor); o card mostra isso separado
-  t._atrasada=!t._concluida&&!t._emCorrecao&&d!==null&&d<0;
+  // DELEGADA via impulso não conta atraso próprio (Bruna, 16/11/2026):
+  // o relógio é o do impulso — a mãe dorme até o retorno
+  t._atrasada=!t._concluida&&!t._emCorrecao&&!t._delegada&&d!==null&&d<0;
   t._corrRetDias=t._emCorrecao?diasAte(t.correcao_retorno_dt):null;
   if(t._delegada)t._g=0;
   else if(chk==="IMEDIATO"&&!t._concluida&&(d===null||d<=0))t._g=1;
@@ -2153,7 +2155,22 @@ function cardTarefa(t,mostrarAssessor,mostrarTempo){
   const fin=t._inad?'<span class="tag ti" title="Cobrança vencida">&#128184;</span>'
     :t._pago?'<span class="tag tek" title="Pagou este mês">&#10003;</span>'
     :t._prov?'<span class="tag" style="background:var(--ice);color:var(--dani)" title="Provisionado no mês">&#128176;</span>':"";
-  const dt=t._emCorrecao
+  // mãe DELEGADA: mostra a situação do IMPULSO, não o "atraso" da mãe
+  // (Bruna, 16/11/2026 — impulso em dia aparecia como mãe atrasada)
+  const dt=t._delegada?(()=>{
+    const sub=(E.tarefas||[]).find(s=>s.id_tarefa!==t.id_tarefa
+      &&String(s.supervisao||"").includes("IMPULSO de")
+      &&String(s.supervisao||"").includes("Origem: "+t.id_tarefa+" |"));
+    if(!sub)return `<span class="tdy" style="color:#1F4E79">&#129309; aguardando o retorno do impulso</span>`;
+    const sd=(typeof sub._dias==="number")?sub._dias:diasAte(sub.data_revisao_dt);
+    const sst=String(sub.status_tarefa||"");
+    const emDia=(sub._concluida!==undefined)?sub._concluida
+      :(sst.includes("EM DIA")||(sst.includes("AGUARDANDO")&&sd!==null&&sd>0));
+    const quem=esc(String(sub.assessor||"").trim()||"?");
+    return emDia?`<span class="tdy ok">&#129309; impulso com ${quem} — em dia</span>`
+      :(sd!==null&&sd<0)?`<span class="tdy ov">&#129309; impulso com ${quem} — ${-sd}d sem toque</span>`
+      :`<span class="tdy" style="color:#1F4E79">&#129309; impulso com ${quem}${sub.data_revisao_dt?" · rev "+brData(sub.data_revisao_dt):""}</span>`;})()
+    :t._emCorrecao
     ?`<span class="tdy" style="color:#6B4FBF">&#9999; ${esc(t.correcao_head||"correção")}${t.correcao_retorno_dt?" · retorno "+brData(t.correcao_retorno_dt):""}${(t._corrRetDias!==null&&t._corrRetDias<0)?` (${-t._corrRetDias}d p/ voltar)`:""}</span>`
     :t._dias===null?"":t._atrasada?`<span class="tdy ov">${Math.abs(t._dias)}d atraso</span>`:
     (t._dias===0&&!t._concluida?`<span class="tdy ov">vence hoje</span>`:`<span class="tdy ok">rev ${brData(t.data_revisao_dt)}</span>`);
