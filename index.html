@@ -9016,7 +9016,7 @@ function fbTipoTag(t){const d=FB_TIPOS[t]||FB_TIPOS.AJUSTE;
   return `<span class="tag" style="background:${d[3]};color:${d[2]};font-weight:700">${d[0]} ${d[1]}</span>`;}
 function abrirFeedback(fatoId){
   if(!E.perfil.head_sim){toast("Só heads lançam feedbacks.","erro");return;}
-  E._fbAnexos=[];E._fbCli=null;E._fbFato=fatoId||null;
+  E._fbAnexos=[];E._fbCli=null;E._fbFato=fatoId||null;E._fbOrig=null;
   modal2("&#128172; Feedback para o time",fatoId?"Mesmo fato — feedback para outra pessoa":"Reconhecimento, ajuste ou retorno técnico",`
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
       <div><label style="font-size:11px">Para quem</label><select class="fsel" id="fb-pessoa" style="width:100%">${FB_PESSOAS.map(n=>`<option>${esc(n)}</option>`).join("")}</select></div>
@@ -9036,7 +9036,9 @@ function abrirFeedback(fatoId){
       <button class="btn bts btsm" onclick="ge('fb-file').click()">anexar</button>. <b>Só as heads veem</b>: servem de contexto, não vão para a pessoa.
       <input type="file" id="fb-file" accept="image/*" multiple style="display:none" onchange="fbAddFiles(this.files)"></div>
     <div id="fb-anexos" style="font-size:12px"></div>
+    <div id="fb-iacomp"></div>
     <div class="linha-acao" style="margin-top:10px">
+      <button class="btn bts" id="fb-ia" onclick="fbIaReescrever()" title="Escreva a anotação do seu jeito e a IA devolve o texto pronto em CNV, no tom certo da pessoa — você revisa antes de enviar">&#10024; Reescrever com IA</button>
       <button class="btn bts" onclick="salvarFeedback(false)">&#128190; Guardar rascunho</button>
       <button class="btn btp" style="flex:1" onclick="salvarFeedback(true)">&#9989; Aprovar e enviar</button></div>`);
   setTimeout(()=>{const tx=ge("fb-texto");if(tx)tx.addEventListener("paste",fbPaste);},50);
@@ -9081,7 +9083,7 @@ async function salvarFeedback(aprovar){
   const anexos=[];
   try{for(const f of (E._fbAnexos||[]))anexos.push({caminho:await DB.fbAnexoUp(f),nome:f.name||"print.png"});}
   catch(e){toast("Erro ao subir print: "+e.message,"erro");return;}
-  const reg={fato_id:E._fbFato,pessoa,autor:E.perfil.nome_sistema,tipo,fato:texto,texto,
+  const reg={fato_id:E._fbFato,pessoa,autor:E.perfil.nome_sistema,tipo,fato:E._fbOrig||texto,texto,
     id_cliente:E._fbCli||null,
     id_tarefa:(ge("fb-tarw").style.display!=="none"?ge("fb-tar").value:"")||null,
     envolvidos:(ge("fb-env").value||"").trim()||null,prazo_dt:prazo,anexos,
@@ -9098,6 +9100,64 @@ async function salvarFeedback(aprovar){
     <button class="btn bts btw" style="margin-top:6px" onclick="fecharModal2()">Não, terminei</button>`);
   if(E.view==="assessor")fbMuralCarrega();
 }
+// ----- ✨ reescrita com IA (Etapa 2, 16/11/2026): a anotação da head vai ao
+// Claude pela ponte no banco (fb_ia_reescrever/fb_ia_resposta, pg_net) e volta
+// como rascunho em CNV no tom do perfil da pessoa. A head SEMPRE revisa antes.
+async function fbIaReescrever(){
+  const btn=ge("fb-ia");if(btn&&btn.disabled)return;
+  const anot=(ge("fb-texto").value||"").trim();
+  if(!anot){toast("Escreva a anotação primeiro — a IA transforma em texto pronto.","erro");return;}
+  if(btn){btn.disabled=true;btn.innerHTML="&#10024; escrevendo&hellip; (até 1 min)";}
+  try{
+    const prints=[];
+    for(const f of (E._fbAnexos||[]).slice(0,4))prints.push(await fbImgB64(f));
+    const ps=ge("fb-prazo").value;let przData="";
+    if(ps==="hoje")przData=hojeISO();
+    else if(ps==="amanha"){const d=new Date();d.setDate(d.getDate()+1);przData=d.toISOString().slice(0,10);}
+    const r1=await supa.rpc("fb_ia_reescrever",{p:{anotacao:anot,
+      pessoa:ge("fb-pessoa").value,tipo:ge("fb-tipo").value,
+      cliente:E._fbCli?(((E._cli||{})[E._fbCli]||{}).nome||""):"",
+      envolvidos:(ge("fb-env").value||"").trim(),prazo_data:przData,prints}});
+    if(r1.error)throw new Error(r1.error.message);
+    let r=null;
+    for(let i=0;i<40;i++){
+      await new Promise(res=>setTimeout(res,2500));
+      const r2=await supa.rpc("fb_ia_resposta",{p_req:r1.data});
+      if(r2.error)throw new Error(r2.error.message);
+      if(r2.data&&r2.data.pronto){r=r2.data;break;}
+    }
+    if(!r)throw new Error("demorou demais — tente de novo");
+    if(r.estourou)throw new Error("a chamada estourou o tempo — tente de novo");
+    if(r.erro)throw new Error(r.erro);
+    if(r.status!==200)throw new Error("API respondeu "+r.status+" "+String(JSON.stringify((r.corpo||{}).error||"")).slice(0,160));
+    let tx="";((r.corpo||{}).content||[]).forEach(b=>{if(b.type==="text"&&b.text)tx+=b.text;});
+    tx=tx.trim().replace(/^```json\s*/i,"").replace(/^```\s*/,"").replace(/```\s*$/,"").trim();
+    let js=null;try{js=JSON.parse(tx);}catch(e){}
+    const fin=(js&&js.texto)||tx;
+    if(!fin)throw new Error("resposta vazia — tente de novo");
+    if(!E._fbOrig)E._fbOrig=anot;   // a anotação original fica guardada no campo "fato"
+    ge("fb-texto").value=fin;
+    const comp=((js&&js.complementares)||[]).filter(c=>c&&c.texto);
+    const box=ge("fb-iacomp");
+    if(box)box.innerHTML=comp.length?`<div style="background:#F4F8FD;border-radius:10px;padding:8px 11px;font-size:12px;margin-top:6px">
+      <b>&#10024; Sugestão para os envolvidos</b> (use "mesmo fato" depois de salvar):<br>
+      ${comp.map(c=>`<div style="margin-top:5px"><b>${esc(c.pessoa||"?")}</b> (${esc(c.tipo||"")}): ${esc(c.texto)}</div>`).join("")}</div>`:"";
+    toast("Rascunho pronto — revise, ajuste e aprove. Nada foi enviado ainda.","ok");
+  }catch(e){toast("IA: "+e.message,"erro");}
+  if(btn){btn.disabled=false;btn.innerHTML="&#10024; Reescrever com IA";}
+}
+// print → JPEG comprimido em base64 (máx. 1200px) para ir como contexto da IA
+function fbImgB64(file){return new Promise((res,rej)=>{
+  const img=new Image();const url=URL.createObjectURL(file);
+  img.onload=()=>{try{
+    const fat=Math.min(1,1200/Math.max(img.width,img.height));
+    const cv=document.createElement("canvas");
+    cv.width=Math.round(img.width*fat);cv.height=Math.round(img.height*fat);
+    cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);
+    const d=cv.toDataURL("image/jpeg",0.75);URL.revokeObjectURL(url);
+    res(d.split(",")[1]);}catch(e){rej(e);}};
+  img.onerror=()=>{URL.revokeObjectURL(url);rej(new Error("imagem inválida"));};
+  img.src=url;});}
 // ----- caixa do assessor (topo do Minhas Tarefas)
 function fbBoxHtml(){
   const abertos=(E._fbMeus||[]).filter(f=>!f.ciente_em);
