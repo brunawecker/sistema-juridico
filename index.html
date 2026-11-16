@@ -303,6 +303,8 @@ const capDe=n=>CAP[n]||420;
 // colaborador novo ATIVO entra sozinho nos acompanhamentos, sem editar código.
 // Esta lista é só o plano B se o cadastro não carregar.
 const OPERACIONAIS=["Ygor","Thiago","Madu","Malu","Laura","João","Raquel"];
+// 💬 quem pode receber feedback das heads (time de apoio, 16/11/2026)
+const FB_PESSOAS=[...OPERACIONAIS,"Nicholas"];
 // ⚖ recursos processuais (Bruna, 19/10/2026) — papel de cada processo no card
 const RECURSOS_PROC=["Apelação","Agravo de Instrumento","Embargos de Declaração","Agravo Interno",
   "Recurso Especial (STJ)","Recurso Extraordinário (STF)","Agravo em REsp/RE",
@@ -1112,6 +1114,29 @@ const S = {
     window.open(r.data.signedUrl,"_blank");return{ok:true};},
   async docApagar(d){await supa.storage.from("documentos").remove([d.caminho]);
     okS(await supa.from("documentos").delete().eq("linha",d.linha));return{ok:true};},
+  // ===== 💬 feedbacks das heads (16/11/2026)
+  async feedbacks(){return okS(await supa.from("feedbacks").select("*").order("id",{ascending:false}).limit(500))||[];},
+  async feedbackSalvar(f){const r=await supa.from("feedbacks").insert(f).select();okS(r);return (r.data||[])[0];},
+  async feedbackUpdate(id,campos){okS(await supa.from("feedbacks").update(campos).eq("id",id));return{ok:true};},
+  async feedbackApagar(id){okS(await supa.from("feedbacks").delete().eq("id",id));return{ok:true};},
+  async feedbackCiente(id){okS(await supa.rpc("feedback_ciente",{p_id:id}));return{ok:true};},
+  async feedbackResponder(id,tx){okS(await supa.rpc("feedback_responder",{p_id:id,p_texto:tx}));return{ok:true};},
+  async fbPerfis(){return okS(await supa.from("feedback_perfis").select("*"))||[];},
+  async fbPerfilSet(n,c){okS(await supa.from("feedback_perfis").upsert({nome_sistema:n,...c,
+    atualizado_por:E.perfil.nome_sistema,atualizado_em:new Date().toISOString()}));return{ok:true};},
+  async fbRegras(){return okS(await supa.from("feedback_regras").select("*").order("id"))||[];},
+  async fbRegraSet(r){
+    if(r.id)okS(await supa.from("feedback_regras").update({titulo:r.titulo,texto:r.texto,
+      atualizado_por:E.perfil.nome_sistema,atualizado_em:new Date().toISOString()}).eq("id",r.id));
+    else okS(await supa.from("feedback_regras").insert({titulo:r.titulo,texto:r.texto,
+      atualizado_por:E.perfil.nome_sistema}));
+    return{ok:true};},
+  async fbAnexoUp(file){
+    const caminho="feedbacks/"+Date.now()+"_"+String(file.name||"print.png").replace(/[^\w.\-]+/g,"_").slice(0,80);
+    const up=await supa.storage.from("documentos").upload(caminho,file);
+    if(up.error)throw new Error(up.error.message);return caminho;},
+  async fbAnexoUrl(caminho){const r=await supa.storage.from("documentos").createSignedUrl(caminho,3600);
+    if(r.error)throw new Error(r.error.message);return r.data.signedUrl;},
 };
 const DB = MODO_SUPABASE ? S : L;
 
@@ -2310,12 +2335,17 @@ async function telaMinhas(){
       &&ehMeuNome(c.tax_solicitante||"")
       &&(!c.tax_cobranca_dt||String(c.tax_cobranca_dt).slice(0,10)<=_hj))
       .sort((a,b)=>String(a.tax_status_dt||"").localeCompare(String(b.tax_status_dt||"")));
+    if(!E._clsTodos||!E._clsTodos.length){E._clsTodos=_cls||[];E._cli={};E._clsTodos.forEach(c=>E._cli[c.id_cliente]=c);}
   }catch(e){}
+  // 💬 feedbacks das heads para MIM — aparecem no topo do dia (16/11/2026)
+  E._fbMeus=[];
+  try{E._fbMeus=(await DB.feedbacks()).filter(f=>f.status==="APROVADO"&&ehMeuNome(f.pessoa));}catch(e){}
   // ------- monta html
   let h=bannerPrazoFatal(ativas);
   if(P.exclusivo)h+=`<div class="painel" style="border-left:4px solid var(--roxo);background:#EDE9FE">
     <div class="bloco-t" style="color:var(--roxo)">&#128274; HOJE É DIA EXCLUSIVO — FECHAMENTO MENSAL</div>
     <div style="font-size:13px;line-height:1.5">Seu dia inteiro é uma tarefa só: <b>ajustar a planilha do próximo mês, conferir os pagamentos e enviar os boletos</b>. As demais tarefas estão seguras na fila e a agenda do dia está travada — tudo libera na hora em que você clicar <b>"&#9989; Finalizei o fechamento"</b> dentro do card abaixo.</div></div>`;
+  h+=fbBoxHtml();
   const pctCor=pct>90?"var(--red)":pct>70?"var(--amber)":"var(--green)";
   h+=`<div class="painel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
     <b style="color:var(--navy)">&#128202; Capacidade do dia</b>
@@ -4519,7 +4549,8 @@ async function telaPorAssessor(){
     <select class="fsel" id="pa-ass" onchange="E._paAss=this.value;telaPorAssessor()">
       <option value="">&#128101; Todos os assessores</option>
       ${ord.map(([n,l])=>`<option value="${esc(n)}"${n===fAss?" selected":""}>${esc(n)} (${l.length})</option>`).join("")}</select>
-    ${fAss?`<button class="btn bts btsm" onclick="E._paAss='';telaPorAssessor()">&#10005; limpar filtro</button>`:""}</div>`
+    ${fAss?`<button class="btn bts btsm" onclick="E._paAss='';telaPorAssessor()">&#10005; limpar filtro</button>`:""}</div>
+    ${E.perfil.head_sim?`<div id="fb-mural"></div>`:""}`
    +ord.filter(([n])=>!fAss||n===fAss).map(([n,lista])=>{
     // o QUADRO reflete o dia a dia REAL (Bruna, 19/09/2026): só o que está
     // COM a pessoa (mesma régua do Minhas Tarefas dela). O que ela delegou
@@ -4554,6 +4585,7 @@ async function telaPorAssessor(){
           <span class="tag ${dR!==null&&dR<0?"ti":"tm"}">&#9999; com ${esc(t.correcao_head||"head")}${dR!==null?(dR<0?` · retorno vencido há ${Math.abs(dR)}d`:` · retorno ${brData(t.correcao_retorno_dt)}`):""}</span></div>`;}).join("")}</details>`:""}
       </div></details>`;}).join("")
     +(ord.length?"":`<div class="vazio">Sem tarefas.</div>`);
+  if(E.perfil.head_sim)fbMuralCarrega();
 }
 // =================================================== TELA: DIÁRIO (head)
 // Aceita uma data (AAAA-MM-DD) para ver o histórico de outro dia; sem data = hoje.
@@ -8923,6 +8955,7 @@ function montarFab(vend){
     +it("&#128221; Nota rápida de cliente","abrirNotaRapida")
     +it("&#128221; Lançar proposta","abrirProposta")
     +it("&#128197; Reunião / compromisso","abrirReuniao")
+    +(E.perfil.head_sim?it("&#128172; Dar feedback (head)","abrirFeedback"):"")
     +it("&#9201; Iniciar atividade (tempo)","abrirAvulsa");
 }
 // 📝 Nota rápida vinculada a um cliente (Bruna, 22/09/2026) — sem criar tarefa
@@ -8954,6 +8987,301 @@ async function salvarNotaRapida(){
   try{await DB.nota({id_tarefa:"",id_cliente:E._nrCli,tipo:"HISTORICO",texto:"📝 Nota — "+E.perfil.nome_sistema+": "+txt});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Nota salva no cadastro do cliente.","ok");fecharModal2();
+}
+// ============================================ 💬 FEEDBACKS DAS HEADS (16/11/2026)
+// Head lança pelo "+" (ou no mural); o assessor vê no topo do Minhas Tarefas,
+// marca ciente e responde. Prints são SÓ das heads — contexto p/ a IA (Etapa 2),
+// nunca vão para a pessoa (decisão da Bruna: não parecer prova/agressivo).
+const FB_TIPOS={"RECONHECIMENTO":["&#127775;","Reconhecimento","#1E8449","#E6F4EA"],
+  "AJUSTE":["&#128295;","Ajuste","#8A5B00","#FFF3DF"],
+  "RETORNO TÉCNICO":["&#128218;","Retorno técnico","#1565C0","#E3F2FD"]};
+function fbTipoTag(t){const d=FB_TIPOS[t]||FB_TIPOS.AJUSTE;
+  return `<span class="tag" style="background:${d[3]};color:${d[2]};font-weight:700">${d[0]} ${d[1]}</span>`;}
+function abrirFeedback(fatoId){
+  if(!E.perfil.head_sim){toast("Só heads lançam feedbacks.","erro");return;}
+  E._fbAnexos=[];E._fbCli=null;E._fbFato=fatoId||null;
+  modal2("&#128172; Feedback para o time",fatoId?"Mesmo fato — feedback para outra pessoa":"Reconhecimento, ajuste ou retorno técnico",`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div><label style="font-size:11px">Para quem</label><select class="fsel" id="fb-pessoa" style="width:100%">${FB_PESSOAS.map(n=>`<option>${esc(n)}</option>`).join("")}</select></div>
+      <div><label style="font-size:11px">Tipo</label><select class="fsel" id="fb-tipo" style="width:100%">
+        <option value="RECONHECIMENTO">&#127775; Reconhecimento</option><option value="AJUSTE" selected>&#128295; Ajuste</option><option value="RETORNO TÉCNICO">&#128218; Retorno técnico de demanda</option></select></div></div>
+    <label style="font-size:11px;margin-top:6px;display:block">Cliente/demanda (opcional — digite 2+ letras)</label>
+    <input class="fi" id="fb-q" placeholder="&#128269; sem cliente = feedback de postura/processo" oninput="fbBuscaCli()">
+    <div id="fb-res" style="max-height:130px;overflow:auto"></div><div id="fb-sel" style="font-size:12px;color:var(--navy)"></div>
+    <div id="fb-tarw" style="display:none"><label style="font-size:11px">Tarefa do cliente (opcional)</label><select class="fsel" id="fb-tar" style="width:100%"></select></div>
+    <label style="font-size:11px;margin-top:6px;display:block">O feedback (texto que a pessoa vai ler)</label>
+    <textarea class="fta" id="fb-texto" placeholder="Fato observado + o impacto + o pedido concreto..."></textarea>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
+      <div><label style="font-size:11px">Envolvidos no mesmo fato (opcional)</label><input class="fi" id="fb-env" placeholder="ex.: Thiago, Nicholas"></div>
+      <div><label style="font-size:11px">Prazo do pedido</label><select class="fsel" id="fb-prazo" style="width:100%">
+        <option value="">sem pedido/prazo</option><option value="hoje">corrigir HOJE</option><option value="amanha" selected>até AMANHÃ</option></select></div></div>
+    <div style="margin-top:6px;font-size:11px;color:var(--gray)">&#128206; <b>Prints</b> — cole com Cmd/Ctrl+V no texto acima, ou
+      <button class="btn bts btsm" onclick="ge('fb-file').click()">anexar</button>. <b>Só as heads veem</b>: servem de contexto, não vão para a pessoa.
+      <input type="file" id="fb-file" accept="image/*" multiple style="display:none" onchange="fbAddFiles(this.files)"></div>
+    <div id="fb-anexos" style="font-size:12px"></div>
+    <div class="linha-acao" style="margin-top:10px">
+      <button class="btn bts" onclick="salvarFeedback(false)">&#128190; Guardar rascunho</button>
+      <button class="btn btp" style="flex:1" onclick="salvarFeedback(true)">&#9989; Aprovar e enviar</button></div>`);
+  setTimeout(()=>{const tx=ge("fb-texto");if(tx)tx.addEventListener("paste",fbPaste);},50);
+  if(!E._clsTodos||!E._clsTodos.length)DB.clientes("").then(cs=>{E._clsTodos=cs||[];E._cli={};E._clsTodos.forEach(c=>E._cli[c.id_cliente]=c);}).catch(()=>{});
+}
+function fbBuscaCli(){
+  const q=(ge("fb-q").value||"").trim();const box=ge("fb-res");
+  if(q.length<2){box.innerHTML="";return;}
+  const f=filtraLocalClientes(E._clsTodos||[],q).slice(0,25);
+  box.innerHTML=f.map(c=>`<div class="linha-item" style="cursor:pointer" onclick='fbEscolherCli(${JSON.stringify(c.id_cliente)})'>
+    <span><b>${esc(c.nome)}</b> <span style="color:var(--gray);font-size:11px">${esc(c.cnpj_cpf||"")}</span></span></div>`).join("")
+    ||`<div style="font-size:12px;color:var(--gray)">Nenhum cliente com esse nome.</div>`;
+}
+async function fbEscolherCli(id){
+  E._fbCli=id;const c=E._cli[id];
+  ge("fb-res").innerHTML="";ge("fb-q").value=c?c.nome:"";
+  ge("fb-sel").innerHTML=c?`&#9989; Cliente: <b>${esc(c.nome)}</b> <span style="cursor:pointer" onclick="E._fbCli=null;ge('fb-sel').innerHTML='';ge('fb-q').value='';ge('fb-tarw').style.display='none'">&#10005;</span>`:"";
+  if(!(E.tarefas||[]).length){try{E.tarefas=(await DB.tarefas()).map(classificar);}catch(e){}}
+  const ts=(E.tarefas||[]).filter(t=>t.id_cliente===id&&t.id_tarefa);
+  const w=ge("fb-tarw");if(!w)return;
+  if(ts.length){w.style.display="block";
+    ge("fb-tar").innerHTML=`<option value="">(nenhuma tarefa específica)</option>`
+      +ts.map(t=>`<option value="${esc(t.id_tarefa)}">${esc(t.operacao||t.id_tarefa)} — ${esc(t.assessor||"?")}</option>`).join("");}
+  else w.style.display="none";
+}
+function fbPaste(e){
+  const its=(e.clipboardData||{}).items||[];let pegou=false;
+  for(const it of its)if(it.type&&it.type.startsWith("image/")){
+    const f=it.getAsFile();if(f){E._fbAnexos.push(f);pegou=true;}}
+  if(pegou){e.preventDefault();fbDesenhaAnexos();toast("Print colado!","ok");}
+}
+function fbAddFiles(fl){for(const f of fl||[])E._fbAnexos.push(f);fbDesenhaAnexos();}
+function fbDesenhaAnexos(){const el=ge("fb-anexos");if(!el)return;
+  el.innerHTML=(E._fbAnexos||[]).map((f,i)=>`<span class="tag tm">&#128206; ${esc(f.name||("print_"+(i+1)+".png"))} <span style="cursor:pointer" onclick="E._fbAnexos.splice(${i},1);fbDesenhaAnexos()">&#10005;</span></span>`).join(" ");}
+async function salvarFeedback(aprovar){
+  const pessoa=ge("fb-pessoa").value,tipo=ge("fb-tipo").value;
+  const texto=(ge("fb-texto").value||"").trim();
+  if(!texto){toast("Escreva o feedback.","erro");return;}
+  const ps=ge("fb-prazo").value;let prazo=null;
+  if(ps==="hoje")prazo=hojeISO();
+  else if(ps==="amanha"){const d=new Date();d.setDate(d.getDate()+1);prazo=d.toISOString().slice(0,10);}
+  const anexos=[];
+  try{for(const f of (E._fbAnexos||[]))anexos.push({caminho:await DB.fbAnexoUp(f),nome:f.name||"print.png"});}
+  catch(e){toast("Erro ao subir print: "+e.message,"erro");return;}
+  const reg={fato_id:E._fbFato,pessoa,autor:E.perfil.nome_sistema,tipo,fato:texto,texto,
+    id_cliente:E._fbCli||null,
+    id_tarefa:(ge("fb-tarw").style.display!=="none"?ge("fb-tar").value:"")||null,
+    envolvidos:(ge("fb-env").value||"").trim()||null,prazo_dt:prazo,anexos,
+    status:aprovar?"APROVADO":"RASCUNHO",
+    aprovado_por:aprovar?E.perfil.nome_sistema:null,
+    aprovado_em:aprovar?new Date().toISOString():null};
+  let novo;try{novo=await DB.feedbackSalvar(reg);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  if(novo&&!novo.fato_id){try{await DB.feedbackUpdate(novo.id,{fato_id:novo.id});}catch(e){}}
+  toast(aprovar?"Feedback enviado — "+pessoa+" vê no Minhas Tarefas.":"Rascunho guardado — aprove no mural (tela Por Assessor).","ok");
+  fecharModal2();
+  const fid=novo&&(novo.fato_id||novo.id);
+  if(fid)modal2("&#128101; Mesmo fato, outra pessoa?","Ex.: ajuste para quem não registrou e reconhecimento para quem identificou",`
+    <button class="btn btp btw" onclick="fecharModal2();abrirFeedback(${fid})">&#10133; Lançar outro feedback deste fato</button>
+    <button class="btn bts btw" style="margin-top:6px" onclick="fecharModal2()">Não, terminei</button>`);
+  if(E.view==="assessor")fbMuralCarrega();
+}
+// ----- caixa do assessor (topo do Minhas Tarefas)
+function fbBoxHtml(){
+  const abertos=(E._fbMeus||[]).filter(f=>!f.ciente_em);
+  const outros=(E._fbMeus||[]).length-abertos.length;
+  if(!abertos.length&&!outros)return "";
+  if(!abertos.length)return `<div style="font-size:11.5px;color:var(--gray);margin-bottom:8px;cursor:pointer" onclick="fbVerTodosMeus()">&#128172; Feedbacks recebidos: ${outros} — ver</div>`;
+  return `<div class="painel" style="border-left:4px solid #1565C0;background:#F4F8FD">
+    <div class="bloco-t" style="color:#1565C0">&#128172; Feedback das heads · ${abertos.length}</div>
+    ${abertos.map(f=>fbItemHtml(f,true)).join("")}
+    ${outros?`<div style="font-size:11px;color:var(--gray);cursor:pointer" onclick="fbVerTodosMeus()">ver anteriores (${outros})</div>`:""}</div>`;
+}
+function fbItemHtml(f,acoes){
+  const dv=f.prazo_dt?diasAte(String(f.prazo_dt).slice(0,10)):null;
+  const cli=f.id_cliente&&E._cli&&E._cli[f.id_cliente]?E._cli[f.id_cliente].nome:null;
+  return `<div style="background:white;border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin-bottom:7px">
+    <div class="linha-acao" style="margin-bottom:4px">${fbTipoTag(f.tipo)}
+      <span style="font-size:11px;color:var(--gray)">de <b>${esc(f.autor)}</b> · ${brData(String(f.data_dt||f.criado_em).slice(0,10))}</span>
+      ${cli?`<span class="tag tda">${esc(cli)}</span>`:""}
+      ${f.id_tarefa?`<span class="tag tm" style="cursor:pointer" onclick="abrirTarefa('${esc(f.id_tarefa)}')">abrir a tarefa</span>`:""}
+      ${f.prazo_dt?`<span class="tag ${dv!==null&&dv<0?"ti":"ta"}">${dv!==null&&dv<0?"&#9888; prazo venceu "+brData(f.prazo_dt):"corrigir até "+brData(f.prazo_dt)}</span>`:""}</div>
+    <div style="font-size:13px;white-space:pre-wrap;line-height:1.45">${esc(f.texto||"")}</div>
+    ${f.resposta?`<div style="font-size:12px;margin-top:5px;color:var(--navy)">&#8617; Sua resposta: ${esc(f.resposta)}</div>`:""}
+    ${acoes?`<div class="linha-acao" style="margin-top:7px">
+      <button class="btn btp btsm" onclick="fbCiente(${f.id})">&#9989; Ciente</button>
+      <button class="btn bts btsm" onclick="fbResponderAbrir(${f.id})">&#128172; Responder</button></div>`
+      :(!f.resposta?`<div class="linha-acao" style="margin-top:7px"><button class="btn bts btsm" onclick="fbResponderAbrir(${f.id})">&#128172; Responder</button></div>`:"")}</div>`;
+}
+async function fbCiente(id){
+  try{await DB.feedbackCiente(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  const f=(E._fbMeus||[]).find(x=>x.id===id);if(f)f.ciente_em=new Date().toISOString();
+  toast("Anotado como ciente.","ok");if(E.view==="minhas")telaMinhas();
+}
+function fbResponderAbrir(id){
+  modal2("&#128172; Responder o feedback","Sua resposta vai para as heads",`
+    <textarea class="fta" id="fbr-tx" placeholder="O que você fez / como vai corrigir / seu ponto de vista..."></textarea>
+    <button class="btn btp btw" style="margin-top:8px" onclick="fbResponderGo(${id})">Enviar resposta</button>`);
+}
+async function fbResponderGo(id){
+  const tx=(ge("fbr-tx").value||"").trim();
+  if(!tx){toast("Escreva a resposta.","erro");return;}
+  try{await DB.feedbackResponder(id,tx);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Resposta enviada!","ok");fecharModal2();if(E.view==="minhas")telaMinhas();
+}
+function fbVerTodosMeus(){
+  const l=E._fbMeus||[];
+  modal2("&#128172; Meus feedbacks",l.length+" recebido(s)",
+    l.map(f=>fbItemHtml(f,!f.ciente_em)).join("")||`<div class="vazio">Nenhum.</div>`);
+}
+// ----- mural das heads (tela Por Assessor)
+async function fbMuralCarrega(){
+  const el=ge("fb-mural");if(!el)return;
+  let l=[];try{l=await DB.feedbacks();}catch(e){el.innerHTML="";return;}
+  E._fbTodos=l;
+  if(!E._cli||!Object.keys(E._cli).length){try{const cs=await DB.clientes("");E._clsTodos=cs||[];E._cli={};cs.forEach(c=>E._cli[c.id_cliente]=c);}catch(e){}}
+  const hj=hojeISO();
+  const abertos=l.filter(f=>f.status==="APROVADO"&&!f.ciente_em).length;
+  const rasc=l.filter(f=>f.status==="RASCUNHO").length;
+  const venc=l.filter(f=>f.status==="APROVADO"&&f.prazo_dt&&String(f.prazo_dt).slice(0,10)<hj&&!f.resposta).length;
+  el.innerHTML=`<details class="det" ${rasc?"open":""} style="margin-bottom:10px"><summary>
+      <span style="flex:1;font-weight:700;color:#1565C0">&#128172; Feedbacks das heads (${l.length})</span>
+      ${rasc?`<span class="tag ta">${rasc} rascunho(s)</span>`:""}
+      ${venc?`<span class="tag ti">${venc} prazo vencido</span>`:""}
+      <span class="tag ${abertos?"tda":"tek"}">${abertos} aguardando ciente</span></summary>
+    <div style="padding:8px 12px 12px">
+      <div class="linha-acao" style="margin-bottom:8px">
+        <input class="fi" id="fbm-q" placeholder="&#128269; buscar palavra..." style="flex:1;min-width:140px" oninput="fbMuralLista()">
+        <select class="fsel" id="fbm-p" onchange="fbMuralLista()"><option value="">todas as pessoas</option>${FB_PESSOAS.map(n=>`<option>${esc(n)}</option>`).join("")}</select>
+        <select class="fsel" id="fbm-t" onchange="fbMuralLista()"><option value="">todos os tipos</option><option value="RECONHECIMENTO">&#127775; Reconhecimento</option><option value="AJUSTE">&#128295; Ajuste</option><option value="RETORNO TÉCNICO">&#128218; Retorno técnico</option></select>
+        <select class="fsel" id="fbm-s" onchange="fbMuralLista()"><option value="">todas as situações</option><option value="RASCUNHO">rascunhos</option><option value="ABERTO">aguardando ciente</option><option value="VENCIDO">prazo vencido</option><option value="RESPONDIDO">respondidos</option></select>
+        <button class="btn btp btsm" onclick="abrirFeedback()">&#10133; Novo feedback</button>
+        <button class="btn bts btsm" onclick="fbConfigAbrir()">&#9881;&#65039; Perfis e regras</button></div>
+      <div id="fbm-lista"></div></div></details>`;
+  fbMuralLista();
+}
+function fbMuralLista(){
+  const el=ge("fbm-lista");if(!el)return;
+  const q=semAc((ge("fbm-q")?.value||"").trim()),p=ge("fbm-p")?.value||"",t=ge("fbm-t")?.value||"",s=ge("fbm-s")?.value||"";
+  const hj=hojeISO();
+  let l=(E._fbTodos||[]).slice();
+  if(p)l=l.filter(f=>f.pessoa===p);
+  if(t)l=l.filter(f=>f.tipo===t);
+  if(s==="RASCUNHO")l=l.filter(f=>f.status==="RASCUNHO");
+  else if(s==="ABERTO")l=l.filter(f=>f.status==="APROVADO"&&!f.ciente_em);
+  else if(s==="VENCIDO")l=l.filter(f=>f.status==="APROVADO"&&f.prazo_dt&&String(f.prazo_dt).slice(0,10)<hj&&!f.resposta);
+  else if(s==="RESPONDIDO")l=l.filter(f=>f.resposta);
+  if(q)l=l.filter(f=>semAc([f.texto,f.fato,f.pessoa,f.autor,f.envolvidos||"",
+    ((E._cli||{})[f.id_cliente]||{}).nome||""].join(" ")).includes(q));
+  el.innerHTML=l.length?l.map(f=>fbMuralItem(f)).join(""):`<div class="vazio">Nenhum feedback com esses filtros.</div>`;
+}
+function fbMuralItem(f){
+  const hj=hojeISO();
+  const vencido=f.status==="APROVADO"&&f.prazo_dt&&String(f.prazo_dt).slice(0,10)<hj&&!f.resposta;
+  const cli=((E._cli||{})[f.id_cliente]||{}).nome;
+  const irm=(E._fbTodos||[]).filter(x=>x.fato_id&&x.fato_id===f.fato_id&&x.id!==f.id).length;
+  return `<div class="linha-item" style="cursor:pointer;align-items:flex-start" onclick="fbDetalhe(${f.id})">
+    <span style="flex:1;min-width:0;font-size:12.5px"><b>${esc(f.pessoa)}</b> ${fbTipoTag(f.tipo)}
+      <span style="color:var(--gray);font-size:11px">por ${esc(f.autor)} · ${brData(String(f.data_dt||f.criado_em).slice(0,10))}</span>
+      ${cli?`<span class="tag tda">${esc(cli)}</span>`:""}
+      ${(f.anexos||[]).length?`<span class="tag tm">&#128206; ${f.anexos.length}</span>`:""}
+      ${irm?`<span class="tag" style="background:#EDE9FE;color:#6B4FBF" title="outros feedbacks do mesmo fato">&#128101; +${irm} do fato</span>`:""}
+      <br><span style="color:var(--gray)">${esc(String(f.texto||"").slice(0,140))}${String(f.texto||"").length>140?"…":""}</span></span>
+    <span style="flex-shrink:0;display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">
+      ${f.status==="RASCUNHO"?`<span class="tag ta">rascunho</span>`:""}
+      ${vencido?`<span class="tag ti">prazo vencido</span>`:f.prazo_dt&&f.status==="APROVADO"?`<span class="tag tm">até ${brData(f.prazo_dt)}</span>`:""}
+      ${f.ciente_em?`<span class="tag tek">ciente &#10003;</span>`:f.status==="APROVADO"?`<span class="tag tda">não viu ainda</span>`:""}
+      ${f.resposta?`<span class="tag" style="background:#E3F2FD;color:#1565C0">respondeu &#8617;</span>`:""}</span></div>`;
+}
+async function fbDetalhe(id){
+  const f=(E._fbTodos||[]).find(x=>x.id===id);if(!f)return;
+  const cli=((E._cli||{})[f.id_cliente]||{}).nome;
+  const irm=(E._fbTodos||[]).filter(x=>x.fato_id&&x.fato_id===f.fato_id&&x.id!==f.id);
+  modal2("&#128172; Feedback — "+f.pessoa,`${FB_TIPOS[f.tipo]?FB_TIPOS[f.tipo][1]:f.tipo} · por ${f.autor} · ${brData(String(f.data_dt||f.criado_em).slice(0,10))}`,`
+    ${cli?`<div style="font-size:12px;margin-bottom:4px">&#127970; <b>${esc(cli)}</b>${f.id_tarefa?` · <span style="color:#1565C0;cursor:pointer;text-decoration:underline" onclick="fecharModal2();abrirTarefa('${esc(f.id_tarefa)}')">abrir a tarefa</span>`:""}</div>`:""}
+    ${f.envolvidos?`<div style="font-size:12px;margin-bottom:4px">&#128101; Envolvidos no fato: ${esc(f.envolvidos)}</div>`:""}
+    ${f.prazo_dt?`<div style="font-size:12px;margin-bottom:4px">&#9203; Prazo do pedido: <b>${brData(f.prazo_dt)}</b></div>`:""}
+    <div style="background:var(--bg);border-radius:10px;padding:10px 12px;font-size:13px;white-space:pre-wrap;line-height:1.5">${esc(f.texto||"")}</div>
+    ${(f.anexos||[]).length?`<div style="font-size:12px;margin-top:6px">&#128206; Prints (só heads): ${(f.anexos||[]).map((a,i)=>`<span class="tag tm" style="cursor:pointer" onclick="fbAbrirAnexo('${esc(a.caminho)}')">${esc(a.nome||("print "+(i+1)))}</span>`).join(" ")}</div>`:""}
+    <div style="font-size:12px;margin-top:6px;color:var(--gray)">${f.status==="RASCUNHO"?"&#128221; RASCUNHO — a pessoa ainda não vê":`&#9989; aprovado por ${esc(f.aprovado_por||"?")} em ${f.aprovado_em?brData(String(f.aprovado_em).slice(0,10)):"?"}`}
+      ${f.ciente_em?` · ciente em ${brData(String(f.ciente_em).slice(0,10))}`:""}</div>
+    ${f.resposta?`<div style="background:#E3F2FD;border-radius:10px;padding:8px 11px;font-size:12.5px;margin-top:6px">&#8617; <b>Resposta de ${esc(f.pessoa)}:</b><br>${esc(f.resposta)}</div>`:""}
+    ${irm.length?`<div style="font-size:12px;margin-top:8px"><b>&#128101; Do mesmo fato:</b> ${irm.map(x=>`<span class="tag tm" style="cursor:pointer" onclick="fbDetalhe(${x.id})">${esc(x.pessoa)} (${FB_TIPOS[x.tipo]?FB_TIPOS[x.tipo][1]:x.tipo})</span>`).join(" ")}</div>`:""}
+    <div class="linha-acao" style="margin-top:10px">
+      ${f.status==="RASCUNHO"?`<button class="btn btp btsm" onclick="fbAprovar(${f.id})">&#9989; Aprovar e enviar</button>
+        <button class="btn bts btsm" onclick="fbEditarAbrir(${f.id})">&#9999; Editar</button>`:""}
+      <button class="btn bts btsm" onclick="fecharModal2();abrirFeedback(${f.fato_id||f.id})">&#10133; Mesmo fato, outra pessoa</button>
+      <button class="btn bts btsm" style="color:var(--red);border-color:var(--red)" onclick="fbApagar(${f.id})">&#128465; Apagar</button></div>`);
+}
+async function fbAbrirAnexo(caminho){
+  try{window.open(await DB.fbAnexoUrl(caminho),"_blank");}
+  catch(e){toast("Erro ao abrir: "+e.message,"erro");}
+}
+async function fbAprovar(id){
+  try{await DB.feedbackUpdate(id,{status:"APROVADO",aprovado_por:E.perfil.nome_sistema,aprovado_em:new Date().toISOString()});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Aprovado — a pessoa já vê no Minhas Tarefas.","ok");fecharModal2();fbMuralCarrega();
+}
+function fbEditarAbrir(id){
+  const f=(E._fbTodos||[]).find(x=>x.id===id);if(!f)return;
+  modal2("&#9999; Editar rascunho","Feedback para "+f.pessoa,`
+    <textarea class="fta" id="fbe-tx" style="min-height:140px">${esc(f.texto||"")}</textarea>
+    <div class="linha-acao" style="margin-top:8px">
+      <button class="btn bts" onclick="fbEditarGo(${id},false)">&#128190; Salvar rascunho</button>
+      <button class="btn btp" style="flex:1" onclick="fbEditarGo(${id},true)">&#9989; Salvar e aprovar</button></div>`);
+}
+async function fbEditarGo(id,aprovar){
+  const tx=(ge("fbe-tx").value||"").trim();
+  if(!tx){toast("O texto não pode ficar vazio.","erro");return;}
+  const campos={texto:tx,editado_por:E.perfil.nome_sistema,editado_em:new Date().toISOString()};
+  if(aprovar){campos.status="APROVADO";campos.aprovado_por=E.perfil.nome_sistema;campos.aprovado_em=new Date().toISOString();}
+  try{await DB.feedbackUpdate(id,campos);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast(aprovar?"Aprovado e enviado!":"Rascunho salvo.","ok");fecharModal2();fbMuralCarrega();
+}
+async function fbApagar(id){
+  if(!confirm("Apagar este feedback? Não dá para desfazer."))return;
+  try{await DB.feedbackApagar(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Feedback apagado.","ok");fecharModal2();fbMuralCarrega();
+}
+// ----- perfis comportamentais e regras da plataforma (cadastro das heads)
+async function fbConfigAbrir(){
+  let per=[],reg=[];
+  try{[per,reg]=await Promise.all([DB.fbPerfis(),DB.fbRegras()]);}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  E._fbReg=reg;E._fbRegN=0;
+  modal2("&#9881;&#65039; Perfis e regras","Perfis guiam o TOM do texto (nunca aparecem nele); regras são citadas como combinado, não punição",`
+    <div class="bloco-t">Perfis de comunicação</div>
+    <div style="font-size:11px;color:var(--gray);margin-bottom:6px">Tubarão: curto, resultado e prazo · Lobo: fato, dado, passo a passo · Gato: começa pela relação, ajuste em privado · Águia: explica o porquê e abre espaço para a pessoa propor</div>
+    ${FB_PESSOAS.map((n,i)=>{const p=per.find(x=>x.nome_sistema===n)||{};
+      return `<div class="linha-acao" style="margin-bottom:4px"><b style="width:76px;font-size:12px;flex-shrink:0">${esc(n)}</b>
+        <input class="fi" id="fbp1-${i}" value="${esc(p.perfil1||"")}" placeholder="perfil 1" style="width:110px">
+        <input class="fi" id="fbp2-${i}" value="${esc(p.perfil2||"")}" placeholder="perfil 2" style="width:110px"></div>`;}).join("")}
+    <button class="btn bts btsm" onclick="fbPerfisSalvar()">&#128190; Salvar perfis</button>
+    <div class="bloco-t" style="margin-top:14px">Regras da plataforma</div>
+    <div id="fbr-area">${reg.map((r,i)=>`<input class="fi" id="fbrt-${i}" value="${esc(r.titulo||"")}" placeholder="título" style="margin-bottom:2px">
+      <textarea class="fta" id="fbrx-${i}" style="min-height:52px">${esc(r.texto||"")}</textarea>`).join("")}</div>
+    <div class="linha-acao" style="margin-top:6px"><button class="btn bts btsm" onclick="fbRegraNova()">&#10133; nova regra</button>
+      <button class="btn bts btsm" onclick="fbRegrasSalvar()">&#128190; Salvar regras</button></div>`);
+}
+async function fbPerfisSalvar(){
+  try{for(let i=0;i<FB_PESSOAS.length;i++){
+    const p1=(ge("fbp1-"+i)?.value||"").trim(),p2=(ge("fbp2-"+i)?.value||"").trim();
+    await DB.fbPerfilSet(FB_PESSOAS[i],{perfil1:p1||null,perfil2:p2||null});}}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Perfis salvos!","ok");
+}
+function fbRegraNova(){
+  const i=(E._fbReg||[]).length+(E._fbRegN||0);E._fbRegN=(E._fbRegN||0)+1;
+  ge("fbr-area").insertAdjacentHTML("beforeend",
+    `<input class="fi" id="fbrt-${i}" placeholder="título" style="margin-bottom:2px;margin-top:6px"><textarea class="fta" id="fbrx-${i}" style="min-height:52px"></textarea>`);
+}
+async function fbRegrasSalvar(){
+  try{
+    const n=(E._fbReg||[]).length+(E._fbRegN||0);
+    for(let i=0;i<n;i++){
+      const tEl=ge("fbrt-"+i),xEl=ge("fbrx-"+i);if(!tEl||!xEl)continue;
+      const titulo=(tEl.value||"").trim(),texto=(xEl.value||"").trim();
+      const orig=(E._fbReg||[])[i];
+      if(orig){if(titulo!==String(orig.titulo||"")||texto!==String(orig.texto||""))
+        await DB.fbRegraSet({id:orig.id,titulo,texto:texto||orig.texto});}
+      else if(texto)await DB.fbRegraSet({titulo,texto});}}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Regras salvas!","ok");fecharModal2();
 }
 // vendedor cria e direciona tarefas SÓ para o grupo configurado em
 // "delega para" (pedido da Bruna, 12/08/2026: João, Laura e Thiago —
