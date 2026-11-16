@@ -1144,6 +1144,8 @@ const S = {
     if(ex.length){okS(await supa.from("feedback_pautas").update({texto:p.texto,
       gerado_por:p.gerado_por,gerado_em:new Date().toISOString()}).eq("id",ex[0].id));return{id:ex[0].id};}
     const r=await supa.from("feedback_pautas").insert(p).select();okS(r);return (r.data||[])[0];},
+  async hubspotLog(){return okS(await supa.from("hubspot_log").select("*").order("id",{ascending:false}).limit(300))||[];},
+  async hubspotRodizio(){return okS(await supa.from("hubspot_rodizio").select("*"))||[];},
 };
 const DB = MODO_SUPABASE ? S : L;
 
@@ -5202,6 +5204,7 @@ async function telaCentral(){
     <div id="ct-redir"></div>
     <div id="ct-corr"></div>
     <div id="ct-pautas"></div>
+    <div id="ct-robo"></div>
     ${pedsPremHtml}
     ${conflitosNic.length?`<div class="painel" style="border-left:4px solid var(--red);background:#FDEDEC">
       <div class="bloco-t" style="color:var(--red)">&#9888; Conflito na agenda do Nicholas (${conflitosNic.length}) — reuniões sobrepostas</div>
@@ -5307,6 +5310,7 @@ async function telaCentral(){
   carregarTricount();
   painelRedirecionamentos("ct-redir",ts,cls);
   fbPautasCentral();
+  hsRoboCentral();
   desenhaCorrCentral(ts);
   // ⏱ tempo real: enquanto a Central estiver aberta, o painel de correções
   // se atualiza sozinho a cada 60s (some se a tela mudar)
@@ -9289,6 +9293,46 @@ async function fbPautasGerarTodas(){
   }
   toast("Pautas geradas: "+ok+(sem.length?" · sem feedback no mês: "+sem.join(", "):""),"ok");
   fbPautasCentral();
+}
+// ----- 🤖 acompanhamento do robô HubSpot na Central do Dia (16/11/2026):
+// amostragem para as heads conferirem se o robô está fazendo certo — última
+// rodada (sinal de vida), criados/já existiam dos últimos 7 dias, erros e o
+// placar do rodízio. Dados do hubspot_log (só heads leem).
+async function hsRoboCentral(){
+  const el=ge("ct-robo");if(!el)return;
+  let l=[],rod=[];
+  try{[l,rod]=await Promise.all([DB.hubspotLog(),DB.hubspotRodizio()]);}catch(e){el.innerHTML="";return;}
+  if(!(l||[]).length){el.innerHTML="";return;}
+  const corte=new Date();corte.setDate(corte.getDate()-7);
+  const sem=l.filter(x=>new Date(x.criado_em)>=corte);
+  const rodada=l.find(x=>x.acao==="RODADA");
+  const criados=sem.filter(x=>x.acao==="CRIADO");
+  const exist=sem.filter(x=>x.acao==="JA_EXISTE");
+  const erros=sem.filter(x=>x.acao==="ERRO");
+  const dtRod=rodada?new Date(rodada.criado_em):null;
+  const rodHoje=dtRod&&dtRod.toISOString().slice(0,10)===hojeISO();
+  const fmtDH=d=>`${brData(d.toISOString().slice(0,10))} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+  const linha=x=>{const op=(String(x.detalhe||"").match(/OP-\d+/)||[])[0];
+    return `<div class="linha-item"><span style="font-size:12.5px"><b>${esc(x.nome||"")}</b>
+      <span style="color:var(--gray);font-size:11px">${brData(String(x.criado_em).slice(0,10))} · ${esc(x.detalhe||"")}</span></span>
+      ${op?`<button class="btn bts btsm" onclick="abrirTarefa('${op}')">abrir parecer</button>`:""}</div>`;};
+  el.innerHTML=`<div class="painel" style="border-left:4px solid #B2502B">
+    <details><summary style="cursor:pointer;display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;list-style:none">
+      <span class="bloco-t" style="color:#B2502B">&#129302; Robô HubSpot — conferência</span>
+      <span style="font-size:12px">
+        ${dtRod?`<span class="tag ${rodHoje?"tek":"ta"}" title="última entrega registrada pelo robô">${rodHoje?"rodou hoje &#10003;":"última rodada "+fmtDH(dtRod)}</span>`:`<span class="tag ta">ainda sem rodada registrada</span>`}
+        <span class="tag tda">${criados.length} criado(s) em 7d</span>
+        ${erros.length?`<span class="tag ti">${erros.length} erro(s)</span>`:""}
+        <span style="color:var(--gray);font-size:10px">(toque para abrir)</span></span></summary>
+      <div style="margin-top:6px">
+        ${criados.length?`<div style="font-size:12px;font-weight:700;color:#1E8449;margin:4px 0">&#9989; Clientes criados pelo robô (7 dias) — confira head, assessor e dados</div>`+criados.map(linha).join("")
+          :`<div style="font-size:12px;color:var(--gray)">Nenhum cliente criado pelo robô nos últimos 7 dias.</div>`}
+        ${exist.length?`<details style="margin-top:6px"><summary style="cursor:pointer;font-size:12px;font-weight:700;color:var(--gray)">&#128257; Reconhecidas como já cadastradas (${exist.length}) — prova de que o anti-duplicado funciona</summary>
+          ${exist.map(x=>`<div class="linha-item"><span style="font-size:12px">${esc(x.nome||"")} <span style="color:var(--gray);font-size:11px">${esc(x.detalhe||"")}</span></span></div>`).join("")}</details>`:""}
+        ${erros.length?`<div style="font-size:12px;font-weight:700;color:var(--red);margin-top:6px">&#9888; Erros</div>`+erros.map(x=>`<div style="font-size:12px;color:var(--red)">${brData(String(x.criado_em).slice(0,10))} · ${esc(x.detalhe||"")}</div>`).join(""):""}
+        <div style="font-size:11.5px;color:var(--gray);margin-top:8px">&#9878; Rodízio de heads até agora: ${(rod||[]).sort((a,b)=>a.head.localeCompare(b.head)).map(r=>`<b>${esc(r.head)}</b> ${r.contagem}`).join(" · ")||"—"}
+          <span title="Felipe Matte → Bruna e Kátia Sileni → Danielly entram nessa conta">(exceções contam)</span></div>
+      </div></details></div>`;
 }
 // print → JPEG comprimido em base64 (máx. 1200px) para ir como contexto da IA
 function fbImgB64(file){return new Promise((res,rej)=>{
