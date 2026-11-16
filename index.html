@@ -1644,8 +1644,27 @@ async function portalLista(){
       <div><span class="tag ${st[0]}">${st[1]}</span> <b style="font-size:12.5px">${esc(s.empresa)}</b>
         <span style="font-size:11px;color:var(--gray)">· ${s.tipo==="PARECER"?"parecer":"proposta"} · ${new Date(s.criado).toLocaleDateString("pt-BR")}${s.cnpj?` · <span style="font-family:'DM Mono'">${esc(s.cnpj)}</span>`:""}${s.data_reuniao?` · &#128197; devolução ${new Date(s.data_reuniao+"T12:00:00").toLocaleDateString("pt-BR")}`:""}</span></div>
       <div style="font-size:12px;color:var(--gray)">${esc(s.descricao)}</div>
+      ${(s.id&&s.tipo==="PARECER"&&["NOVA","EM_ANALISE"].includes(s.status)&&!(E.franq&&(E.franq._preview||E.franq._verComo)))?`
+      <div class="linha-acao" style="align-items:center">
+        <button class="btn bts btsm" onclick="pfReuToggle(${s.id})" title="Vale a mesma regra do pedido: a reunião precisa estar a pelo menos 24 horas do momento em que você preencher">&#128197; ${s.data_reuniao?"Remarcar":"Informar"} reunião de devolução</button>
+        <span id="pfr-box-${s.id}" style="display:none;gap:6px;align-items:center;flex-wrap:wrap">
+          <input type="date" class="fsel" id="pfr-d-${s.id}" min="${hojeISO()}">
+          <input type="time" class="fsel" id="pfr-h-${s.id}">
+          <button class="btn btp btsm" onclick="pfReuSalvar(${s.id})">Salvar</button></span></div>`:""}
       ${s.resposta?`<div style="font-size:12px;background:var(--dani-lt);border-radius:8px;padding:6px 9px"><b>Resposta do jurídico:</b> ${esc(s.resposta)}</div>`:""}
       ${s.resp_anexo_caminho?`<button class="btn btp btsm" onclick='pfAbrirAnexo(${JSON.stringify(s.resp_anexo_caminho)})'>&#128206; Baixar ${esc(s.resp_anexo_nome||"o parecer")}</button>`:""}</div>`;}).join("");
+}
+// 📅 franqueado informa/remarca a reunião de devolução DEPOIS do pedido
+// (Bruna, 16/11/2026) — mesma regra: 24h entre o preenchimento e a reunião
+function pfReuToggle(id){const b=ge("pfr-box-"+id);
+  if(b)b.style.display=(b.style.display==="none"||!b.style.display)?"inline-flex":"none";}
+async function pfReuSalvar(id){
+  const d=(ge("pfr-d-"+id)||{}).value,h=(ge("pfr-h-"+id)||{}).value;
+  if(!d||!h){pfAviso("Preencha a data E o horário da reunião.");return;}
+  const{data,error}=await supa.rpc("franq_reuniao_editar",{p_solic_id:id,p_reuniao:d,p_hora:h});
+  if(error){pfAviso(error.message);return;}
+  pfAviso("Reunião de devolução registrada: "+((data&&data.reuniao)||brData(d))+" às "+((data&&data.hora)||h)+" — o jurídico foi avisado no card e o prazo do parecer foi atualizado.","info");
+  portalLista();
 }
 
 // ============================================================= IDENTIDADE
