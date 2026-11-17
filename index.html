@@ -2967,6 +2967,23 @@ function desenharCard(t,hist){
       <label style="font-size:11px">Prazo fatal:</label><input type="date" class="fsel" id="ag2-fatal" value="${t.prazo_fatal_dt?String(t.prazo_fatal_dt).slice(0,10):""}">
       <label style="font-size:11px" title="Depende de retorno de terceiro? O cartão sai do topo dos fatais e volta nesta data (no máximo no próprio prazo)">&#9203; Retomada do fatal:</label><input type="date" class="fsel" id="ag2-retomada" value="${t.retomada_fatal_dt?String(t.retomada_fatal_dt).slice(0,10):""}">
       <button class="btn btsm" style="background:#1F4E79;color:white" onclick="colocarAguardando()">&#9203; Aguardando c/ follow-up</button></div></div></div>`;}
+  // ✋ regra das 3 chances (Bruna, 17/11/2026): pedido de informação ao
+  // franqueado no máximo 3x por solicitação; depois, prejudicado. O card
+  // explica a regra e o próprio assessor resolve daqui.
+  if(E._parecerSol&&!t._impulso){
+    const sf=E._parecerSol,vzf=+sf.falta_info_vezes||0,stf=String(sf.status||"");
+    if(stf==="FALTA_INFO")
+      h+=`<div class="bloco"><div style="background:#FBF3E4;border:1.5px solid var(--amber);border-radius:9px;padding:10px 12px">
+        <div style="font-size:12.5px;font-weight:700;color:#7F6000">&#9995; Falta informação do FRANQUEADO — pedido nº ${vzf} de 3</div>
+        <div style="font-size:12px;color:var(--gray);margin:5px 0 7px">A bola está com o franqueado <b>${esc(sf.franqueado||"")}</b> — este card é só o lembrete de cobrança (dorme e volta a cada 5 dias úteis, sem prazo fatal). <b>Regra:</b> são no máximo 3 pedidos de informação; ${vzf>=3?"<b style='color:var(--red)'>este foi o 3º e último — se não vier retorno, marque PREJUDICADO</b> (o portal avisa sozinho que o jurídico tentou 3 vezes)":"no 3º sem retorno, o caso deve ser marcado PREJUDICADO — o portal avisa automaticamente que foram 3 tentativas"}.</div>
+        <button class="btn btg btsm" onclick="devolverSolicCard('RETOMAR')">&#9654; informação chegou</button>
+        <button class="btn bts btsm" style="color:var(--red);border-color:var(--red)" onclick="devolverSolicCard('PREJUDICADO')">&#9940; prejudicado</button></div></div>`;
+    else if(["NOVA","EM_ANALISE"].includes(stf))
+      h+=`<div class="bloco"><div style="background:#FBF3E4;border:1px solid var(--amber);border-radius:9px;padding:8px 12px;font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="flex:1;min-width:200px">&#9995; <b>Falta algo do franqueado?</b> Devolva por aqui: o card dorme e lembra em 5 dias úteis${vzf?` — já foram <b>${vzf}</b> pedido(s) de 3`:" (máximo de 3 pedidos; depois, prejudicado)"}.</span>
+        <span style="white-space:nowrap">${vzf<3?`<button class="btn bts btsm" style="color:var(--amber);border-color:var(--amber)" onclick="devolverSolicCard('FALTA_INFO')">&#9995; pedir informação (${vzf+1}ª de 3)</button>`:""}
+        <button class="btn bts btsm" style="color:var(--red);border-color:var(--red)" onclick="devolverSolicCard('PREJUDICADO')">&#9940; prejudicado</button></span></div></div>`;
+  }
   // devolver parecer ao franqueado (heads + quem corrige) — só tarefa de parecer do portal
   const _podeResp=E.perfil.head_sim||CORR_HEADS.includes(E.perfil.nome_sistema);
   if(E._parecerSol&&_podeResp){
@@ -6635,10 +6652,27 @@ async function resetSenhaFranq(id){
 // ✋/⛔ devolver a solicitação ao FRANQUEADO (Bruna, 17/11/2026): falta algo
 // (bola dele; card dorme 5 dias úteis) · prejudicado (encerra o caso) ·
 // retomar (informação chegou; card vira imediato de hoje)
+// o card da tarefa usa esta variação: mesmo fluxo, mas fecha o card e recarrega
+async function devolverSolicCard(tipo){
+  const s=E._parecerSol;if(!s)return;
+  const vz=+s.falta_info_vezes||0;
+  let txt="";
+  if(tipo==="FALTA_INFO"){
+    txt=prompt("O que está faltando? (o franqueado lê isso no portal, junto com o aviso automático \"pedido nº "+(vz+1)+" de 3\")\n\nO card dorme e volta em 5 dias úteis como lembrete de cobrança.");
+    if(txt===null||!txt.trim())return;}
+  if(tipo==="PREJUDICADO"){
+    txt=prompt("Por que ficou prejudicado? (o franqueado lê no portal"+(vz?"; o aviso de que o jurídico pediu a informação "+vz+" vez(es) entra sozinho":"")+")\n\nO caso é ENCERRADO — nada fica pendente no jurídico.");
+    if(txt===null||!txt.trim())return;}
+  if(tipo==="RETOMAR"&&!confirm("A informação chegou? A solicitação volta para análise e esta tarefa vira imediata de HOJE."))return;
+  let r;try{r=await DB.franqDevolver(s.id,tipo,txt?txt.trim():"");}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast(tipo==="FALTA_INFO"?"Devolvida ao franqueado ("+((r&&r.vezes)||"?")+"º pedido de 3) — o card dorme e lembra em "+((r&&r.lembrete)||"5 dias úteis")+"."
+    :tipo==="PREJUDICADO"?"Caso encerrado como prejudicado — aviso completo no portal do franqueado."
+    :"Análise retomada — tarefa imediata de hoje.","ok");
+  fecharModal();recarregar();}
 async function devolverSolicFranq(id,tipo){
   let txt="";
   if(tipo==="FALTA_INFO"){
-    txt=prompt("O que está faltando? (o franqueado lê isso no portal)\n\nA solicitação sai das pendências do jurídico e o card dorme — volta como lembrete em 5 dias úteis para cobrar.");
+    txt=prompt("O que está faltando? (o franqueado lê isso no portal, com o aviso automático do nº do pedido)\n\nSão no MÁXIMO 3 pedidos de informação — depois, prejudicado. A solicitação sai das pendências do jurídico e o card dorme — volta como lembrete em 5 dias úteis para cobrar.");
     if(txt===null||!txt.trim())return;}
   if(tipo==="PREJUDICADO"){
     txt=prompt("Por que ficou prejudicado? (o franqueado lê isso no portal)\n\nO caso é ENCERRADO — nada fica pendente no jurídico (a head pode reabrir depois, como qualquer caso).");
