@@ -9313,9 +9313,13 @@ async function hsRoboCentral(){
   const rodHoje=dtRod&&dtRod.toISOString().slice(0,10)===hojeISO();
   const fmtDH=d=>`${brData(d.toISOString().slice(0,10))} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
   const linha=x=>{const op=(String(x.detalhe||"").match(/OP-\d+/)||[])[0];
+    const hd=(String(x.detalhe||"").match(/head (\S+)/)||[])[1];
+    const pendDono=x.hs_id&&hd&&!/dono no HubSpot/.test(String(x.detalhe||""));
     return `<div class="linha-item"><span style="font-size:12.5px"><b>${esc(x.nome||"")}</b>
       <span style="color:var(--gray);font-size:11px">${brData(String(x.criado_em).slice(0,10))} · ${esc(x.detalhe||"")}</span></span>
-      ${op?`<button class="btn bts btsm" onclick="abrirTarefa('${op}')">abrir parecer</button>`:""}</div>`;};
+      <span style="display:flex;gap:4px;flex-wrap:wrap">
+      ${pendDono?`<a class="btn bts btsm" style="background:#B2502B;color:#fff;text-decoration:none" target="_blank" rel="noopener" href="https://app.hubspot.com/contacts/50778387/record/0-2/${esc(x.hs_id)}" title="Abra a empresa no HubSpot e troque o campo Proprietário para ${esc(hd)}. O robô confere na rodada seguinte e marca o ✓ sozinho.">&#128100; dono &rarr; ${esc(hd)}</a>`:""}
+      ${op?`<button class="btn bts btsm" onclick="abrirTarefa('${op}')">abrir parecer</button>`:""}</span></div>`;};
   el.innerHTML=`<div class="painel" style="border-left:4px solid #B2502B">
     <details><summary style="cursor:pointer;display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;list-style:none">
       <span class="bloco-t" style="color:#B2502B">&#129302; Robô HubSpot — conferência</span>
