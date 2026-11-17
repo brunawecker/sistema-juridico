@@ -399,6 +399,9 @@ function tempoPlanoDe(assessor,op){
   return Math.max(Math.round(tempoDe(op)/2),Math.min(tr,tempoDe(op)*3));
 }
 const CORR_HEADS=["Danielly","Bruna","Eduarda","Ygor","Madu","Malu"];
+// estados POR EXTENSO — é assim que franqueados.estado define o "time" dentro
+// da rede do FP (ex.: Fabiano SC × SP) e que o braço direito (ve_rede_estado) filtra
+const UFS_NOMES=["ACRE","ALAGOAS","AMAPÁ","AMAZONAS","BAHIA","CEARÁ","DISTRITO FEDERAL","ESPÍRITO SANTO","GOIÁS","MARANHÃO","MATO GROSSO","MATO GROSSO DO SUL","MINAS GERAIS","PARÁ","PARAÍBA","PARANÁ","PERNAMBUCO","PIAUÍ","RIO DE JANEIRO","RIO GRANDE DO NORTE","RIO GRANDE DO SUL","RONDÔNIA","RORAIMA","SANTA CATARINA","SÃO PAULO","SERGIPE","TOCANTINS"];
 const AUTORIZADOS_DELEGAR=["Malu","Ygor","Madu","Bruna","Danielly","Eduarda"];
 const OPERA_TUDO=[]; // pode_operar_tudo (config_permissoes): abre/anota qualquer card — ex.: Raquel
 // para quem cada autorizado pode delegar (Configurações; vazio = todos)
@@ -846,7 +849,8 @@ const S = {
   async franqCriarConta(id){return okS(await supa.rpc("franqueado_criar_conta",{p_id:id}));},
   async franqResetSenha(id){okS(await supa.rpc("franqueado_resetar_senha",{p_id:id}));return{ok:true};},
   async franqContatos(){return okS(await supa.rpc("franq_contatos"))||[];},
-  async franqNovo(d){return okS(await supa.rpc("franqueado_novo",{p_nome:d.nome,p_telefone:d.tel||"",p_estado:d.uf||"",p_responsavel:d.resp||""}));},
+  async franqNovo(d){return okS(await supa.rpc("franqueado_novo",{p_nome:d.nome,p_telefone:d.tel||"",p_estado:d.uf||"",p_responsavel:d.resp||"",p_fp:d.fp||""}));},
+  async franqRede(id,fp,uf){return okS(await supa.rpc("franqueado_rede",{p_id:id,p_fp:fp||"",p_estado:uf||""}));},
   async franqueadoContato(id,status){return rpcS("franqueado_contato",{p_id:id,p_status:status||""});},
   async franqueadoResp(id,resp){return rpcS("franqueado_resp",{p_id:id,p_resp:resp});},
   async fichaExtraDar(p,q,m){return rpcS("ficha_extra_dar",{p_pessoa:p,p_qtd:q,p_motivo:m});},
@@ -6346,6 +6350,7 @@ async function telaFranqueados(){
         <span style="font-size:11px;color:var(--gray)">&#9742; ${esc(x.telefone||"—")} · ${esc(x.estado||"")}${x.fp&&x.fp!==x.franqueado?" · FP: "+esc(x.fp):""}${x.email?` · &#128273; <span style="font-family:'DM Mono'">${esc(String(x.email).replace("@franqueados.villela.com",""))}</span>`:""}${x.status_semana?" · <i>"+esc(x.status_semana)+"</i>":""}</span></span>
       <span style="white-space:nowrap"><button class="btn btg btsm" onclick="registrarContatoFranq(${x.id})">&#128222; registrei contato</button>
         <button class="btn bts btsm" onclick="trocarRespFranq(${x.id})" title="trocar responsável">&#128100;${esc(x.responsavel||"?")}</button>
+        <button class="btn bts btsm" onclick="abrirRedeFranq(${x.id})" title="rede (FP) e estado — o estado é o time dentro da rede (ex.: Fabiano SC × SP)">&#127970; rede</button>
         <button class="btn bts btsm" onclick="acessoFranq(${x.id})" title="${x.email?"portal: "+esc(x.email):"dar acesso ao portal (login e senha)"}">&#128273;${x.email?(x.senha_trocada?" portal ativo":x.acesso_criado?" senha padrão":""):" dar acesso"}</button>
         ${x.acesso_criado?`<button class="btn bts btsm" style="color:var(--roxo);border-color:var(--roxo)" onclick="verComoFranqueado(${x.id})" title="abrir o portal como este franqueado (dados reais, só leitura)">&#128065; ver como</button>`:""}
         <button class="btn bts btsm" style="${x.ver_parecer?"color:var(--green);border-color:var(--green)":"color:var(--gray);border-color:var(--border)"}" onclick="toggleVerParecer(${x.id})" title="${x.ver_parecer?"PADRÃO deste franqueado: VÊ o anexo do parecer. Clique para deixar bloqueado por padrão (dá para abrir exceção parecer a parecer)":"PADRÃO deste franqueado: NÃO vê o anexo (só a mensagem). Clique para liberar por padrão. Você ainda pode liberar um parecer específico na exceção"}">&#128196; padrão: ${x.ver_parecer?"liberado":"bloqueado"}</button>
@@ -6466,6 +6471,11 @@ async function telaFranqueados(){
       <span style="font-family:'DM Mono'">${esc(logDe(x)||"—")}</span>
       <span>${x.email?(x.senha_trocada?'<span class="tag tek" title="a senha agora é só dele — esqueceu? o ↺ volta à padrão">portal ativo · senha só dele</span>':'<span class="tag td2" title="a senha atual é a padrão combinada">senha atual: a padrão</span>'):'<span class="tag tm">sem acesso</span>'}</span></div>`).join("")}</div>
     <div style="font-size:10.5px;color:var(--gray);margin-top:5px"><b>Senha atual de cada um:</b> "senha atual: a padrão" = a combinada, que vocês sabem (passem por WhatsApp/telefone). "portal ativo" = ele criou a própria — ninguém vê a senha de ninguém (segurança dele); esqueceu, o <b>↺</b> na linha volta à padrão na hora.</div></details></div>`;
+  // FPs reais = nomes que são "fp" de OUTRA pessoa (cadastro novo nasce fp de
+  // si mesmo e não pode poluir esta lista)
+  const fpsSet=new Set();(fr||[]).forEach(x=>{const v=String(x.fp||"").trim().toUpperCase();
+    if(v&&v!=="—"&&v!==String(x.franqueado||"").trim().toUpperCase())fpsSet.add(v);});
+  E._franqFPs=[...fpsSet].sort((a,b)=>a.localeCompare(b));
   ge("conteudo").innerHTML=solPainel+levPainel+loginsPainel+`
     <div class="painel"><div class="bloco-t" style="display:flex;justify-content:space-between;align-items:center">&#129309; Franqueados${escHead()?" — meus":" — todos"} (${lista.length})
       <button class="btn btp btsm" onclick="ge('nf-w').style.display=ge('nf-w').style.display==='none'?'block':'none'">+ novo franqueado</button></div>
@@ -6473,7 +6483,8 @@ async function telaFranqueados(){
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
           <input class="fi" id="nf-nome" placeholder="Nome do franqueado *" style="flex:2;min-width:180px">
           <input class="fi" id="nf-tel" placeholder="Telefone" style="flex:1;min-width:120px">
-          <input class="fi" id="nf-uf" placeholder="UF" maxlength="2" style="width:60px">
+          <select class="fi" id="nf-uf" title="estado do franqueado — nas redes com times por estado (ex.: Fabiano SC × SP), é isto que diz o time dele" style="flex:1;min-width:140px"><option value="">estado...</option>${UFS_NOMES.map(n=>`<option>${esc(n)}</option>`).join("")}</select>
+          <select class="fi" id="nf-fp" title="de qual rede (FP) ele faz parte — deixe 'ele mesmo' se for FP/independente" style="flex:1;min-width:160px"><option value="">rede: ele mesmo (é FP)</option>${(E._franqFPs||[]).map(n=>`<option value="${esc(n)}">rede: ${esc(n)}</option>`).join("")}</select>
           <select class="fi" id="nf-resp" style="flex:1;min-width:110px">${nomes.map(n=>`<option${n===eu?" selected":""}>${esc(n)}</option>`).join("")}</select></div>
         <button class="btn btg btsm" onclick="salvarNovoFranq()">Cadastrar</button>
         <span style="font-size:11px;color:var(--gray);margin-left:6px">O login do portal (nome.sobrenome + senha padrão) já nasce junto, automático.</span></div>
@@ -6522,7 +6533,7 @@ async function salvarNovoFranq(){
   const nome=ge("nf-nome").value.trim();
   if(!nome){toast("Informe o nome do franqueado.","erro");return;}
   let nid;
-  try{nid=await DB.franqNovo({nome,tel:ge("nf-tel").value.trim(),uf:ge("nf-uf").value.trim(),resp:ge("nf-resp").value});}
+  try{nid=await DB.franqNovo({nome,tel:ge("nf-tel").value.trim(),uf:ge("nf-uf").value.trim(),resp:ge("nf-resp").value,fp:ge("nf-fp").value});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   // pré-login automático: nasce com conta e senha padrão, sem clique extra
   let login=loginFranqSugerido(nome);
@@ -6535,6 +6546,27 @@ async function salvarNovoFranq(){
     toast("Franqueado cadastrado com acesso pronto! Login: "+login+" · senha padrão.","ok");
   }catch(e){toast("Cadastrado, mas o login automático falhou ("+e.message+") — use o 🔑 na linha dele.","erro");}
   telaFranqueados();}
+// 🏢 rede (FP) e estado do franqueado — o estado por extenso é o "time" dentro
+// da rede (ex.: Fabiano SC × SP) e é o que o braço direito/Minha Rede filtram
+function abrirRedeFranq(id){
+  const x=(E._franqMap||{})[id];if(!x)return;
+  const fpAtual=String(x.fp||"").trim().toUpperCase(),meu=String(x.franqueado||"").trim().toUpperCase();
+  const fps=(E._franqFPs||[]).filter(n=>n!==meu);
+  modal2("&#127970; Rede e estado",esc(x.franqueado),`
+    <div class="bloco-t">Faz parte da rede de qual FP?</div>
+    <select class="fsel" id="rf-fp" style="width:100%">
+      <option value="">ele mesmo (é FP / independente)</option>
+      ${fps.map(n=>`<option value="${esc(n)}"${fpAtual===n?" selected":""}>${esc(n)}</option>`).join("")}</select>
+    <div class="bloco-t" style="margin-top:10px">Estado</div>
+    <select class="fsel" id="rf-uf" style="width:100%">
+      <option value="">— sem estado —</option>
+      ${UFS_NOMES.map(n=>`<option${String(x.estado||"").trim().toUpperCase()===n?" selected":""}>${esc(n)}</option>`).join("")}</select>
+    <div style="font-size:11px;color:var(--gray);margin-top:6px">Em redes com times por estado (ex.: Fabiano — SC &times; SP), é o <b>estado</b> que diz de qual time o franqueado é: é por ele que a "Minha rede" do bra&ccedil;o direito filtra.</div>
+    <button class="btn btp btw" style="margin-top:10px" onclick="salvarRedeFranq(${id})">Salvar</button>`);}
+async function salvarRedeFranq(id){
+  try{await DB.franqRede(id,ge("rf-fp").value,ge("rf-uf").value);}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Rede e estado atualizados!","ok");fecharModal2();telaFranqueados();}
 async function registrarContatoFranq(id){
   const st=prompt("Registrar contato de HOJE.\n\nComo foi? (opcional — vira o status da semana)\nEx: Atendeu, sem novidades · Sem retorno · Pediu proposta...");
   if(st===null)return;
