@@ -842,6 +842,7 @@ const S = {
   // portal do franqueado — lado do TIME (as funções do lado do franqueado usam supa.rpc direto)
   async franqSolicListar(){return okS(await supa.rpc("franq_solic_listar"))||[];},
   async franqResponder(id,st,resp,anexoCam,anexoNome){okS(await supa.rpc("franq_responder",{p_id:id,p_status:st,p_resposta:resp||"",p_anexo_caminho:anexoCam||null,p_anexo_nome:anexoNome||null}));return{ok:true};},
+  async franqDevolver(id,tipo,txt){return okS(await supa.rpc("franq_solic_devolver",{p_id:id,p_tipo:tipo,p_texto:txt||""}));},
   async franqSolicPorTarefa(idTar){return okS(await supa.rpc("franq_solic_por_tarefa",{p_tarefa_id:idTar}))||[];},
   async franqSetVerParecer(id,ver){okS(await supa.rpc("franq_set_ver_parecer",{p_id:id,p_ver:!!ver}));return{ok:true};},
   async franqSetAnexo(id,estado){okS(await supa.rpc("franq_set_anexo",{p_id:id,p_estado:estado}));return{ok:true};},
@@ -1289,7 +1290,7 @@ async function portalSalvarSenha(){
   try{await supa.rpc("franq_senha_trocada");}catch(_e){}
   E.franq.senha_trocada=true;portalFranqueado();
 }
-const PF_ST={NOVA:["tda","recebida"],EM_ANALISE:["td2","em análise"],CONCLUIDA:["tek","concluído — em revisão final"],RESPONDIDA:["tek","respondida"],RECUSADA:["ti","recusada"]};
+const PF_ST={NOVA:["tda","recebida"],EM_ANALISE:["td2","em análise"],CONCLUIDA:["tek","concluído — em revisão final"],RESPONDIDA:["tek","respondida"],RECUSADA:["ti","recusada"],FALTA_INFO:["ta","✋ falta informação sua — leia a mensagem"],PREJUDICADO:["tm","prejudicado — veja o motivo"]};
 async function portalFranqueado(){
   if(!E.franq.senha_trocada)return portalTrocaSenha();
   E._pfEmpI=0;
@@ -1449,7 +1450,8 @@ function pfRedeTabela(){
     .sort((a,b)=>(+b.p30)-(+a.p30)||pfSem(b)-pfSem(a)||String(a.franqueado).localeCompare(String(b.franqueado)));
   const ROT={NOVA:["tm","parecer na fila"],EM_ANALISE:["td2","parecer em análise"],
     RESPONDIDA:["tda","parecer devolvido"],CONCLUIDA:["tek","concluído — proposta criada"],
-    RECUSADA:["ti","recusado"]};
+    RECUSADA:["ti","recusado"],FALTA_INFO:["ta","falta informação do franqueado"],
+    PREJUDICADO:["tm","prejudicado — sem parecer"]};
   const frase=f=>{const s2=pfSem(f),reu=f.reuniao;
     if(s2===0)return '<span style="color:#C0392B">ainda não entrou no sistema</span>';
     const ped=(+f.p30)?`<b>${f.p30} pedido(s) nos últimos 30 dias</b>`:"sem pedidos nos últimos 30 dias";
@@ -6356,7 +6358,7 @@ async function telaFranqueados(){
         <button class="btn bts btsm" style="${x.ver_parecer?"color:var(--green);border-color:var(--green)":"color:var(--gray);border-color:var(--border)"}" onclick="toggleVerParecer(${x.id})" title="${x.ver_parecer?"PADRÃO deste franqueado: VÊ o anexo do parecer. Clique para deixar bloqueado por padrão (dá para abrir exceção parecer a parecer)":"PADRÃO deste franqueado: NÃO vê o anexo (só a mensagem). Clique para liberar por padrão. Você ainda pode liberar um parecer específico na exceção"}">&#128196; padrão: ${x.ver_parecer?"liberado":"bloqueado"}</button>
         ${x.acesso_criado?`<button class="btn bts btsm" style="color:var(--amber);border-color:var(--amber)" onclick="resetSenhaFranq(${x.id})" title="esqueceu a senha? volta para a padrão">&#8634;</button>`:""}</span></div>`;};
   // 📨 solicitações vindas do portal (parecer/proposta)
-  const solRot={NOVA:["tda","nova"],EM_ANALISE:["td2","em análise"],CONCLUIDA:["tek","concluída"],RESPONDIDA:["tek","respondida"],RECUSADA:["ti","recusada"]};
+  const solRot={NOVA:["tda","nova"],EM_ANALISE:["td2","em análise"],CONCLUIDA:["tek","concluída"],RESPONDIDA:["tek","respondida"],RECUSADA:["ti","recusada"],FALTA_INFO:["ta","✋ aguardando o franqueado"],PREJUDICADO:["tm","prejudicada"]};
   const solHtml=s=>{const st=solRot[s.status]||["tm",s.status];
     return `<div class="linha-item" style="align-items:flex-start">
       <span style="font-size:12.5px"><span class="tag ${st[0]}">${st[1]}</span>
@@ -6373,7 +6375,10 @@ async function telaFranqueados(){
       ${["NOVA","EM_ANALISE"].includes(s.status)?`<span style="white-space:nowrap">
         <button class="btn btg btsm" onclick="ge('rw-${s.id}').style.display=ge('rw-${s.id}').style.display==='none'?'block':'none'">responder</button>
         ${s.status==="NOVA"?`<button class="btn bts btsm" onclick="responderSolicFranq(${s.id},'EM_ANALISE')">em análise</button>`:""}
+        <button class="btn bts btsm" style="color:var(--amber);border-color:var(--amber)" onclick="devolverSolicFranq(${s.id},'FALTA_INFO')" title="falta algo do franqueado — sai das pendências do jurídico e o card dorme até a informação chegar (lembrete em 5 dias úteis)">&#9995; falta algo</button>
+        <button class="btn bts btsm" style="color:var(--gray)" onclick="devolverSolicFranq(${s.id},'PREJUDICADO')" title="sem condições de seguir por motivo que não depende do jurídico — ENCERRA o caso (reabrível pela head)">prejudicado</button>
         <button class="btn bts btsm" style="color:var(--red);border-color:var(--red)" onclick="responderSolicFranq(${s.id},'RECUSADA')">recusar</button></span>`
+      :s.status==="FALTA_INFO"?`<span><button class="btn btg btsm" onclick="devolverSolicFranq(${s.id},'RETOMAR')" title="a informação chegou — volta para análise e a tarefa vira imediata de hoje">&#9654; informação chegou</button></span>`
       :s.status==="RESPONDIDA"?`<span><button class="btn bts btsm" onclick="copiarAvisoFranq(${s.id})" title="copiar aviso de WhatsApp para o franqueado">&#128203; aviso</button></span>`:""}</div>`
     +(["NOVA","EM_ANALISE"].includes(s.status)?`<div id="rw-${s.id}" style="display:none;background:var(--gray-lt);border-radius:9px;padding:8px 10px;margin:2px 0 8px">
       <textarea class="fi" id="rt-${s.id}" rows="2" placeholder="Resposta ao franqueado (ele lê no portal)"></textarea>
@@ -6386,7 +6391,7 @@ async function telaFranqueados(){
   const solPainel=(solAb.length||solFech.length)?`<div class="painel"${solAb.length?' style="border-left:4px solid var(--navy)"':""}>
     <div class="bloco-t">&#128233; Solicitações do portal — parecer/proposta (${solAb.length} aguardando)</div>
     ${solAb.map(solHtml).join("")||'<div class="vazio">Nenhuma aguardando resposta.</div>'}
-    ${solFech.length?`<details style="margin-top:6px"><summary style="cursor:pointer;font-size:11px;color:var(--gray)">já finalizadas (${solFech.length})</summary>${solFech.map(solHtml).join("")}</details>`:""}</div>`:"";
+    ${solFech.length?`<details style="margin-top:6px"${solFech.some(s=>s.status==="FALTA_INFO")?" open":""}><summary style="cursor:pointer;font-size:11px;color:var(--gray)">finalizadas ou aguardando o franqueado (${solFech.length})${solFech.some(s=>s.status==="FALTA_INFO")?` · <b style="color:var(--amber)">✋ ${solFech.filter(s=>s.status==="FALTA_INFO").length} com a bola no franqueado</b>`:""}</summary>${solFech.map(solHtml).join("")}</details>`:""}</div>`:"";
   // 📊 levantamento de dados: TODOS os pedidos do portal, com data/quem/assessor
   const mesAtu=new Date().getMonth(),anoAtu=new Date().getFullYear();
   const noMes=sols.filter(s=>{const d=new Date(s.criado);return d.getMonth()===mesAtu&&d.getFullYear()===anoAtu;}).length;
@@ -6423,6 +6428,8 @@ async function telaFranqueados(){
   const LF=E._levF=E._levF||{fr:"",hd:"",as:"",st:"",mes:""};
   const mesDe=s=>{const d=new Date(s.criado);return String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear();};
   const situa=s=>["NOVA","EM_ANALISE"].includes(s.status)?"ABERTO"
+    :s.status==="FALTA_INFO"?"FALTA"
+    :s.status==="PREJUDICADO"?"PREJ"
     :s.status==="RECUSADA"?"REC"
     :/EM DIA/i.test(s.tarefa_status||"")?"FEITO"
     :s.status==="RESPONDIDA"?"RESP":"AND";
@@ -6433,7 +6440,7 @@ async function telaFranqueados(){
     .sort((a,b)=>new Date(b.criado)-new Date(a.criado));
   const levSel=(id,rot,html)=>`<select class="fi" style="max-width:170px;padding:5px 8px;font-size:11.5px"
     onchange="E._levF.${id}=this.value==='${rot}'?'':this.value;telaFranqueados()"><option>${rot}</option>${html}</select>`;
-  const ST_ROT={ABERTO:"aguardando resposta",AND:"parecer em andamento",FEITO:"parecer feito",RESP:"respondido",REC:"recusado"};
+  const ST_ROT={ABERTO:"aguardando resposta",AND:"parecer em andamento",FEITO:"parecer feito",RESP:"respondido",REC:"recusado",FALTA:"aguardando o franqueado",PREJ:"prejudicado"};
   const temFiltro=LF.fr||LF.hd||LF.as||LF.st||LF.mes;
   const levPainel=sols.length?`<div class="painel">
     <div class="bloco-t">&#128202; Levantamento de dados — pedidos do portal (${temFiltro?filtrados.length+" de "+sols.length:sols.length})</div>
@@ -6625,6 +6632,23 @@ async function resetSenhaFranq(id){
   if(!confirm("Voltar a senha de "+x.franqueado+" para a padrão ("+FRANQ_SENHA_PADRAO+")?\nEle vai criar uma nova no próximo acesso."))return;
   try{await DB.franqResetSenha(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Senha voltou ao padrão: "+FRANQ_SENHA_PADRAO,"ok");telaFranqueados();}
+// ✋/⛔ devolver a solicitação ao FRANQUEADO (Bruna, 17/11/2026): falta algo
+// (bola dele; card dorme 5 dias úteis) · prejudicado (encerra o caso) ·
+// retomar (informação chegou; card vira imediato de hoje)
+async function devolverSolicFranq(id,tipo){
+  let txt="";
+  if(tipo==="FALTA_INFO"){
+    txt=prompt("O que está faltando? (o franqueado lê isso no portal)\n\nA solicitação sai das pendências do jurídico e o card dorme — volta como lembrete em 5 dias úteis para cobrar.");
+    if(txt===null||!txt.trim())return;}
+  if(tipo==="PREJUDICADO"){
+    txt=prompt("Por que ficou prejudicado? (o franqueado lê isso no portal)\n\nO caso é ENCERRADO — nada fica pendente no jurídico (a head pode reabrir depois, como qualquer caso).");
+    if(txt===null||!txt.trim())return;}
+  if(tipo==="RETOMAR"&&!confirm("A informação chegou? A solicitação volta para análise e a tarefa vira imediata de HOJE."))return;
+  let r;try{r=await DB.franqDevolver(id,tipo,txt?txt.trim():"");}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast(tipo==="FALTA_INFO"?"Devolvida ao franqueado — fora das pendências; o card lembra em "+((r&&r.lembrete)||"5 dias úteis")+"."
+    :tipo==="PREJUDICADO"?"Marcada como prejudicada — caso encerrado e aviso no portal."
+    :"Análise retomada — tarefa imediata de hoje.","ok");
+  telaFranqueados();}
 async function responderSolicFranq(id,st){
   let resp="";
   if(st==="RECUSADA"){resp=prompt("Motivo da recusa (aparece para ele no portal):");if(resp===null)return;}
