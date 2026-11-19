@@ -843,6 +843,7 @@ const S = {
   async franqSolicListar(){return okS(await supa.rpc("franq_solic_listar"))||[];},
   async franqResponder(id,st,resp,anexoCam,anexoNome){okS(await supa.rpc("franq_responder",{p_id:id,p_status:st,p_resposta:resp||"",p_anexo_caminho:anexoCam||null,p_anexo_nome:anexoNome||null}));return{ok:true};},
   async franqDevolver(id,tipo,txt){return okS(await supa.rpc("franq_solic_devolver",{p_id:id,p_tipo:tipo,p_texto:txt||""}));},
+  async franqInfoResponder(id,txt,cam,nome){return okS(await supa.rpc("franq_info_responder",{p_id:id,p_texto:txt||"",p_anexo_caminho:cam||null,p_anexo_nome:nome||null}));},
   async franqSolicPorTarefa(idTar){return okS(await supa.rpc("franq_solic_por_tarefa",{p_tarefa_id:idTar}))||[];},
   async franqSetVerParecer(id,ver){okS(await supa.rpc("franq_set_ver_parecer",{p_id:id,p_ver:!!ver}));return{ok:true};},
   async franqSetAnexo(id,estado){okS(await supa.rpc("franq_set_anexo",{p_id:id,p_estado:estado}));return{ok:true};},
@@ -1667,6 +1668,14 @@ async function portalLista(){
           <input type="time" class="fsel" id="pfr-h-${s.id}">
           <button class="btn btp btsm" onclick="pfReuSalvar(${s.id})">Salvar</button></span></div>`:""}
       ${s.resposta?`<div style="font-size:12px;background:var(--dani-lt);border-radius:8px;padding:6px 9px"><b>Resposta do jurídico:</b> ${esc(s.resposta)}</div>`:""}
+      ${s.info_resposta?`<div style="font-size:12px;background:var(--gray-lt);border-radius:8px;padding:6px 9px"><b>Sua resposta${s.info_resposta_em?" ("+new Date(s.info_resposta_em).toLocaleDateString("pt-BR")+")":""}:</b> ${esc(s.info_resposta)}${s.info_anexo_nome?` · &#128206; ${esc(s.info_anexo_nome)}`:""}</div>`:""}
+      ${(s.id&&s.status==="FALTA_INFO"&&!(E.franq&&(E.franq._preview||E.franq._verComo)))?`
+      <div style="width:100%;background:#fff7e6;border:1px solid var(--amber);border-radius:9px;padding:8px 10px">
+        <div style="font-size:11.5px;margin-bottom:4px"><b>Responda aqui mesmo:</b> escreva a informação pedida (e anexe o arquivo, se for o caso). Assim que enviar, a análise volta sozinha para o jurídico.</div>
+        <textarea class="fi" id="pfi-t-${s.id}" rows="2" placeholder="Escreva aqui a informação pedida"></textarea>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap">
+          <input type="file" id="pfi-f-${s.id}" style="font-size:11px;flex:1;min-width:160px">
+          <button class="btn btp btsm" id="pfi-b-${s.id}" onclick="pfInfoEnviar(${s.id})">&#128228; Enviar resposta</button></div></div>`:""}
       ${s.resp_anexo_caminho?`<button class="btn btp btsm" onclick='pfAbrirAnexo(${JSON.stringify(s.resp_anexo_caminho)})'>&#128206; Baixar ${esc(s.resp_anexo_nome||"o parecer")}</button>`:""}</div>`;}).join("");
 }
 // 📅 franqueado informa/remarca a reunião de devolução DEPOIS do pedido
@@ -1679,6 +1688,24 @@ async function pfReuSalvar(id){
   const{data,error}=await supa.rpc("franq_reuniao_editar",{p_solic_id:id,p_reuniao:d,p_hora:h});
   if(error){pfAviso(error.message);return;}
   pfAviso("Reunião de devolução registrada: "+((data&&data.reuniao)||brData(d))+" às "+((data&&data.hora)||h)+" — o jurídico foi avisado no card e o prazo do parecer foi atualizado.","info");
+  portalLista();
+}
+// ↩ franqueado responde ao "✋ falta informação" pelo próprio portal (19/11/2026):
+// a solicitação volta sozinha para análise e o card do assessor acorda IMEDIATO de hoje
+async function pfInfoEnviar(id){
+  const t=((ge("pfi-t-"+id)||{}).value||"").trim();
+  const f=(((ge("pfi-f-"+id)||{}).files)||[])[0];
+  if(!t&&!f){pfAviso("Escreva a resposta ou anexe um arquivo.");return;}
+  const bt=ge("pfi-b-"+id);const volta=()=>{if(bt){bt.disabled=false;bt.textContent="Enviar resposta";}};
+  if(bt){bt.disabled=true;bt.textContent="Enviando…";}
+  let cam=null,nome=null;
+  if(f){cam="franq/"+E.franq.id+"/info_"+Date.now()+"_"+String(f.name).replace(/[^\w.\-]+/g,"_").slice(0,120);
+    const up=await supa.storage.from("documentos").upload(cam,f);
+    if(up.error){volta();pfAviso("Não consegui subir o arquivo: "+up.error.message);return;}
+    nome=f.name;}
+  try{await DB.franqInfoResponder(id,t,cam,nome);}
+  catch(e){volta();pfAviso(e.message);return;}
+  pfAviso("Resposta enviada! A análise foi retomada e já virou tarefa imediata de hoje no jurídico.","info");
   portalLista();
 }
 
@@ -2975,7 +3002,7 @@ function desenharCard(t,hist){
     if(stf==="FALTA_INFO")
       h+=`<div class="bloco"><div style="background:#FBF3E4;border:1.5px solid var(--amber);border-radius:9px;padding:10px 12px">
         <div style="font-size:12.5px;font-weight:700;color:#7F6000">&#9995; Falta informação do FRANQUEADO — pedido nº ${vzf} de 3</div>
-        <div style="font-size:12px;color:var(--gray);margin:5px 0 7px">A bola está com o franqueado <b>${esc(sf.franqueado||"")}</b> — este card é só o lembrete de cobrança (dorme e volta a cada 5 dias úteis, sem prazo fatal). <b>Regra:</b> são no máximo 3 pedidos de informação; ${vzf>=3?"<b style='color:var(--red)'>este foi o 3º e último — se não vier retorno, marque PREJUDICADO</b> (o portal avisa sozinho que o jurídico tentou 3 vezes)":"no 3º sem retorno, o caso deve ser marcado PREJUDICADO — o portal avisa automaticamente que foram 3 tentativas"}.</div>
+        <div style="font-size:12px;color:var(--gray);margin:5px 0 7px">A bola está com o franqueado <b>${esc(sf.franqueado||"")}</b> — este card é só o lembrete de cobrança (dorme e volta a cada 5 dias úteis, sem prazo fatal). Ele pode responder pelo próprio portal: se responder, este card acorda sozinho como imediato de hoje. <b>Regra:</b> são no máximo 3 pedidos de informação; ${vzf>=3?"<b style='color:var(--red)'>este foi o 3º e último — se não vier retorno, marque PREJUDICADO</b> (o portal avisa sozinho que o jurídico tentou 3 vezes)":"no 3º sem retorno, o caso deve ser marcado PREJUDICADO — o portal avisa automaticamente que foram 3 tentativas"}.</div>
         <button class="btn btg btsm" onclick="devolverSolicCard('RETOMAR')">&#9654; informação chegou</button>
         <button class="btn bts btsm" style="color:var(--red);border-color:var(--red)" onclick="devolverSolicCard('PREJUDICADO')">&#9940; prejudicado</button></div></div>`;
     else if(["NOVA","EM_ANALISE"].includes(stf))
@@ -6387,6 +6414,8 @@ async function telaFranqueados(){
         ${["NOVA","EM_ANALISE"].includes(s.status)&&/EM DIA/i.test(s.tarefa_status||"")?'<br><span class="tag tek">&#9989; parecer FEITO — só falta responder ao franqueado</span>':""}
         ${s.anexo_caminho?`<br><a style="font-size:11px;color:var(--dani);cursor:pointer;text-decoration:underline" onclick='abrirDoc(${JSON.stringify(s.anexo_caminho)})'>&#128206; ${esc(s.anexo_nome||"certificado digital")}</a>`:""}
         ${s.resposta?`<br><span style="font-size:11px;color:var(--green)">resposta: ${esc(s.resposta)}${s.respondido_por?" — "+esc(s.respondido_por):""}</span>`:""}
+        ${s.info_resposta?`<br><span style="font-size:11px;color:var(--navy)">&#8617; o franqueado respondeu${s.info_resposta_em?" em "+new Date(s.info_resposta_em).toLocaleDateString("pt-BR"):""}: ${esc(s.info_resposta)}</span>`:""}
+        ${s.info_anexo_caminho?`<br><a style="font-size:11px;color:var(--navy);cursor:pointer;text-decoration:underline" onclick='abrirDoc(${JSON.stringify(s.info_anexo_caminho)})'>&#128206; anexo do franqueado: ${esc(s.info_anexo_nome||"arquivo")}</a>`:""}
         ${s.resp_anexo_caminho?`<br><a style="font-size:11px;color:var(--green);cursor:pointer;text-decoration:underline" onclick='abrirDoc(${JSON.stringify(s.resp_anexo_caminho)})'>&#128206; parecer enviado: ${esc(s.resp_anexo_nome||"anexo")}</a>`:""}
         ${s.resp_anexo_caminho?anexoExcecaoHTML(s):""}</span>
       ${["NOVA","EM_ANALISE"].includes(s.status)?`<span style="white-space:nowrap">
