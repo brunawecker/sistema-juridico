@@ -796,6 +796,8 @@ const S = {
   async presencas(){return okS(await supa.from("presenca").select("*"))||[];},
   async cargaEquipe(){return okS(await supa.rpc("carga_dia"))||[];},
   async comercialPagamentos(mes){return okS(await supa.from("comercial_pagamentos").select("*").eq("mes",mes))||[];},
+  async esteiraJusts(){return okS(await supa.rpc("esteira_justificativas"))||[];},
+  async esteiraJustificar(chave,cliente,motivo){return okS(await supa.rpc("esteira_justificar",{p_chave:chave,p_cliente:cliente,p_motivo:motivo||""}));},
   async metasMes(mes){return okS(await supa.from("config_metas").select("*").eq("mes",mes))||[];},
   async metaSalvar(mes,pessoa,meta){const ok=await rpcS("meta_salvar",{p_mes:mes,p_pessoa:pessoa,p_meta:meta});
     if(!ok)throw new Error("não foi possível salvar a meta");return{ok:true};},
@@ -5156,6 +5158,22 @@ async function lembreteApagar(id){
   if(!confirm("Apagar este lembrete?"))return;
   try{await DB.lembreteApagar(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Apagado.","ok");(E.view==="agenda"?telaAgenda:telaCentral)();}
+// ✍ justificar cliente pago sem tarefa (Bruna, 19/11/2026): o motivo fica
+// registrado p/ todas as heads e o cliente sai do alerta vermelho da Central
+async function justificarEsteira(chave,cliente){
+  const m=prompt("Por que "+cliente+" NÃO precisa de tarefa?\n(ex.: Contrato de RENEGOCIE — não é operacionalizado por nós.)\n\nO cliente sai do alerta e a justificativa fica registrada para todas as heads.","");
+  if(m===null)return;
+  if(!m.trim()){toast("Escreva a justificativa.","erro");return;}
+  try{await DB.esteiraJustificar(chave,cliente,m.trim());}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("✓ Justificado — "+cliente+" saiu do alerta.","ok");telaCentral();
+}
+async function removerJustEsteira(chave,cliente){
+  if(!confirm("Desfazer a justificativa de "+cliente+"? Ele volta a aparecer como alerta se seguir sem tarefa."))return;
+  try{await DB.esteiraJustificar(chave,cliente,"");}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast("Justificativa removida.","ok");telaCentral();
+}
 async function telaCentral(){
   if(!E.perfil.head_sim)return telaMinhas();
   setNav("central","Central do Dia"); carregando();
@@ -5238,7 +5256,13 @@ async function telaCentral(){
     const idc=c&&c.id_cliente;
     if(idc&&temTarefaAtiva[idc])return;                // já tem tarefa → ok
     semTarefa.push({cliente:x.cliente,cnpj:x.cnpj_cpf,valor:+x.valor_liquido||0,
-      data:x.data_pgto,idc:idc||null});});
+      data:x.data_pgto,idc:idc||null,chave:key});});
+  // ✍ justificativas (Bruna, 19/11/2026): quando o contrato não é operacionalizado
+  // pelo jurídico (ex.: RENEGOCIE/RECUPERE), a head justifica e o alerta sai da frente
+  let justsEst=[];try{justsEst=await DB.esteiraJusts();}catch(e){}
+  const justPor={};justsEst.forEach(j=>{justPor[j.chave]=j;});
+  const semTAviso=semTarefa.filter(o=>!justPor[o.chave]);
+  const semTJust=semTarefa.filter(o=>justPor[o.chave]);
   // ---- minha carteira hoje: por assessor — ENTRA HOJE × FILA (Bruna, 21/09/2026)
   // mesma régua de todas as telas (motor único montarPlanoDia); o plano olha
   // TUDO que o assessor tem, e aqui destacamos só o que é da MINHA carteira
@@ -5291,13 +5315,18 @@ async function telaCentral(){
         :'<div class="vazio">Nenhum inadimplente na sua carteira. 🎉</div>'}
       ${abertas.length?`<div style="margin-top:8px"><button class="btn bts btsm" onclick="relFinanceiro()">&#128202; Emitir planilha semanal p/ financeiro</button>
         <span style="font-size:10px;color:var(--gray)">baixa um CSV com o andamento dos trabalhos de cada inadimplente — pronto para enviar</span></div>`:""}</div></details></div>
-    ${semTarefa.length?`<div class="painel" style="border-left:4px solid var(--red)">
-      <div class="bloco-t" style="color:var(--red)">&#129534; Clientes NOVOS que pagaram e estão SEM tarefa ativa (${semTarefa.length})</div>
-      <div style="font-size:11px;color:var(--gray);margin-bottom:5px">Contrato novo pago neste mês, mas nenhuma tarefa aberta no cliente — provavelmente falta lançar o parecer/levantamento. O sistema NÃO cria nada sozinho: confira e abra a tarefa se for o caso.</div>
-      ${semTarefa.sort((a2,b2)=>b2.valor-a2.valor).map(o=>`<div class="linha-item">
+    ${(semTAviso.length||semTJust.length)?`<div class="painel" style="border-left:4px solid ${semTAviso.length?"var(--red)":"var(--gray)"}">
+      <div class="bloco-t" style="color:${semTAviso.length?"var(--red)":"var(--gray)"}">&#129534; Clientes NOVOS que pagaram e estão SEM tarefa ativa (${semTAviso.length})</div>
+      <div style="font-size:11px;color:var(--gray);margin-bottom:5px">Contrato novo pago neste mês, mas nenhuma tarefa aberta no cliente — provavelmente falta lançar o parecer/levantamento. O sistema NÃO cria nada sozinho: confira e abra a tarefa — ou <b>justifique</b> quando o contrato não é operacionalizado por nós (ex.: RENEGOCIE, RECUPERE).</div>
+      ${semTAviso.sort((a2,b2)=>b2.valor-a2.valor).map(o=>`<div class="linha-item">
         <span style="font-size:12.5px">&#9888; <b>${esc(o.cliente)}</b> · pago ${o.data?brData(String(o.data).slice(0,10)):"—"} · ${fmtR$(o.valor)}
           ${o.idc?"":'<span class="tag ta">cadastro não encontrado</span>'}</span>
-        <span>${o.idc?`<button class="btn btp btsm" onclick="prepCliente('${esc(o.idc)}');telaClientes()">abrir cliente</button>`:""}</span></div>`).join("")}</div>`:""}
+        <span style="white-space:nowrap">${o.idc?`<button class="btn btp btsm" onclick="prepCliente('${esc(o.idc)}');telaClientes()">abrir cliente</button>`:""}
+          <button class="btn bts btsm" onclick='justificarEsteira(${JSON.stringify(o.chave)},${JSON.stringify(o.cliente)})' title="registrar por que este cliente NÃO precisa de tarefa — sai do alerta e o motivo fica visível a todas as heads">&#9997; justificar</button></span></div>`).join("")||'<div class="vazio">Todos justificados. ✅</div>'}
+      ${semTJust.length?`<details style="margin-top:4px"><summary style="cursor:pointer;font-size:11.5px;color:var(--gray)">justificados — sem necessidade de tarefa (${semTJust.length})</summary>
+        ${semTJust.map(o=>{const j=justPor[o.chave];return `<div class="linha-item"><span style="font-size:12px"><b>${esc(o.cliente)}</b> · pago ${o.data?brData(String(o.data).slice(0,10)):"—"} · ${fmtR$(o.valor)}
+          <br><span style="font-size:11px;color:var(--gray)">&#9997; ${esc(j.motivo)} — ${esc(j.autor||"")}${j.criado?" em "+new Date(j.criado).toLocaleDateString("pt-BR"):""}</span></span>
+          <button class="btn bts btsm" style="color:var(--gray)" onclick='removerJustEsteira(${JSON.stringify(o.chave)},${JSON.stringify(o.cliente)})' title="desfazer — o cliente volta a aparecer como alerta se seguir sem tarefa">desfazer</button></div>`;}).join("")}</details>`:""}</div>`:""}
     ${prePag.length?`<div class="painel" style="border-left:4px solid var(--amber)">
       <div class="bloco-t" style="color:var(--amber)">&#128222; Contatos pré-pagamento — MEUS clientes com boleto vencendo em até 2 dias (${prePag.length})</div>
       <div style="font-size:11px;color:var(--gray);margin-bottom:5px">&#128172; "copiar mensagem" monta a atualização COMERCIAL pronta p/ o grupo de atendimento do cliente — só o que está em andamento, sem termos internos, sem atrasos e sem nomes da equipe.</div>
