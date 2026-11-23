@@ -895,6 +895,8 @@ const S = {
   async snapshot(){return okS(await supa.from("snapshot_diario").select("*").order("data_dt"))||[];},
   async snapshotDia(d){return okS(await supa.from("snapshot_diario").select("*").eq("data_dt",d).order("linha",{ascending:false}).limit(1))||[];},
   async cobranca(){return okS(await supa.from("cobranca").select("*").order("linha"))||[];},
+  async operacoesCustom(){return okS(await supa.rpc("operacoes_custom"))||[];},
+  async operacaoNova(nome){return okS(await supa.rpc("operacao_nova",{p_nome:nome}));},
   async config(){return{cap:okS(await supa.from("config_capacidade").select("*"))||[],
     tmp:okS(await supa.from("config_tempos").select("*"))||[],
     per:okS(await supa.from("config_permissoes").select("*"))||[]};},
@@ -1795,6 +1797,13 @@ async function carregarConfig(){
         PROSPEC_SEMPRE[r.nome]=!!r.prospeccao_sempre;
         FOLLOWUP[r.nome]=parseInt(r.followup_min)||0;});}
   }catch(e){/* segue com os padrões do código */}
+  // ➕ títulos de operação criados pelas heads (23/11/2026, sql/157):
+  // somam-se à lista fixa do código, sem duplicar, em ordem alfabética
+  try{const opsC=await DB.operacoesCustom();
+    (opsC||[]).forEach(o=>{const n=String(o||"").trim();
+      if(n&&!OPERACOES.some(x=>x.toLowerCase()===n.toLowerCase()))OPERACOES.push(n);});
+    OPERACOES.sort((a,b)=>a.localeCompare(b,"pt-BR"));
+  }catch(e){/* segue com a lista do código */}
 }
 function nomeCompletoDe(sis){const m=E.equipe.find(x=>x.nome_sistema===sis);return m?m.nome_completo:"";}
 function loginDe(n){if(!n)return "";const s=String(n).trim().toLowerCase();
@@ -9908,6 +9917,26 @@ function ecacBlocoHTML(pref,sempre){
     </div>
     <div style="font-size:10px;color:var(--gray);margin-top:3px">${sempre?"Opcional — mas obrigatório se a tarefa for levantamento/parecer. ":""}Grava na ficha do cliente e aparece em todos os cards dele.</div></div></div>`;
 }
+// ➕ head cria um título de operação NA HORA, direto no formulário (Bruna,
+// 23/11/2026, sql/157): escolhe "nova operação…", digita o título e ele já
+// fica selecionado — e passa a valer para todo mundo (fica no banco)
+async function opSelChange(id){const s=ge(id);if(!s)return;
+  if(s.value==="__NOVA__"){s.value="";await novaOperacaoInline(s);}
+  ecacToggle(id);}
+async function novaOperacaoInline(sel){
+  const nm=String(prompt("Título da NOVA operação (como vai aparecer para todo mundo):\nEx.: Defesa Administrativa","")||"").trim();
+  if(!nm)return;
+  if(nm.length<3){toast("Título muito curto — use pelo menos 3 letras.","erro");return;}
+  const ja=OPERACOES.find(o=>o.toLowerCase()===nm.toLowerCase());
+  if(ja){sel.value=ja;toast("Essa operação já existe — deixei \""+ja+"\" selecionada.","ok");return;}
+  try{await DB.operacaoNova(nm);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  OPERACOES.push(nm);OPERACOES.sort((a,b)=>a.localeCompare(b,"pt-BR"));
+  sel.innerHTML='<option value="">Tipo de operação *</option>'
+    +OPERACOES.map(o=>`<option>${esc(o)}</option>`).join("")
+    +'<option value="__NOVA__">&#10133; nova operação…</option>';
+  sel.value=nm;
+  toast("✓ Operação \""+nm+"\" criada — já aparece para todo mundo.","ok");
+}
 function ecacToggle(opSelId){const w=ge("ec-w");if(!w)return;
   if(E._ntCli&&E._ntCli.interna){w.style.display="none";return;}
   if(w.getAttribute("data-sempre")==="1"){w.style.display="block";return;} // cadastro novo: sempre visível
@@ -9942,7 +9971,7 @@ function formNTCorpo(resp,interna){
   ge("nt-form").innerHTML=`
     ${resp?`<div class="aviso info" style="margin:6px 0">&#128100; Responsável deste cliente: <b>${esc(resp)}</b> (já selecionado)</div>`:""}
     <div class="linha-acao" style="margin-top:6px">
-      <select class="fsel" id="nt-op" onchange="ecacToggle('nt-op')"><option value="">Tipo de operação *</option>${OPERACOES.map(o=>`<option>${esc(o)}</option>`).join("")}</select>
+      <select class="fsel" id="nt-op" onchange="opSelChange('nt-op')"><option value="">Tipo de operação *</option>${OPERACOES.map(o=>`<option>${esc(o)}</option>`).join("")}${E.perfil&&E.perfil.head_sim?'<option value="__NOVA__">&#10133; nova operação…</option>':""}</select>
       <select class="fsel" id="nt-chk">${["IMEDIATO","DIÁRIO","SEMANAL","MENSAL"].map(x=>`<option>${x}</option>`).join("")}</select></div>
     <div class="linha-acao"><select class="fsel" id="nt-ass" onchange="atualizarImedNT()">${alvosNT.map(a=>`<option ${a===resp?"selected":""}>${a}</option>`).join("")}</select>
       <label style="font-size:11px">Prazo fatal:</label><input type="date" class="fsel" id="nt-pf"></div>
@@ -10079,7 +10108,7 @@ function abrirNovoCliente(){
       Cadastrar <b>só o cliente</b>, sem lançar tarefa agora</label>
     <div id="nc-tarefa-w">
     <div class="bloco-t" style="margin-top:10px">Primeira tarefa</div>
-    <div class="linha-acao"><select class="fsel" id="nc-op" onchange="ecacToggle('nc-op')"><option value="">Tipo de operação *</option>${OPERACOES.map(o=>`<option>${esc(o)}</option>`).join("")}</select>
+    <div class="linha-acao"><select class="fsel" id="nc-op" onchange="opSelChange('nc-op')"><option value="">Tipo de operação *</option>${OPERACOES.map(o=>`<option>${esc(o)}</option>`).join("")}${E.perfil&&E.perfil.head_sim?'<option value="__NOVA__">&#10133; nova operação…</option>':""}</select>
       <select class="fsel" id="nc-chk">${["IMEDIATO","DIÁRIO","SEMANAL","MENSAL"].map(x=>`<option>${x}</option>`).join("")}</select>
       <select class="fsel" id="nc-ass">${alvosCriacao().map(a=>`<option>${a}</option>`).join("")}</select></div>
     <textarea class="fta" id="nc-sup" style="margin-top:6px" placeholder="Orientação inicial (opcional)"></textarea>
