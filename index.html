@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Sistema Jurídico Operacional</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%232C6E8A'/%3E%3Cstop offset='1' stop-color='%23447F98'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='url(%23g)'/%3E%3Ctext x='32' y='46' text-anchor='middle' font-family='Arial,Helvetica,sans-serif' font-weight='700' font-size='40' fill='%23FFFFFF'%3EV%3C/text%3E%3Ccircle cx='47' cy='17' r='5' fill='%23B9D8E1'/%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -3101,7 +3102,7 @@ function desenharCard(t,hist){
   ge("m-corpo").innerHTML=h;
   rascunhoLiga("nota-texto","and:"+t.id_tarefa);
   carregarCliExtra(t);carregarDocs(t);carregarProcs(t);
-  if(CHECKLIST_OPS[t.operacao]&&!t._concluida)chkCarregar(t);
+  if(CHECKLIST_OPS[t.operacao]&&!t._concluida){chkCarregar(t);chkVigiaInicia(t);}
 }
 // ===== 📋 checklist de levantamento no card (Bruna, 23/11/2026, sql/158) =====
 function chkBoxHTML(t){
@@ -3139,6 +3140,7 @@ function chkContador(t){const c=ge("chk-cont");if(!c||!E._chk)return;
 async function chkMarcar(id,chave,feito){
   try{await DB.checklistMarcar(id,chave,feito);}
   catch(e){toast("Erro: "+e.message,"erro");return;}
+  E._chkUlt=Date.now();
   if(E._chk&&E._chk.tarefa===id){
     if(feito)E._chk.marc[chave]={quem:E.perfil.nome_sistema};else delete E._chk.marc[chave];
     if(E.atual&&E.atual.id_tarefa===id)chkContador(E.atual);}
@@ -3146,16 +3148,38 @@ async function chkMarcar(id,chave,feito){
 async function chkObsSalvar(id){
   const txt=((ge("chk-obs")||{}).value||"").trim();
   try{await DB.checklistObs(id,txt);}catch(e){toast("Erro: "+e.message,"erro");return;}
-  if(E._chk)E._chk.obs=txt;
+  if(E._chk)E._chk.obs=txt;E._chkUlt=Date.now();
   toast("✓ Observações do checklist salvas.","ok");
 }
-// aviso (sem travar) na conclusão quando o checklist não está completo
+// 🔒 TRAVA na conclusão (Bruna, 23/11/2026): sem checklist completo, não conclui
 function chkConfirmaConclusao(t){
-  if(!CHECKLIST_OPS[t.operacao]||!E._chk||E._chk.tarefa!==t.id_tarefa)return true;
+  if(!CHECKLIST_OPS[t.operacao])return true;
+  if(!E._chk||E._chk.tarefa!==t.id_tarefa){
+    toast("📋 O checklist ainda está carregando — aguarde um instante e tente de novo.","erro");return false;}
   const tot=chkItens(t.operacao).length,n=Object.keys(E._chk.marc).length;
   if(n>=tot)return true;
-  return confirm("📋 O checklist do levantamento está em "+n+" de "+tot+" itens. Itens que não se aplicam: marque e anote N/A nas observações.\n\nConcluir mesmo assim?");
+  toast("📋 Para concluir é obrigatório completar o checklist — faltam "+(tot-n)+" de "+tot+" item(ns). Item que não se aplica: marque e anote \"N/A\" nas observações.","erro");
+  return false;
 }
+// ⏰ vigia do checklist (Bruna, 23/11/2026): card aberto 10 min sem marcar
+// nenhum item → alerta (e repete a cada 10 min de inatividade no checklist)
+function chkVigiaTick(){
+  const m=ge("modal");
+  if(!m||!m.classList.contains("aberto")||!E.atual||E.atual.id_tarefa!==E._chkVigiaTarefa){chkVigiaPara();return;}
+  const tot=chkItens(E.atual.operacao).length;if(!tot){chkVigiaPara();return;}
+  const n=(E._chk&&E._chk.tarefa===E.atual.id_tarefa)?Object.keys(E._chk.marc).length:0;
+  if(n>=tot){chkVigiaPara();return;}
+  if(Date.now()-(E._chkUlt||0)>=10*60000){
+    toast("⏰ Já faz 10 minutos com o card aberto sem marcar itens do checklist ("+n+" de "+tot+") — vá marcando enquanto desenvolve.","erro");
+    E._chkUlt=Date.now();}
+}
+function chkVigiaInicia(t){
+  chkVigiaPara();
+  if(!CHECKLIST_OPS[t.operacao]||t._concluida)return;
+  E._chkUlt=Date.now();E._chkVigiaTarefa=t.id_tarefa;
+  E._chkVigia=setInterval(chkVigiaTick,30000);
+}
+function chkVigiaPara(){if(E._chkVigia){clearInterval(E._chkVigia);E._chkVigia=null;}}
 // ⚖ multi-processo (24/09/2026): lista de processos do card, com status,
 // destacar (vira card próprio) e mesclar (traz outro card p/ cá)
 async function carregarProcs(t){
@@ -3828,7 +3852,7 @@ async function concluirTarefa(){
   // ou existe proposta do cliente, ou lança agora, ou justifica por escrito
   if(/Proposta Comercial|Parecer de Novo Cliente|Proposta para franqueado/i.test(t.operacao||"")&&!E._propGateOk){
     E._gateDepois="concluir";abrirGateProposta();return;}
-  // 📋 checklist do levantamento: avisa (sem travar) se faltam itens
+  // 📋 checklist do levantamento: OBRIGATÓRIO completo para concluir
   if(!chkConfirmaConclusao(t))return;
   // laudo: concluir exige confirmar/atualizar a FASE (Bruna, 17/09/2026)
   if(t._laudo&&!E._laudoGateOk){E._laudoDepois="concluir";abrirGateLaudo();return;}
@@ -4284,6 +4308,11 @@ function abrirEncerrar(){const t=E.atual;
   // uma porta lateral para fechar parecer sem proposta (fechada em 11/09/2026)
   if(/Proposta Comercial|Parecer de Novo Cliente|Proposta para franqueado/i.test(t.operacao||"")&&!E._propGateOk){
     E._gateDepois="encerrar";abrirGateProposta();return;}
+  // 📋 no ENCERRAR (arquivar) o checklist só pergunta — encerrar cobre desistência/
+  // prejudicado, onde exigir os 30 itens não faria sentido
+  if(CHECKLIST_OPS[t.operacao]&&E._chk&&E._chk.tarefa===t.id_tarefa){
+    const totC=chkItens(t.operacao).length,nC=Object.keys(E._chk.marc).length;
+    if(nC<totC&&!confirm("📋 O checklist está em "+nC+" de "+totC+" itens. Encerrar (arquivar) mesmo assim?"))return;}
   // laudo: arquivar também exige a fase final (alimenta a taxa de deferimento)
   if(t._laudo&&!E._laudoGateOk){E._laudoDepois="encerrar";abrirGateLaudo();return;}
   // Simples Nacional: também pergunta ao encerrar
