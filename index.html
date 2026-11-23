@@ -343,11 +343,11 @@ const LAUDO_DEPENDE={
 function laudoDepende(e){return LAUDO_DEPENDE[e]||"nos";}
 function laudoCor(e){return /Deferido/.test(e||"")?"var(--green)":/Indeferido/.test(e||"")?"var(--red)"
   :laudoDepende(e)==="procuradoria"?"var(--amber)":laudoDepende(e)==="setor"?"var(--dani)":"var(--navy)";}
-const OPERACOES=["Audiência","Análise Prescricional","Cancelar transação","Cancelar negociação","Execução Fiscal","Estadual","Emissão CPEN","Embargos à Execução","ExcPreEx - Prescrição","E-Processo","FGTS","Laudo OPF","Laudo CAPAG","Levantamento - sem proposta","MS","MS Migração","MS Impedimento","MS laudo CAPAG","MS CND","Monitoramento","NJP","Negociação Estadual","Oferta de garantia","Outros","Petição","Parcelar","Prazo C3","Proposta Comercial - Parecer Tributário","Protesto","PRDI","Renegociação","Risco de bloqueio","Restituição SN","Revenda","Recurso","Simulação","TAX","TI - Transação Individual","Transacionar","TIS","Parecer de Novo Cliente","Contabilize","Contrato/Aditivo"];
+const OPERACOES=["Audiência","Análise Prescricional","Cancelar transação","Cancelar negociação","Execução Fiscal","Estadual","Emissão CPEN","Embargos à Execução","ExcPreEx - Prescrição","E-Processo","FGTS","Laudo OPF","Laudo CAPAG","Levantamento - sem proposta","MS","MS Migração","MS Impedimento","MS laudo CAPAG","MS CND","Monitoramento","NJP","Negociação Estadual","Oferta de garantia","Outros","Petição","Parcelar","Prazo C3","Proposta Comercial - Parecer Tributário","Protesto","PRDI","Renegociação","Risco de bloqueio","Restituição SN","Revenda","Recurso","Simulação","TAX","TI - Transação Individual","Transacionar","TIS","Parecer de Novo Cliente","Contabilize","Contrato/Aditivo","Proposta para franqueado"];
 // ordem alfabética SEMPRE (pedido de 10/11/2026): operações novas podem ser
 // acrescentadas em qualquer lugar da lista acima que a ordenação conserta
 OPERACOES.sort((a,b)=>a.localeCompare(b,"pt-BR"));
-const TEMPOS_PADRAO={"Fechamento Mensal (heads)":240,"Execução Fiscal":15,"Proposta Comercial - Parecer Tributário":25,"MS":35,"MS Migração":35,"MS Impedimento":35,"MS laudo CAPAG":35,"MS CND":35,"Transacionar":20,"Laudo CAPAG":25,"Laudo OPF":25,"Monitoramento":10,"Audiência":60,"NJP":20,"Renegociação":20,"Recurso":30,"Embargos à Execução":30,"Emissão CPEN":15,"PRDI":20,"Protesto":15,"Estadual":20,"E-Processo":15,"FGTS":20,"Petição":30,"Parcelar":15,"Simulação":20,"TAX":25,"TIS":20,"Contabilize":20,"Restituição SN":20,"Risco de bloqueio":15,"Revenda":15,"Cancelar transação":15,"Levantamento - sem proposta":30,"Parecer de Novo Cliente":30,"Outros":20,"Análise Prescricional":30,"ExcPreEx - Prescrição":25,"Negociação Estadual":20,"Oferta de garantia":20,_default:20};
+const TEMPOS_PADRAO={"Fechamento Mensal (heads)":240,"Execução Fiscal":15,"Proposta Comercial - Parecer Tributário":25,"MS":35,"MS Migração":35,"MS Impedimento":35,"MS laudo CAPAG":35,"MS CND":35,"Transacionar":20,"Laudo CAPAG":25,"Laudo OPF":25,"Monitoramento":10,"Audiência":60,"NJP":20,"Renegociação":20,"Recurso":30,"Embargos à Execução":30,"Emissão CPEN":15,"PRDI":20,"Protesto":15,"Estadual":20,"E-Processo":15,"FGTS":20,"Petição":30,"Parcelar":15,"Simulação":20,"TAX":25,"TIS":20,"Contabilize":20,"Restituição SN":20,"Risco de bloqueio":15,"Revenda":15,"Cancelar transação":15,"Levantamento - sem proposta":30,"Parecer de Novo Cliente":30,"Outros":20,"Análise Prescricional":30,"ExcPreEx - Prescrição":25,"Negociação Estadual":20,"Oferta de garantia":20,"Proposta para franqueado":25,_default:20};
 const tempoDe=op=>TEMPOS_PADRAO[op]||TEMPOS_PADRAO._default;
 // documento sempre num formato só (evita duplicar cliente por grafia):
 // repõe zeros à esquerda perdidos e aplica a pontuação padrão
@@ -365,7 +365,7 @@ const nrmNome=s=>String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"")
 const semAc=s=>String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
 // tarefas de parecer n\u00e3o exigem aviso no grupo de WhatsApp (decis\u00e3o da head,
 // 04/08/2026 \u2014 o parecer \u00e9 interno, n\u00e3o \u00e9 movimento para o cliente ver)
-const dispensaGrupo=t=>String((t&&t.operacao)||"").includes("Proposta Comercial");
+const dispensaGrupo=t=>/Proposta Comercial|Proposta para franqueado/.test(String((t&&t.operacao)||""));
 // levantamentos podem ir DIRETO ao advogado (sem aviso no grupo) — o assessor
 // marca uma das duas caixinhas para finalizar (pedido da Bruna, 12/08/2026)
 const ehLevantamento=t=>String((t&&t.operacao)||"").toUpperCase().includes("LEVANTAMENTO");
@@ -397,6 +397,30 @@ function tempoPlanoDe(assessor,op){
   const tr=(E._tReal||{})[a+"|"+op]||(E._tRealOp||{})[op];
   if(!tr)return tempoDe(op);
   return Math.max(Math.round(tempoDe(op)/2),Math.min(tr,tempoDe(op)*3));
+}
+// 📋 Checklists de levantamento (Bruna, 23/11/2026, sql/158) — espelham os
+// PDFs oficiais. "COM"/"SEM" = cliente com/sem contrato ativo.
+const CHECKLIST_OPS={"Parecer de Novo Cliente":"COM","Proposta Comercial - Parecer Tributário":"COM","Levantamento - sem proposta":"COM","Proposta para franqueado":"SEM"};
+// 💡 quando usar cada atividade (regras da Bruna, 23/11/2026)
+const QUANDO_USAR={"Parecer de Novo Cliente":"quando o cliente entra SÓ com PRF","Proposta Comercial - Parecer Tributário":"revenda de base, ou cliente que entra com contrato que NÃO seja PRF","Levantamento - sem proposta":"levantamento da situação sem valor (ex.: venda conjugada)","Proposta para franqueado":"pedido pelo portal do franqueado — ou lançado aqui quando o franqueado ainda não tem acesso ao sistema"};
+function chkItens(op){
+  const v=CHECKLIST_OPS[op];if(!v)return[];
+  const proc=v==="COM"
+    ?"Relatório processo a processo (número, exequente, executado, advogado habilitado?, ativo/suspenso, teve algum bloqueio?, data do despacho que ordenou a citação)"
+    :"Relatório processo a processo (número, exequente, executado, advogado habilitado?, ativo/suspenso, teve algum bloqueio?)";
+  const susp=v==="COM"
+    ?"Para cada suspenso: fundamento (art. 40 da LEF, desde quando, projeção de prescrição intercorrente — obrigatório fazer manual) ou parcelamento (acordo ainda ativo?)"
+    :"Para cada suspenso: fundamento (art. 40 da LEF, desde quando) ou parcelamento (acordo ainda ativo?)";
+  const assess=v==="COM"
+    ?"Assessoria jurídica (consultoria jurídica irrestrita, defesa processual federal e estadual e auditoria do débito) — já contratada"
+    :"Assessoria jurídica (consultoria jurídica irrestrita, defesa processual federal e estadual e auditoria do débito — análise prescricional)";
+  const sec=[["1. Dados cadastrais",["Município/UF","Situação cadastral (ativa, inativa, suspensa ou inapta)","CNAE principal","Porte da empresa","CPEN — data de vencimento ou data até a qual está ativa","Regime tributário"]],
+    ["2. Receita Federal",["Valor total da dívida — global: Receita + Procuradoria + Estadual (preencher por ÚLTIMO, após fechar os itens 2 e 3)","Valor e espécie da dívida (Simples Nacional; demais débitos — PIS, COFINS, IRPJ, CSLL etc.; previdenciário — CP-SEGUR., CP-PATRONAL etc.) em conta corrente — RECEITA FEDERAL","Valor da dívida parcelada (modalidade, valor total parcelado, valor da parcela, em dia/atraso, valor total em atraso pra colocar em dia)","Simulação de regularização diretamente na Receita Federal (tem exigência de entrada/pedágio? nº de parcelas, valor da parcela)"]],
+    ["3. PGFN",["Valor total inscrito em Dívida Ativa da União","Valor da dívida ativa em cobrança","Valor da dívida suspensa por negociação (modalidade, valor total, redução se tiver, parcela, em dia/atraso, o total pra colocar em dia se tiver em atraso — verificar)","Tem impedimento aplicado pelas negociações anteriores ou risco de impedimento com as negociações ativas? Há enquadramento na tese da notificação na terceira parcela?","Data de queda do impedimento de transacionar e simulação do parcelamento disponível durante o impedimento","CAPAG — rating A, B, C ou D","Nº de execuções fiscais federais, estaduais e municipais",proc,susp].concat(v==="COM"?["Auditoria do débito — análise prescricional: material (por inscrição: data de constituição do crédito × data do despacho que ordenou a citação) e intercorrente (por processo, art. 40 da LEF). Indicar as inscrições com tese de extinção e o valor envolvido"]:[])],
+    ["4. Estratégia jurídica — frentes aplicáveis ao caso",[assess,"TAX","MS migração — simulação comparativa RFB × PGFN e valor do pedágio em RFB; avaliação de urgência pós-migração","MS impedimento","Laudo de revisão da CAPAG","Simulação nos três cenários: atual (sem a Villela — parcelamento convencional), intermediário (com a Villela — melhor negociação no momento; avaliar, nos casos aplicáveis, redução de pedágio) e futuro (cenário buscado com a estratégia sugerida — simulação final)","Garantias — duas possibilidades de contratação (passivo total de PGFN e somente o executado)","Laudo OPF"]],
+    ["5. Investimento",["Investimento preenchido conforme padrão (somente formas e condições)","Próximos passos após o fechamento do contrato, com as etapas em que irão ocorrer"]]];
+  const out=[];sec.forEach((s,si)=>s[1].forEach((txt,ii)=>out.push({k:(si+1)+"."+(ii+1),sec:s[0],txt})));
+  return out;
 }
 const CORR_HEADS=["Danielly","Bruna","Eduarda","Ygor","Madu","Malu"];
 // estados POR EXTENSO — é assim que franqueados.estado define o "time" dentro
@@ -896,6 +920,9 @@ const S = {
   async snapshotDia(d){return okS(await supa.from("snapshot_diario").select("*").eq("data_dt",d).order("linha",{ascending:false}).limit(1))||[];},
   async cobranca(){return okS(await supa.from("cobranca").select("*").order("linha"))||[];},
   async operacoesCustom(){return okS(await supa.rpc("operacoes_custom"))||[];},
+  async checklistDe(id){return okS(await supa.rpc("checklist_de",{p_id_tarefa:id}))||[];},
+  async checklistMarcar(id,chave,feito){return okS(await supa.rpc("checklist_marcar",{p_id_tarefa:id,p_chave:chave,p_feito:!!feito}));},
+  async checklistObs(id,txt){return okS(await supa.rpc("checklist_obs",{p_id_tarefa:id,p_texto:txt||""}));},
   async operacaoNova(nome){return okS(await supa.rpc("operacao_nova",{p_nome:nome}));},
   async config(){return{cap:okS(await supa.from("config_capacidade").select("*"))||[],
     tmp:okS(await supa.from("config_tempos").select("*"))||[],
@@ -2957,6 +2984,9 @@ function desenharCard(t,hist){
       <button class="btn btp btsm" onclick="finalizarImpulso('${esc(t.id_tarefa)}')">&#128229; Terminei — devolver ao responsável</button>
       <button class="btn btx btsm" onclick="abrirEncerrar()">&#128193; Encerrar o caso de vez</button></div>
     <div style="font-size:11px;color:var(--gray);margin-top:7px">&#128257; <b>Continuar comigo</b>: registre antes um andamento (em "Adicionar andamento") contando o que já fez. Se quiser outro ritmo, ajuste a <b>Frequência</b> em "Atualizar / concluir" antes de clicar. O cartão volta para você na data — só devolva quando tiver tudo.</div></div>`;
+  // 📋 checklist de levantamento (Bruna, 23/11/2026, sql/158): o assessor marca
+  // os itens enquanto desenvolve; progresso compartilhado (quem marcou fica registrado)
+  if(CHECKLIST_OPS[t.operacao]&&!t._concluida)h+=chkBoxHTML(t);
   if(t.supervisao)h+=`<div class="bloco"><div class="bloco-t">Orientação da head</div>
     <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:9px;padding:9px 12px;font-size:13px;color:#1E40AF;white-space:pre-line">${esc(t.supervisao)}</div></div>`;
   // andamento
@@ -3071,6 +3101,60 @@ function desenharCard(t,hist){
   ge("m-corpo").innerHTML=h;
   rascunhoLiga("nota-texto","and:"+t.id_tarefa);
   carregarCliExtra(t);carregarDocs(t);carregarProcs(t);
+  if(CHECKLIST_OPS[t.operacao]&&!t._concluida)chkCarregar(t);
+}
+// ===== 📋 checklist de levantamento no card (Bruna, 23/11/2026, sql/158) =====
+function chkBoxHTML(t){
+  const nomePdf=CHECKLIST_OPS[t.operacao]==="COM"?"cliente COM contrato ativo":"cliente SEM contrato ativo";
+  return `<div class="bloco"><div class="bloco-t">&#128203; Checklist do levantamento — ${nomePdf} <span id="chk-cont" style="color:var(--gray);font-weight:normal"></span></div>
+    <div id="chk-box" style="background:var(--gray-lt);border-radius:9px;padding:9px 12px;font-size:12px">carregando checklist…</div></div>`;
+}
+async function chkCarregar(t){
+  let rows=[];try{rows=await DB.checklistDe(t.id_tarefa);}
+  catch(e){const b=ge("chk-box");if(b)b.innerHTML="Não consegui carregar o checklist: "+esc(e.message);return;}
+  const marc={};let obs="";
+  (rows||[]).forEach(r=>{if(r.chave==="_obs")obs=r.obs||"";else marc[r.chave]=r;});
+  E._chk={tarefa:t.id_tarefa,marc:marc,obs:obs};
+  chkDesenha(t);
+}
+function chkDesenha(t){
+  const b=ge("chk-box");if(!b||!E._chk)return;
+  const its=chkItens(t.operacao);let sec="",h2="";
+  h2+=`<div style="font-size:10.5px;color:var(--gray)">Marque cada item enquanto desenvolve — antes de mandar para a revisão. Item que não se aplica: marque e anote "N/A" nas observações.</div>`;
+  its.forEach(it=>{
+    if(it.sec!==sec){sec=it.sec;h2+=`<div style="font-weight:700;margin:8px 0 3px">${esc(sec)}</div>`;}
+    const m=E._chk.marc[it.k];
+    h2+=`<label style="display:flex;gap:7px;align-items:flex-start;margin:3px 0;cursor:pointer">
+      <input type="checkbox" ${m?"checked":""} onchange="chkMarcar('${esc(t.id_tarefa)}','${it.k}',this.checked)" style="margin-top:2px;flex:none">
+      <span>${esc(it.txt)}${m&&m.quem?` <span style="font-size:10px;color:var(--gray)">· ${esc(m.quem)}</span>`:""}</span></label>`;});
+  h2+=`<div style="font-weight:700;margin:9px 0 3px">Observações e pendências</div>
+    <div style="font-size:10.5px;color:var(--gray);margin-bottom:3px">Itens N/A, dados "não localizado" e o que falta confirmar com o advogado antes da revisão.</div>
+    <textarea class="fta" id="chk-obs" rows="2">${esc(E._chk.obs||"")}</textarea>
+    <div class="linha-acao" style="margin-top:4px"><button class="btn bts btsm" onclick="chkObsSalvar('${esc(t.id_tarefa)}')">&#128190; Salvar observações</button></div>`;
+  b.innerHTML=h2;chkContador(t);
+}
+function chkContador(t){const c=ge("chk-cont");if(!c||!E._chk)return;
+  const tot=chkItens(t.operacao).length,n=Object.keys(E._chk.marc).length;
+  c.textContent="· "+n+" de "+tot+" itens";}
+async function chkMarcar(id,chave,feito){
+  try{await DB.checklistMarcar(id,chave,feito);}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  if(E._chk&&E._chk.tarefa===id){
+    if(feito)E._chk.marc[chave]={quem:E.perfil.nome_sistema};else delete E._chk.marc[chave];
+    if(E.atual&&E.atual.id_tarefa===id)chkContador(E.atual);}
+}
+async function chkObsSalvar(id){
+  const txt=((ge("chk-obs")||{}).value||"").trim();
+  try{await DB.checklistObs(id,txt);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  if(E._chk)E._chk.obs=txt;
+  toast("✓ Observações do checklist salvas.","ok");
+}
+// aviso (sem travar) na conclusão quando o checklist não está completo
+function chkConfirmaConclusao(t){
+  if(!CHECKLIST_OPS[t.operacao]||!E._chk||E._chk.tarefa!==t.id_tarefa)return true;
+  const tot=chkItens(t.operacao).length,n=Object.keys(E._chk.marc).length;
+  if(n>=tot)return true;
+  return confirm("📋 O checklist do levantamento está em "+n+" de "+tot+" itens. Itens que não se aplicam: marque e anote N/A nas observações.\n\nConcluir mesmo assim?");
 }
 // ⚖ multi-processo (24/09/2026): lista de processos do card, com status,
 // destacar (vira card próprio) e mesclar (traz outro card p/ cá)
@@ -3332,7 +3416,7 @@ async function carregarCliExtra(t){
         ?`<a href="${esc(c.link_hubspot)}" target="_blank" style="color:#B2502B;text-decoration:underline">HubSpot</a>`
         :"HubSpot: —"} <span style="cursor:pointer" onclick="editarHubspotCard()">&#9998;</span></span>
       <span id="bil-card"></span>
-      ${/Proposta Comercial|Parecer de Novo Cliente/i.test(t.operacao||"")?taxCardHTML(c):""}`;
+      ${/Proposta Comercial|Parecer de Novo Cliente|Proposta para franqueado/i.test(t.operacao||"")?taxCardHTML(c):""}`;
     E._gCs=cs;grupoDesenhaBox(t,c,cs);
     // status de cobrança do cliente no card
     await carregarFinanceiro();
@@ -3692,6 +3776,7 @@ async function salvarQueda(){
   t.queda_impedimento_dt=v;toast("Data de queda salva!","ok");abrirTarefa(t.id_tarefa);}
 async function enviarParecerFranq(){
   const s=E._parecerSol;if(!s)return;
+  if(E.atual&&!chkConfirmaConclusao(E.atual))return;
   const f=(ge("par-file").files||[])[0];
   if(!f){toast("Anexe o parecer antes de enviar.","erro");return;}
   const MSG="Análise finalizada! Já pode agendar com o jurídico a reunião de retorno para apresentarmos a proposta.";
@@ -3741,8 +3826,10 @@ async function concluirTarefa(){
         :"Para concluir, marque a caixinha confirmando que informou o movimento no grupo de atendimento do WhatsApp.","erro");return;}}
   // parecer/proposta comercial: portão com verificação REAL no banco —
   // ou existe proposta do cliente, ou lança agora, ou justifica por escrito
-  if(/Proposta Comercial|Parecer de Novo Cliente/i.test(t.operacao||"")&&!E._propGateOk){
+  if(/Proposta Comercial|Parecer de Novo Cliente|Proposta para franqueado/i.test(t.operacao||"")&&!E._propGateOk){
     E._gateDepois="concluir";abrirGateProposta();return;}
+  // 📋 checklist do levantamento: avisa (sem travar) se faltam itens
+  if(!chkConfirmaConclusao(t))return;
   // laudo: concluir exige confirmar/atualizar a FASE (Bruna, 17/09/2026)
   if(t._laudo&&!E._laudoGateOk){E._laudoDepois="concluir";abrirGateLaudo();return;}
   // Simples Nacional: cada tarefa de cliente informa se envolve enquadramento
@@ -4195,7 +4282,7 @@ async function salvarPastaSeVazia(idCli,url){
 function abrirEncerrar(){const t=E.atual;
   // o portão da proposta vale TAMBÉM no encerrar — sem isso, arquivar era
   // uma porta lateral para fechar parecer sem proposta (fechada em 11/09/2026)
-  if(/Proposta Comercial|Parecer de Novo Cliente/i.test(t.operacao||"")&&!E._propGateOk){
+  if(/Proposta Comercial|Parecer de Novo Cliente|Proposta para franqueado/i.test(t.operacao||"")&&!E._propGateOk){
     E._gateDepois="encerrar";abrirGateProposta();return;}
   // laudo: arquivar também exige a fase final (alimenta a taxa de deferimento)
   if(t._laudo&&!E._laudoGateOk){E._laudoDepois="encerrar";abrirGateLaudo();return;}
@@ -9897,7 +9984,7 @@ function buscarCNPJvivo(cnpjId,nomeId,ufId,munId,statusId){
 // ===== e-CAC obrigatório ao SOLICITAR levantamento/parecer (Bruna, 15/09/26):
 // ou se informa em qual e-CAC está liberado, ou que ainda NÃO está — e a
 // resposta grava na ficha do cliente (aparece em todos os cards dele).
-const OP_EXIGE_ECAC=op=>/Levantamento|Proposta Comercial/.test(String(op||""));
+const OP_EXIGE_ECAC=op=>/Levantamento|Proposta Comercial|Proposta para franqueado/.test(String(op||""));
 function ecacBlocoHTML(pref,sempre){
   pref=String(pref||"").trim();
   const lib=pref&&!/^N[ÃA]O LIBERADO$/i.test(pref);
@@ -9922,7 +10009,10 @@ function ecacBlocoHTML(pref,sempre){
 // fica selecionado — e passa a valer para todo mundo (fica no banco)
 async function opSelChange(id){const s=ge(id);if(!s)return;
   if(s.value==="__NOVA__"){s.value="";await novaOperacaoInline(s);}
-  ecacToggle(id);}
+  ecacToggle(id);
+  // 💡 dica "quando usar" (regras da Bruna, 23/11/2026)
+  const d=ge(id+"-dica");
+  if(d)d.innerHTML=QUANDO_USAR[s.value]?("&#128161; quando usar: "+esc(QUANDO_USAR[s.value])):"";}
 async function novaOperacaoInline(sel){
   const nm=String(prompt("Título da NOVA operação (como vai aparecer para todo mundo):\nEx.: Defesa Administrativa","")||"").trim();
   if(!nm)return;
@@ -9971,7 +10061,7 @@ function formNTCorpo(resp,interna){
   ge("nt-form").innerHTML=`
     ${resp?`<div class="aviso info" style="margin:6px 0">&#128100; Responsável deste cliente: <b>${esc(resp)}</b> (já selecionado)</div>`:""}
     <div class="linha-acao" style="margin-top:6px">
-      <select class="fsel" id="nt-op" onchange="opSelChange('nt-op')"><option value="">Tipo de operação *</option>${OPERACOES.map(o=>`<option>${esc(o)}</option>`).join("")}${E.perfil&&E.perfil.head_sim?'<option value="__NOVA__">&#10133; nova operação…</option>':""}</select>
+      <select class="fsel" id="nt-op" onchange="opSelChange('nt-op')"><option value="">Tipo de operação *</option>${OPERACOES.map(o=>`<option>${esc(o)}</option>`).join("")}${E.perfil&&E.perfil.head_sim?'<option value="__NOVA__">&#10133; nova operação…</option>':""}</select><div id="nt-op-dica" style="width:100%;font-size:10.5px;color:var(--dani)"></div>
       <select class="fsel" id="nt-chk">${["IMEDIATO","DIÁRIO","SEMANAL","MENSAL"].map(x=>`<option>${x}</option>`).join("")}</select></div>
     <div class="linha-acao"><select class="fsel" id="nt-ass" onchange="atualizarImedNT()">${alvosNT.map(a=>`<option ${a===resp?"selected":""}>${a}</option>`).join("")}</select>
       <label style="font-size:11px">Prazo fatal:</label><input type="date" class="fsel" id="nt-pf"></div>
@@ -10108,7 +10198,7 @@ function abrirNovoCliente(){
       Cadastrar <b>só o cliente</b>, sem lançar tarefa agora</label>
     <div id="nc-tarefa-w">
     <div class="bloco-t" style="margin-top:10px">Primeira tarefa</div>
-    <div class="linha-acao"><select class="fsel" id="nc-op" onchange="opSelChange('nc-op')"><option value="">Tipo de operação *</option>${OPERACOES.map(o=>`<option>${esc(o)}</option>`).join("")}${E.perfil&&E.perfil.head_sim?'<option value="__NOVA__">&#10133; nova operação…</option>':""}</select>
+    <div class="linha-acao"><select class="fsel" id="nc-op" onchange="opSelChange('nc-op')"><option value="">Tipo de operação *</option>${OPERACOES.map(o=>`<option>${esc(o)}</option>`).join("")}${E.perfil&&E.perfil.head_sim?'<option value="__NOVA__">&#10133; nova operação…</option>':""}</select><div id="nc-op-dica" style="width:100%;font-size:10.5px;color:var(--dani)"></div>
       <select class="fsel" id="nc-chk">${["IMEDIATO","DIÁRIO","SEMANAL","MENSAL"].map(x=>`<option>${x}</option>`).join("")}</select>
       <select class="fsel" id="nc-ass">${alvosCriacao().map(a=>`<option>${a}</option>`).join("")}</select></div>
     <textarea class="fta" id="nc-sup" style="margin-top:6px" placeholder="Orientação inicial (opcional)"></textarea>
