@@ -924,6 +924,7 @@ const S = {
   async checklistDe(id){return okS(await supa.rpc("checklist_de",{p_id_tarefa:id}))||[];},
   async checklistMarcar(id,chave,feito){return okS(await supa.rpc("checklist_marcar",{p_id_tarefa:id,p_chave:chave,p_feito:!!feito}));},
   async checklistObs(id,txt){return okS(await supa.rpc("checklist_obs",{p_id_tarefa:id,p_texto:txt||""}));},
+  async modeloArquivo(nome){return okS(await supa.rpc("modelo_arquivo",{p_nome:nome}));},
   async operacaoNova(nome){return okS(await supa.rpc("operacao_nova",{p_nome:nome}));},
   async config(){return{cap:okS(await supa.from("config_capacidade").select("*"))||[],
     tmp:okS(await supa.from("config_tempos").select("*"))||[],
@@ -3106,9 +3107,26 @@ function desenharCard(t,hist){
 }
 // ===== 📋 checklist de levantamento no card (Bruna, 23/11/2026, sql/158) =====
 function chkBoxHTML(t){
-  const nomePdf=CHECKLIST_OPS[t.operacao]==="COM"?"cliente COM contrato ativo":"cliente SEM contrato ativo";
+  const v=CHECKLIST_OPS[t.operacao];
+  const nomePdf=v==="COM"?"cliente COM contrato ativo":"cliente SEM contrato ativo";
   return `<div class="bloco"><div class="bloco-t">&#128203; Checklist do levantamento — ${nomePdf} <span id="chk-cont" style="color:var(--gray);font-weight:normal"></span></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:7px;font-size:11.5px">
+      <span>&#128229; <b>Modelo do relatório</b> (${v==="COM"?"cliente com contrato ativo":"prospecção/sem contrato"}):</span>
+      <button class="btn btp btsm" onclick="baixarModelo('${v}','docx')">&#128196; Word — para preencher</button>
+      <button class="btn bts btsm" onclick="baixarModelo('${v}','pdf')">PDF</button></div>
     <div id="chk-box" style="background:var(--gray-lt);border-radius:9px;padding:9px 12px;font-size:12px">carregando checklist…</div></div>`;
+}
+// ⬇ baixa o MODELO oficial guardado no banco (privado — só equipe logada)
+async function baixarModelo(variante,fmt){
+  let r;try{r=await DB.modeloArquivo("modelo-"+String(variante).toLowerCase()+"-"+fmt);}
+  catch(e){toast("Erro ao baixar o modelo: "+e.message,"erro");return;}
+  if(!r||!r.b64){toast("Modelo não encontrado.","erro");return;}
+  const bin=atob(r.b64);const u8=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++)u8[i]=bin.charCodeAt(i);
+  const blob=new Blob([u8],{type:r.tipo||"application/octet-stream"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);
+  a.download=r.arquivo||("modelo."+fmt);document.body.appendChild(a);a.click();a.remove();
+  toast("✓ Modelo baixado: "+(r.arquivo||""),"ok");
 }
 async function chkCarregar(t){
   let rows=[];try{rows=await DB.checklistDe(t.id_tarefa);}
