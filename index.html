@@ -3391,7 +3391,10 @@ function levTotalGlobal(){const v=E._lev.v;return ORC.r2(levTotalRFB()+(v.pgfn_t
 function levFaltas(){
   if(!E._lev)return 999;
   const its=levFichaDef(E._lev.variante).flatMap(s=>s.itens).filter(c=>["num","int","date","seg","txt"].includes(c.tipo));
-  return its.filter(c=>c.tipo==="seg"?!E._lev.x[c.id]:(c.tipo==="txt"||c.tipo==="date")?!(E._lev.x[c.id]||"").trim():E._lev.v[c.id]==null).length;}
+  return its.filter(c=>{
+    // sem impedimento ("Não"), a data de queda não é cobrada
+    if(c.id==="imped_queda"&&E._lev.x.x_imped==="Não")return false;
+    return c.tipo==="seg"?!E._lev.x[c.id]:(c.tipo==="txt"||c.tipo==="date")?!(E._lev.x[c.id]||"").trim():E._lev.v[c.id]==null;}).length;}
 function levBoxHTML(t){
   const v=CHECKLIST_OPS[t.operacao];
   return `<div class="bloco"><div class="bloco-t">&#128221; Levantamento &amp; precificação <span id="lev-cont" style="color:var(--gray);font-weight:normal"></span></div>
