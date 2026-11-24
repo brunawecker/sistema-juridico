@@ -941,6 +941,7 @@ const S = {
   async levantamentoDe(id){return okS(await supa.rpc("levantamento_de",{p_id_tarefa:id}));},
   async levantamentoSalvar(id,dados){return okS(await supa.rpc("levantamento_salvar",{p_id_tarefa:id,p_dados:dados}));},
   async vcGerar(id,hon){return okS(await supa.rpc("vc_gerar",{p_id_tarefa:id,p_honorarios:hon}));},
+  async precifFeedback(id,prod,sug,aj,motivo){return okS(await supa.rpc("precif_feedback",{p_id_tarefa:id,p_produto:prod,p_valor_sugerido:sug,p_valor_ajustado:aj,p_motivo:motivo}));},
   async vcResposta(req){return okS(await supa.rpc("vc_resposta",{p_req:req}));},
   async modeloArquivo(nome){return okS(await supa.rpc("modelo_arquivo",{p_nome:nome}));},
   async operacaoNova(nome){return okS(await supa.rpc("operacao_nova",{p_nome:nome}));},
@@ -3424,7 +3425,7 @@ async function levCarregar(t){
   const legN=(legado||[]).filter(r=>r.chave!=="_obs").length;
   E._lev={tarefa:t.id_tarefa,variante:CHECKLIST_OPS[t.operacao],
     v:d.v||{},x:d.x||{},l:Object.assign({parc_rfb:[],neg_pgfn:[]},d.l||{}),sel:d.sel||[],
-    doc:d.doc||null,vc:d.vc||null,
+    doc:d.doc||null,vc:d.vc||null,aj:d.aj||{},
     legadoOk:legN>=chkItens(t.operacao).length&&legN>0,
     salvoEm:reg?reg.atualizado:null,autor:reg?reg.autor:null,dirty:false};
   levResumoCard();
@@ -3447,7 +3448,7 @@ function levSalvaAgenda(){
 async function levSalvaFlush(){
   if(!E._lev||!E._lev.dirty)return;
   const L=E._lev;
-  try{await DB.levantamentoSalvar(L.tarefa,{v:L.v,x:L.x,l:L.l,sel:L.sel,doc:L.doc||null,vc:L.vc||null});}
+  try{await DB.levantamentoSalvar(L.tarefa,{v:L.v,x:L.x,l:L.l,sel:L.sel,doc:L.doc||null,vc:L.vc||null,aj:L.aj||{}});}
   catch(e){const st=ge("lev-status");if(st)st.textContent="⚠ erro ao salvar";toast("Erro ao salvar o levantamento: "+e.message,"erro");return;}
   L.dirty=false;L.salvoEm=new Date().toISOString();L.autor=E.perfil.nome_sistema;
   const st=ge("lev-status");if(st)st.textContent="salvo ✓ "+new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
@@ -3585,7 +3586,7 @@ async function levVcGerar(){
   const f=L.legadoOk?0:levFaltas();
   if(f>0&&!confirm("A ficha ainda tem "+f+" campo(s) em aberto — a IA vai marcar [CONFIRMAR] no que faltar. Gerar mesmo assim?"))return;
   L.v.rfb_total=levTotalRFB();
-  const o=ORC.orcar(L.sel,L.v);
+  const o=levAplicaAjustes(ORC.orcar(L.sel,L.v));
   const hon=levTextoProposta()
     +"\nTotal do investimento fixo à vista: "+(o.totalFixo>0?ORC.fmt(o.totalFixo):"—")
     +" · Êxito estimado: "+(o.exito&&o.exito.valor!=null?ORC.fmt(o.exito.valor):"20% sobre o desconto obtido");
@@ -3707,6 +3708,44 @@ const LEV_PRE_CAMPOS=[
 function levTgl(k){const L=E._lev;
   L.sel=L.sel.includes(k)?L.sel.filter(x=>x!==k):[...L.sel,k];
   levSalvaAgenda();levDesenhaPre();}
+// ✏ ajuste de valores da precificação — SÓ Malu e Madu (Bruna, 24/11/2026);
+// os demais seguem o sugerido. Todo ajuste/avaliação exige motivo e vira
+// feedback no banco (sql/166) — o robô resume no fim do dia p/ a Bruna.
+const LEV_PRECIF_EDITORAS=["Malu","Madu"];
+function levPodeAjustar(){return LEV_PRECIF_EDITORAS.includes(E.perfil.nome_sistema);}
+function levAplicaAjustes(o){
+  const L=E._lev;if(!L||!L.aj)return o;
+  o.blocos.forEach(b=>{const a=L.aj[b.chave];
+    if(!a||a.valor==null||b.valor==null||b.alerta==="vermelho")return;
+    b.ajuste={de:b.valor,por:a.por,motivo:a.motivo};
+    b.valor=ORC.r2(+a.valor);
+    if(b.pag)b.pag=ORC.pag(b.valor);
+    if(b.met1!=null){b.met1=Math.ceil(b.valor*100/2)/100;b.met2=ORC.r2(b.valor-b.met1);}
+    if(b.soBoleto!=null)b.soBoleto=ORC.r2(b.valor*ORC.P.SO_BOLETO/ORC.P.SO_AVISTA/6);});
+  const fixos=o.blocos.filter(b=>b.pag&&b.alerta!=="vermelho"&&!b.exito&&b.chave!=="soex");
+  o.totalFixo=ORC.r2(fixos.reduce((s,b)=>s+b.valor,0));
+  return o;}
+function levAjAbrir(chave){E._levAjAberto=chave;levDesenhaPre();}
+async function levAjSalvar(chave){
+  const L=E._lev;if(!L)return;
+  const motivo=((ge("lev-aj-m")||{}).value||"").trim();
+  if(!motivo){toast("Explique o motivo — é ele que alimenta a melhoria das regras.","erro");return;}
+  const bruto=((ge("lev-aj-v")||{}).value||"").trim();
+  const novo=bruto?levParseBR(bruto):null;
+  if(bruto&&(!novo||novo<=0)){toast("Valor inválido.","erro");return;}
+  const sugerido=(E._levOrcBase||{})[chave];
+  const prod=(LEV_PRODUTOS.find(p=>p.k===chave)||{}).n||chave;
+  try{await DB.precifFeedback(L.tarefa,prod,sugerido!=null?sugerido:null,novo,motivo);}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  if(novo!=null){L.aj[chave]={valor:novo,por:E.perfil.nome_sistema,motivo:motivo};levSalvaAgenda();}
+  E._levAjAberto=null;
+  toast(novo!=null?"✓ Valor ajustado e feedback registrado — o robô leva para a Bruna no fim do dia.":"✓ Feedback registrado — o robô leva para a Bruna no fim do dia.","ok");
+  levDesenhaPre();levDesenhaParecer();}
+function levAjDesfazer(chave){
+  const L=E._lev;if(!L||!L.aj[chave])return;
+  delete L.aj[chave];levSalvaAgenda();
+  toast("Ajuste desfeito — vale o valor sugerido pelo sistema.","ok");
+  levDesenhaPre();levDesenhaParecer();}
 function levDesenhaPre(){
   const box=ge("lev-v-pre");if(!box||!E._lev)return;
   const L=E._lev,F=ORC.fmt;
@@ -3735,10 +3774,13 @@ function levDesenhaPre(){
   vis.filter(c=>c.tipo==="sel").forEach(c=>{if(L.v[c.id]==null)L.v[c.id]=+c.ops[0][0];});
   let res="",tot="";
   if(L.sel.length){
-    const o=ORC.orcar(L.sel,L.v);E._levOrc=o;
+    const o=ORC.orcar(L.sel,L.v);
+    E._levOrcBase={};o.blocos.forEach(b=>{E._levOrcBase[b.chave]=b.valor;});
+    levAplicaAjustes(o);E._levOrc=o;
     res=o.blocos.map(b=>{
       const corB={verde:"var(--green)",amarelo:"var(--amber)",vermelho:"var(--red)"}[b.alerta];
       const pill={verde:["tek","Conferido"],amarelo:["td2","Requer aprovação de "+ORC.P.APROVADORES],vermelho:["ti","Bloqueado"]}[b.alerta];
+      const tagAj=b.ajuste?`<span class="tag ts" title="motivo: ${esc(b.ajuste.motivo)}">✏ ajustado · ${esc(b.ajuste.por)}</span>`:"";
       let corpo="";
       if(b.alerta==="vermelho")corpo=`<div style="font-size:12px;margin-top:5px;padding:7px 10px;border-radius:8px;background:var(--red-lt);color:var(--red)">${b.msg}</div>`;
       else{
@@ -3750,9 +3792,22 @@ function levDesenhaPre(){
           <div style="font-size:12px;color:var(--gray);line-height:1.7">cartão: <b>12x de ${F(b.pag.cartao)}</b> · boleto: <b>3x de ${F(b.pag.b3)}</b> sem acréscimo ou <b>6x de ${F(b.pag.b6)}</b></div>`;
           if(b.mensal!=null)corpo+=`<div style="font-size:12px;color:var(--gray)">mensal: <b>${F(b.mensal)}</b>${b.meses?" por "+b.meses+" meses":" + êxito de 20% sobre o que for extinto"}</div>`;}
         if(b.mem.length)corpo+=`<details style="margin-top:7px"><summary style="font-size:11px;color:var(--navy);cursor:pointer;font-weight:700">memória de cálculo</summary><table style="font-size:11.5px;margin-top:4px;width:100%;border-collapse:collapse">${b.mem.map(x2=>`<tr><td style="color:var(--gray);padding:2px 10px 2px 0;border-bottom:1px dashed var(--border)">${x2[0]}</td><td style="text-align:right;font-family:'DM Mono',monospace;border-bottom:1px dashed var(--border)">${x2[1]}</td></tr>`).join("")}</table></details>`;}
+      if(b.ajuste)corpo+=`<div style="font-size:11.5px;background:#EDE9FE;color:#7C3AED;border-radius:8px;padding:6px 10px;margin-top:6px">✏ Valor ajustado por <b>${esc(b.ajuste.por)}</b> — sugerido pelo sistema: <b style="font-family:'DM Mono',monospace">${F(b.ajuste.de)}</b><br><span style="font-size:11px">motivo: ${esc(b.ajuste.motivo)}</span></div>`;
+      if(levPodeAjustar()&&b.alerta!=="vermelho"){
+        if(E._levAjAberto===b.chave)corpo+=`<div style="background:var(--gray-lt);border-radius:9px;padding:9px 11px;margin-top:7px">
+          <div style="font-size:11px;font-weight:700;margin-bottom:3px">Novo valor — deixe vazio para manter ${F((E._levOrcBase||{})[b.chave])} e só avaliar a regra</div>
+          <input class="fi" id="lev-aj-v" inputmode="decimal" placeholder="${F((E._levOrcBase||{})[b.chave])}" style="margin:0 0 6px">
+          <div style="font-size:11px;font-weight:700;margin-bottom:3px">Motivo * <span style="font-weight:400;color:var(--gray)">(vai para a Bruna no resumo do robô)</span></div>
+          <textarea class="fta" id="lev-aj-m" rows="2"></textarea>
+          <div class="linha-acao" style="margin-top:5px">
+            <button class="btn btp btsm" onclick="levAjSalvar('${b.chave}')">💾 Salvar</button>
+            <button class="btn bts btsm" onclick="levAjAbrir(null)">Cancelar</button></div></div>`;
+        else corpo+=`<div style="margin-top:7px">
+          <button class="btn bts btsm" onclick="levAjAbrir('${b.chave}')">✏ ajustar valor / avaliar regra</button>
+          ${b.ajuste?`<button class="btn bts btsm" onclick="levAjDesfazer('${b.chave}')">↩ desfazer ajuste</button>`:""}</div>`;}
       return `<div class="painel" style="border-left:4px solid ${corB};margin-bottom:9px">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-          <b style="font-size:13.5px">${b.nome}</b><span class="tag ${pill[0]}">${pill[1]}</span></div>${corpo}</div>`;}).join("");
+          <b style="font-size:13.5px">${b.nome}</b><span style="display:flex;gap:4px;flex-wrap:wrap">${tagAj}<span class="tag ${pill[0]}">${pill[1]}</span></span></div>${corpo}</div>`;}).join("");
     tot=`<div class="painel" style="background:linear-gradient(135deg,var(--dani),var(--navy));color:white;display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap">
       <div><div style="font-size:9.5px;font-weight:700;letter-spacing:.07em;opacity:.8;text-transform:uppercase">Investimento fixo à vista</div>
         <div style="font-size:18px;font-family:'DM Mono',monospace">${o.totalFixo>0?F(o.totalFixo):"—"}</div></div>
@@ -3767,7 +3822,7 @@ function levDesenhaPre(){
 function levTextoProposta(){
   const L=E._lev;if(!L||!L.sel.length)return "";
   L.v.rfb_total=levTotalRFB();
-  const o=ORC.orcar(L.sel,L.v),F=ORC.fmt,Ls=[];
+  const o=levAplicaAjustes(ORC.orcar(L.sel,L.v)),F=ORC.fmt,Ls=[];
   o.blocos.forEach(b=>{
     if(b.alerta==="vermelho")return;
     const nome=(b.chave==="laudo"&&b.nome==="Laudo CAPAG")?"Laudo de capacidade de pagamento":b.nome;
