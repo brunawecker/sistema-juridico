@@ -596,13 +596,20 @@ def sincronizar_agendas(sess):
 # corretores-assessores que assumem quando a head não corrige no prazo
 CORRETORES = ["Malu", "Madu", "Ygor"]
 
+# TRAVADAS com a Danielly (Bruna, 24/11/2026): a exceção geral dela acabou —
+# todas as heads seguem o mesmo fluxo. Só estes ANTIGOS (set/out 2026) ficam
+# com ela até ela mesma devolver; o robô não os redireciona.
+CORR_TRAVADAS_DANI = ["OP-0722", "OP-0826", "OP-0864", "OP-0929",
+                      "OP-0946", "OP-0964", "OP-1057", "OP-1517"]
+
 
 def escalar_correcoes_vencidas():
     """Correção que a HEAD não fez no prazo (1 dia útil) é enviada automaticamente
     para o corretor de MENOR CARGA entre Malu/Madu/Ygor, considerando férias/home
     office (ausente_ate). Renova o prazo em +1 dia útil e registra no histórico.
-    EXCEÇÃO (Bruna, 29/09/2026): correção da Danielly NUNCA é redirecionada —
-    fica com ela até ela mesma devolver (combinado da central do dia)."""
+    Desde 24/11/2026 TODAS as heads seguem este fluxo (a exceção geral da
+    Danielly de 29/09 acabou); só os antigos de CORR_TRAVADAS_DANI ficam
+    travados com ela até ela mesma devolver."""
     hoje = date.today()
     prox = hoje + _td(days=1)
     while prox.weekday() >= 5:            # sábado(5)/domingo(6) -> segunda
@@ -612,13 +619,14 @@ def escalar_correcoes_vencidas():
             """select o.id_tarefa, o.id_cliente, o.correcao_head
                  from juridico.operacional o
                 where coalesce(o.correcao_head,'') <> ''
-                  and o.correcao_head <> 'Danielly'
+                  and not (o.correcao_head = 'Danielly'
+                           and o.id_tarefa = any(%s))
                   and o.correcao_retorno_dt is not null
                   and o.correcao_retorno_dt < %s
                   and exists (select 1 from juridico.equipe e
                               where e.nome_sistema = o.correcao_head
                                 and e.cargo ilike '%%head%%')""",
-            (hoje,))
+            (CORR_TRAVADAS_DANI, hoje))
         vencidas = cur.fetchall()
         movidas = 0
         for id_tar, id_cli, head_antes in vencidas:
