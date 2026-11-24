@@ -691,6 +691,72 @@ def escalar_correcoes_vencidas():
             print(f"correções vencidas redirecionadas para corretores: {movidas}")
 
 
+def analisar_feedbacks_precificacao():
+    """Fim do dia (a partir das 18h de Brasília): pega os feedbacks/ajustes de
+    precificação da Malu e da Madu ainda não analisados, pede à IA um resumo
+    com sugestões CONCRETAS de melhoria das regras e entrega como lembrete
+    para a Bruna no sistema (ela cola o resumo no Claude para aplicar).
+    Roda uma vez por lote: as linhas são marcadas como analisadas."""
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo as _ZI
+    if os.environ.get("PRECIF_FORCAR") != "1" and _dt.now(_ZI("America/Sao_Paulo")).hour < 18:
+        return
+    with psycopg.connect() as conn, conn.cursor() as cur:
+        cur.execute("""select id, to_char(criado at time zone 'America/Sao_Paulo','DD/MM HH24:MI'),
+                              autor, coalesce(cliente,'?'), produto,
+                              valor_sugerido, valor_ajustado, motivo
+                         from juridico.precif_feedbacks where not analisado order by criado""")
+        rows = cur.fetchall()
+        if not rows:
+            return
+        cur.execute("select valor from juridico.segredos where nome='anthropic_api_key'")
+        r = cur.fetchone()
+        if not r:
+            print("precif: sem chave da IA"); return
+        k = r[0]
+        def br(v):
+            return "—" if v is None else f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        linhas = "\n".join(
+            f"- {dt} · {autor} · cliente {cli} · {prod} · sugerido {br(s)} · "
+            + (f"ajustado para {br(a)}" if a is not None else "SÓ feedback, sem ajuste")
+            + f" · motivo: {mot}"
+            for (_id, dt, autor, cli, prod, s, a, mot) in rows)
+        sys_p = ("Você analisa os ajustes e feedbacks que Maria Luiza (Malu) e Maria Eduarda (Madu) — "
+                 "as autoridades de precificação do Grupo Villela — deixaram sobre os valores sugeridos "
+                 "pelo motor de orçamento do sistema jurídico. Sua tarefa: um resumo CURTO em português "
+                 "leigo para a Bruna (dona do sistema), com (1) os padrões que aparecem nos motivos e "
+                 "(2) sugestões CONCRETAS de mudança de regra (ex.: 'piso do laudo de X para Y quando...', "
+                 "'fator do boleto...'), citando os casos que sustentam cada sugestão. Se os dados forem "
+                 "poucos para concluir, diga isso. No máximo 15 linhas, texto corrido com traços, sem "
+                 "markdown. Nunca invente valores que não estejam nos feedbacks.")
+        corpo = {"model": "claude-sonnet-5-5", "max_tokens": 1500,
+                 "system": sys_p,
+                 "messages": [{"role": "user", "content":
+                     "Feedbacks e ajustes pendentes de análise:\n" + linhas}]}
+        try:
+            resp = requests.post("https://api.anthropic.com/v1/messages",
+                                 json=corpo, timeout=120,
+                                 headers={"x-api-key": k, "anthropic-version": "2023-06-01",
+                                          "content-type": "application/json"})
+            dados = resp.json()
+            resumo = "".join(c.get("text", "") for c in dados.get("content", [])
+                             if c.get("type") == "text").strip()
+            if not resumo:
+                print(f"precif: IA sem texto ({resp.status_code})"); return
+        except Exception as e:
+            print(f"precif: IA falhou — {e}"); return
+        texto = ("🤖 PRECIFICAÇÃO — melhorias sugeridas a partir de "
+                 f"{len(rows)} feedback(s) da Malu/Madu:\n\n" + resumo
+                 + "\n\n(Para aplicar: cole este resumo na conversa com o Claude.)")
+        cur.execute("""insert into juridico.lembretes(cliente, texto, data_lembrete, alvo, criado_por, feito)
+                       values ('📊 Regras de precificação', %s, current_date, 'para mim', 'Bruna', false)""",
+                    (texto,))
+        cur.execute("update juridico.precif_feedbacks set analisado=true where id = any(%s)",
+                    ([r0[0] for r0 in rows],))
+        conn.commit()
+        print(f"precif: resumo de {len(rows)} feedback(s) entregue à Bruna")
+
+
 def main():
     sess = sessao_google()
     hoje = date.today()
@@ -821,6 +887,11 @@ def main():
         escalar_correcoes_vencidas()
     except Exception as e:
         print(f"escalar correções: falhou sem afetar o resto — {e}")
+    # fim do dia: resumo dos feedbacks de precificação (Malu/Madu) p/ a Bruna
+    try:
+        analisar_feedbacks_precificacao()
+    except Exception as e:
+        print(f"feedbacks precificação: falhou sem afetar o resto — {e}")
     bater_coracao()
     print(f"ok: {len(linhas_cob)} lançamento(s) da aba '{aba_usada}'")
     return 0
