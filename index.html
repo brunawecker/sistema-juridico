@@ -3403,7 +3403,10 @@ function levBoxHTML(t){
       <button class="btn bts btsm" onclick="baixarModelo('${v}','docx')">&#128196; Word em branco</button>
       <button class="btn bts btsm" onclick="baixarModelo('${v}','pdf')">PDF</button></div>
     <div id="lev-resumo" style="background:var(--gray-lt);border-radius:9px;padding:9px 12px;font-size:12px">carregando levantamento…</div>
-    <div class="linha-acao" style="margin-top:7px"><button class="btn btp" onclick="levAbrir()">&#128221; Abrir levantamento &amp; precificação</button></div></div>`;}
+    <div class="linha-acao" style="margin-top:7px;flex-wrap:wrap">
+      <button class="btn btp" onclick="levAbrir()">&#128221; Abrir levantamento</button>
+      <button class="btn bts" onclick="levAbrir('par')">&#128196; Parecer (baixar em Word)</button>
+      <button class="btn bts" onclick="levAbrir('pre')">&#128176; Precificação</button></div></div>`;}
 async function levCarregar(t){
   E._lev=null;
   let reg=null,legado=[];
@@ -3445,7 +3448,7 @@ function levCliente(){
   const c=(E._cliCard&&E._cliCard.id_cliente===t.id_cliente?E._cliCard:null)||(E._cli||{})[t.id_cliente]||{};
   return{nome:t.cliente||c.nome||"",cnpj:c.cnpj_cpf||"",mun:[String(c.municipio||"").trim(),String(c.uf||"").trim().toUpperCase()].filter(Boolean).join("/"),
     regime:c.regime||"",ecac:c.e_cac||""};}
-function levAbrir(){
+function levAbrir(abaInicial){
   if(!E._lev||!E.atual||E._lev.tarefa!==E.atual.id_tarefa){toast("O levantamento ainda está carregando — tente de novo em um instante.","erro");return;}
   let ov=ge("lev-ov");
   if(!ov){ov=document.createElement("div");ov.id="lev-ov";
@@ -3468,7 +3471,7 @@ function levAbrir(){
     <div id="lev-v-fic"></div>
     <div id="lev-v-par" style="display:none"></div>
     <div id="lev-v-pre" style="display:none"></div></div>`;
-  levRender();levAba("fic");}
+  levRender();levAba(abaInicial==="par"||abaInicial==="pre"?abaInicial:"fic");}
 function levFechar(){clearTimeout(E._levTimer);levSalvaFlush();const ov=ge("lev-ov");if(ov)ov.style.display="none";}
 function levAba(k){["fic","par","pre"].forEach(x=>{
   const v=ge("lev-v-"+x);if(v)v.style.display=x===k?"block":"none";
