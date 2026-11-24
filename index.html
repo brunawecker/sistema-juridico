@@ -5558,18 +5558,22 @@ async function telaCentral(){
   },60000);
 }
 // ✏️ Correções na mesa da head, em tempo real (Bruna, 21/09/2026):
-// mostra o que chegou no dia; passou do prazo de retorno, SAI da Central —
-// exceção: Danielly (as dela não saem por prazo)
+// mostra o que chegou no dia; passou do prazo de retorno, SAI da Central.
+// Desde 24/11/2026 TODAS as heads seguem o mesmo fluxo (acabou a exceção
+// geral da Danielly) — só as ANTIGAS travadas com ela continuam à vista aqui
+// até ela devolver (o robô também não as redireciona).
+const CORR_TRAVADAS_DANI=["OP-0722","OP-0826","OP-0864","OP-0929","OP-0946","OP-0964","OP-1057","OP-1517"];
 function desenhaCorrCentral(ts){
   const box=ge("ct-corr");if(!box)return;
   const eu=E.perfil.nome_sistema;
   const dias=v=>v?diasAte(String(v).slice(0,10)):null;
   let minhas=(ts||[]).filter(t=>t._emCorrecao
     &&String(t.correcao_head||"").trim().toLowerCase()===eu.toLowerCase());
-  const vencidas=minhas.filter(t=>{const d=dias(t.correcao_retorno_dt);return d!==null&&d<0;});
+  const travada=t=>eu==="Danielly"&&CORR_TRAVADAS_DANI.includes(t.id_tarefa);
+  const vencidas=minhas.filter(t=>{const d=dias(t.correcao_retorno_dt);return d!==null&&d<0&&!travada(t);});
   // heads: vencida sai daqui e vai para o pool de puxar; corretores que NÃO
-  // são heads (Malu/Madu/Ygor) e a Dani seguem vendo as vencidas — é atraso deles
-  if(eu!=="Danielly"&&E.perfil.head_sim)minhas=minhas.filter(t=>{const d=dias(t.correcao_retorno_dt);return d===null||d>=0;});
+  // são heads (Malu/Madu/Ygor) seguem vendo as vencidas — é atraso deles
+  if(E.perfil.head_sim)minhas=minhas.filter(t=>{if(travada(t))return true;const d=dias(t.correcao_retorno_dt);return d===null||d>=0;});
   if(!minhas.length){box.innerHTML="";return;}
   const chegouHj=t=>String(t.correcao_data_dt||"").slice(0,10)===hojeISO();
   minhas.sort((a,b)=>String(b.correcao_data_dt||"").localeCompare(String(a.correcao_data_dt||"")));
@@ -5582,7 +5586,7 @@ function desenhaCorrCentral(ts){
         ${chegouHj(t)?'<span class="tag tek">chegou hoje</span> ':""}<b>${esc(t.cliente)}</b> · ${esc(t.operacao||"")} · &#128100; ${esc(t.assessor||"")} ${pr}</span>
         <span style="white-space:nowrap">${t.correcao_link&&urlPasta(t.correcao_link)?`<a href="${esc(urlPasta(t.correcao_link))}" target="_blank" onclick="salvarPastaSeVazia('${esc(t.id_cliente||"")}','${esc(urlPasta(t.correcao_link))}')" class="btn bts btsm" style="text-decoration:none">&#128193; Pasta</a> `:t.correcao_link?'<span style="font-size:10.5px;color:var(--gray)">&#128206; anexo no card</span> ':""}
         <button class="btn bts btsm" onclick="abrirTarefa('${esc(t.id_tarefa)}')">corrigir</button></span></div>`;}).join("")}
-    <div style="font-size:10.5px;color:var(--gray);margin-top:4px">${E.perfil.head_sim&&eu!=="Danielly"?`Passou do prazo de retorno, a correção sai daqui (${vencidas.length} já saíram hoje por prazo${vencidas.length?" — estão no painel Para Corrigir do Minhas Tarefas":""}).`:`Correção vencida continua à vista e conta como <b style="color:var(--red)">atraso de quem corrige</b> — devolva o quanto antes.`}</div></div>`;
+    <div style="font-size:10.5px;color:var(--gray);margin-top:4px">${E.perfil.head_sim?`Passou do prazo de retorno, a correção sai daqui (${vencidas.length} já saíram hoje por prazo${vencidas.length?" — estão no painel Para Corrigir do Minhas Tarefas":""}).${minhas.some(travada)?" As antigas travadas com você continuam aqui até serem devolvidas.":""}`:`Correção vencida continua à vista e conta como <b style="color:var(--red)">atraso de quem corrige</b> — devolva o quanto antes.`}</div></div>`;
 }
 // 🔁 Central da head (Bruna, 19/09/2026): pedidos de redirecionamento para
 // decidir + prazos fatais que estão com quem NÃO é o responsável pelo cliente
