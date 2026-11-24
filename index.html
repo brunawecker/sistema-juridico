@@ -706,6 +706,7 @@ const L = {  // modo local (servidor de teste na máquina)
   historicoTimers(d){return this.f("/api/historico_periodo?dias="+d);},
   roboStatus(){return this.f("/api/robo_status");},
   async equipeSet(){throw new Error("Gestão da equipe funciona no site publicado.");},
+  async equipeAusencia(){throw new Error("Gestão da equipe funciona no site publicado.");},
   async equipeAdd(){throw new Error("Gestão da equipe funciona no site publicado.");},
   async presencaPing(){return{ok:true};},
   async presencas(){return[];},
@@ -830,6 +831,7 @@ const S = {
   async snapAssessores(d){return okS(await supa.from("snapshot_assessor").select("*").eq("data_dt",d))||[];},
   async equipeSet(nome,campos){const r=await supa.from("equipe").update(campos).eq("nome_sistema",nome).select();okS(r);
     if(!(r.data||[]).length)throw new Error("Sem permissão (só admin) ou membro não encontrado.");return{ok:true};},
+  async equipeAusencia(nome,ate){return okS(await supa.rpc("equipe_ausencia",{p_nome:nome,p_ate:ate}));},
   async equipeAdd(m){okS(await supa.from("equipe").insert(m));return{ok:true};},
   async presencaPing(){try{await supa.from("presenca").upsert({nome:E.perfil.nome_sistema,ultima:new Date().toISOString()});}catch(e){}return{ok:true};},
   async presencas(){return okS(await supa.from("presenca").select("*"))||[];},
@@ -2004,10 +2006,10 @@ function erro(m){ge("conteudo").innerHTML=`<div class="vazio">&#9888; ${esc(m)}<
 async function salvarAusencia(n){
   const d=ge("cfg-aus-"+n).value;
   if(!d){toast("Escolha a data de volta (último dia de ausência).","erro");return;}
-  try{await DB.equipeSet(n,{ausente_ate:d});}catch(e){toast("Erro: "+e.message,"erro");return;}
+  try{await DB.equipeAusencia(n,d);}catch(e){toast("Erro: "+e.message,"erro");return;}
   E.equipe=await DB.equipe();toast(n+" marcado(a) como ausente até "+brData(d)+".","ok");telaConfig();}
 async function limparAusencia(n){
-  try{await DB.equipeSet(n,{ausente_ate:null});}catch(e){toast("Erro: "+e.message,"erro");return;}
+  try{await DB.equipeAusencia(n,null);}catch(e){toast("Erro: "+e.message,"erro");return;}
   E.equipe=await DB.equipe();toast(n+" de volta ao jogo! 🎉","ok");telaConfig();}
 async function telaConfig(){setNav("cfg","Configurações");carregando();
   if(!E.perfil.head_sim){erro("Esta tela é só para heads.");return;}
@@ -9788,11 +9790,52 @@ function reuPendentesDe(reu){
 }
 async function checarResumosPendentes(reu){
   if(E.atual)return false;                            // não interrompe um cartão de tarefa aberto
-  if(!reu){try{reu=await DB.reunioes();}catch(e){return false;}}
-  const pend=reuPendentesDe(reu);if(!pend.length)return false;
+  if(!reu){try{reu=await DB.reunioes();}catch(e){return checarResumoProspeccao();}}
+  const pend=reuPendentesDe(reu);if(!pend.length)return checarResumoProspeccao();
   E._reuMap=E._reuMap||{};pend.forEach(r=>E._reuMap[r.id_reuniao]=r);
   pedirResumoReuniao(pend[0].id_reuniao,pend.length);return true;
 }
+// 🎯 resumo diário de prospecção (Bruna, 24/11/2026): quem tem bloco FIXO de
+// prospecção (prospeccao_sempre — hoje a Madu) precisa registrar pelo menos um
+// relatório 🎯 por dia útil. A partir das 16h sem registro, a mesma perseguição
+// dos resumos de reunião cobra; parar o relógio 🎯 (que já exige o relatório)
+// também quita o dia.
+async function checarResumoProspeccao(){
+  const n=E.perfil&&E.perfil.nome_sistema;
+  if(!n||E.perfil.vendo_como_outro||E.perfil.head_sim)return false;
+  if(!((PROSPEC[n]||0)>0&&PROSPEC_SEMPRE[n]))return false;
+  const ag=new Date();
+  if(ag.getDay()===0||ag.getDay()===6||ag.getHours()<16)return false;
+  if(E._avulsa&&String(E._avulsa.desc||"").indexOf("🎯 Prospecção")>-1)return false; // relógio ligado — o fecho cobra
+  if(E._prosResumoOkDia===hojeISO())return false;
+  let feito=false;
+  try{const hist=await DB.historicoPeriodo(1),hj=hojeISO();
+    (hist||[]).forEach(r=>{if(String(r.data_dt||"").slice(0,10)!==hj)return;
+      if(!ehMeuNome(r.autor))return;
+      if(String(r.texto||"").indexOf("🎯 Prospecção — base:")>-1)feito=true;});}
+  catch(e){return false;}
+  if(feito){E._prosResumoOkDia=hojeISO();return false;}
+  abrirResumoProspeccaoDia();return true;
+}
+function abrirResumoProspeccaoDia(){
+  modal2("&#127919; Resumo da prospecção de hoje","Obrigatório para quem tem bloco fixo de prospecção — vai para as heads",`
+    <div style="font-size:11px;color:var(--gray);margin-bottom:6px">Você tem ${fmtMin(PROSPEC[E.perfil.nome_sistema]||0)} reservadas por dia para prospecção e hoje ainda não há nenhum relatório registrado. Conte como foi — e se não deu para prospectar, explique o motivo.</div>
+    <div class="bloco-t">Em que base você prospectou? *</div>
+    <select class="fsel" id="rp-base" style="width:100%"><option value="">— escolha —</option>
+      ${BASES_PROSPECCAO.map(x=>`<option>${esc(x)}</option>`).join("")}
+      <option>Não consegui prospectar hoje (explique abaixo)</option></select>
+    <div class="bloco-t" style="margin-top:9px">O que você conseguiu? *</div>
+    <textarea class="fta" id="rp-rel" placeholder="Ex.: 12 contatos, 3 interessados, 1 reunião marcada para quinta — ou o motivo de não ter prospectado"></textarea>
+    <button class="btn btp btw" style="margin-top:8px" onclick="umaVez(confirmarResumoProspeccaoDia)">&#128190; Registrar resumo do dia</button>
+    <div style="font-size:10.5px;color:var(--gray);text-align:center;margin-top:6px">Dica: ligando o relógio &#127919; na sua tela de tarefas, o relatório é pedido ao parar — e já vale como o resumo do dia.</div>`);}
+async function confirmarResumoProspeccaoDia(){
+  const b=(ge("rp-base")||{}).value||"",r=((ge("rp-rel")||{}).value||"").trim();
+  if(!b){toast("Diga em que base você prospectou (ou marque que não conseguiu).","erro");return;}
+  if(!r){toast("Conte o que conseguiu — é o relatório que as heads acompanham.","erro");return;}
+  try{await DB.nota({id_tarefa:"AVULSA",id_cliente:null,tipo:"HISTORICO",texto:`🎯 Prospecção — base: ${b} | ${r}`});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  E._prosResumoOkDia=hojeISO();
+  fecharModal2();toast("Resumo de prospecção registrado — obrigada!","ok");}
 // re-renderiza a tela atual (para o resumo salvo aparecer na hora)
 function recarregarTelaAtual(){const it=(E._itens||[]).find(i=>i[0]===E.view);if(it){E._cacheT=null;it[3]();}}
 function pedirResumoReuniao(id,restantes){
