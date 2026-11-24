@@ -380,7 +380,10 @@ const nrmNome=s=>String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"")
 const semAc=s=>String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
 // tarefas de parecer n\u00e3o exigem aviso no grupo de WhatsApp (decis\u00e3o da head,
 // 04/08/2026 \u2014 o parecer \u00e9 interno, n\u00e3o \u00e9 movimento para o cliente ver)
-const dispensaGrupo=t=>/Proposta Comercial|Proposta para franqueado/.test(String((t&&t.operacao)||""));
+// 24/11/2026 (Bruna): TODAS as operações de parecer (as que têm ficha de
+// levantamento, CHECKLIST_OPS) ficam dispensadas do aviso no WhatsApp.
+const dispensaGrupo=t=>{const op=String((t&&t.operacao)||"");
+  return /Proposta Comercial|Proposta para franqueado/.test(op)||!!CHECKLIST_OPS[op];};
 // levantamentos podem ir DIRETO ao advogado (sem aviso no grupo) — o assessor
 // marca uma das duas caixinhas para finalizar (pedido da Bruna, 12/08/2026)
 const ehLevantamento=t=>String((t&&t.operacao)||"").toUpperCase().includes("LEVANTAMENTO");
@@ -3232,7 +3235,7 @@ function chkConfirmaConclusao(t){
   if(E._lev.legadoOk)return true;
   const f=levFaltas();
   if(f===0)return true;
-  toast("📝 Para concluir é obrigatório completar a ficha de levantamento — faltam "+f+" campo(s). O que não se aplica: preencha 0 ou \"N/A\".","erro");
+  toast("📝 Para concluir é obrigatório completar a ficha de levantamento — faltam "+f+" campo(s). O que não se aplica: preencha 0 ou \"N/A\". Travado por algo do cliente (ex.: e-CAC não liberado)? Reagende com 💾 Salvar + data futura — o sistema pede a justificativa.","erro");
   return false;
 }
 // ⏰ vigia (23/11, adaptado em 24/11/2026): card aberto 10 min sem preencher
@@ -4397,6 +4400,16 @@ async function salvarFreqData(){
       const motivo=(prompt("Justifique a mudança de data/frequência deste IMPULSO (obrigatório — vai para o histórico e o dono verá):")||"").trim();
       if(!motivo){toast("Sem justificativa o impulso não é reagendado.","erro");return;}
       notaImp=`🗓 Impulso reagendado${dm?` para ${brData(dm)}`:""} (frequência ${check}) — motivo: ${motivo}`;}}
+  // 24/11/2026 (Bruna): parecer com ficha INCOMPLETA pode ser reagendado sem
+  // concluir (ex.: e-CAC não liberado) — mas exige justificativa no histórico
+  // E a confirmação de que o assessor JÁ COBROU o cliente pela pendência.
+  if(!t._impulso&&CHECKLIST_OPS[t.operacao]&&!t._concluida&&(dm||check!==t.check_)
+     &&E._lev&&E._lev.tarefa===t.id_tarefa&&!E._lev.legadoOk&&levFaltas()>0){
+    const motivo=(prompt("Reagendar o parecer sem concluir: o que está TRAVANDO a conclusão? (obrigatório — vai para o histórico)\n\nEx.: cliente ainda não liberou o e-CAC.")||"").trim();
+    if(!motivo){toast("Sem justificativa o parecer não é reagendado.","erro");return;}
+    if(!confirm("Você JÁ COBROU o cliente para resolver essa pendência (WhatsApp/ligação)?\n\nOK = sim, já cobrei — pode reagendar\nCancelar = ainda não cobrei")){
+      toast("Cobre o cliente AGORA (WhatsApp ou ligação) e volte aqui — só anotar que falta não resolve. O reagendamento registra que você cobrou.","erro");return;}
+    notaImp=`🗓 Parecer reagendado${dm?` para ${brData(dm)}`:""} (frequência ${check}) sem concluir — pendência: ${motivo} · ✅ confirmou que já COBROU o cliente para resolver.`;}
   try{await DB.tarefaUpdate(t,{campos:{check_:check},...(dm?{data_revisao:dm}:{})});
     if(notaImp)await DB.nota({id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,tipo:"ASSESSOR",texto:notaImp});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
