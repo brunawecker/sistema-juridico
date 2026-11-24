@@ -403,6 +403,13 @@ AGENDA_ESCRITA = {
     "João": "joaozinho250204@gmail.com",
     "Madu": "dudona.meb@gmail.com",
     "Laura": "laurabueno.grupovillela@gmail.com",
+    # heads (24/11/2026 — reunião de devolução do portal do franqueado vai
+    # para a agenda da head). Requer compartilhar cada agenda com a conta-robô
+    # com permissão "Fazer alterações nos eventos"; sem isso o POST falha e a
+    # reunião fica só no sistema (tenta de novo a cada rodada).
+    "Bruna": "brunaweckeradv@gmail.com",
+    "Danielly": "advdanielly.vbb@gmail.com",
+    "Eduarda": "souzademarqueseduarda@gmail.com",
 }
 
 
@@ -454,12 +461,12 @@ def empurrar_para_google(sess):
     import re as _re2
     with psycopg.connect() as conn, conn.cursor() as cur:
         cur.execute("""select id_reuniao, assessor, titulo, data_dt::text, horario,
-               coalesce(duracao_min_num,30), coalesce(obs,'')
+               coalesce(duracao_min_num,30), coalesce(obs,''), coalesce(gcal_antigo,'')
             from juridico.reunioes
             where a_empurrar=true and coalesce(categoria,'') in ('manual','pessoal')
               and coalesce(gcal_id,'')='' """)
         pend = cur.fetchall()
-    for rid, quem, titulo, data_dt, horario, dur, obs in pend:
+    for rid, quem, titulo, data_dt, horario, dur, obs, gcal_antigo in pend:
         cal = AGENDA_ESCRITA.get(quem)
         if not cal:
             # dono sem agenda de escrita: fica só no sistema, não repete a tentativa
@@ -479,6 +486,17 @@ def empurrar_para_google(sess):
                   "extendedProperties": {"private": {"origem": "sistema"}}}
             if desc:
                 ev["description"] = desc
+            # remarcação (24/11/2026): apaga o evento ANTIGO do Google antes de
+            # criar o novo — gcal_antigo vem do franq_reuniao_agendar
+            if gcal_antigo:
+                try:
+                    rdel = sess.delete(
+                        f"https://www.googleapis.com/calendar/v3/calendars/{_up_q(cal)}/events/{_up_q(gcal_antigo)}",
+                        timeout=30)
+                    print(f"empurrar pessoal: evento antigo de '{titulo}' "
+                          f"({'apagado' if rdel.status_code < 300 or rdel.status_code == 410 else 'não apagado: '+str(rdel.status_code)})")
+                except Exception as e2:
+                    print(f"empurrar pessoal: falha tolerada ao apagar evento antigo: {e2}")
             r = sess.post(
                 f"https://www.googleapis.com/calendar/v3/calendars/{_up_q(cal)}/events",
                 json=ev, timeout=30)
@@ -489,7 +507,7 @@ def empurrar_para_google(sess):
             # MANTÉM a cópia local (com as observações) — só marca que já foi ao
             # Google. A importação ignora eventos origem='sistema' p/ não duplicar.
             with psycopg.connect() as conn, conn.cursor() as cur:
-                cur.execute("update juridico.reunioes set a_empurrar=false, gcal_id=%s where id_reuniao=%s",
+                cur.execute("update juridico.reunioes set a_empurrar=false, gcal_id=%s, gcal_antigo=null where id_reuniao=%s",
                             (gid, rid))
                 conn.commit()
             print(f"empurrar pessoal: '{titulo}' → agenda de {quem} ({cal}); cópia local mantida")
