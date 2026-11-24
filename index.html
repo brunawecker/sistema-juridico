@@ -2047,7 +2047,7 @@ async function telaConfig(){setNav("cfg","Configurações");carregando();
       return `<div style="border-bottom:1px solid var(--gray-lt);padding:6px 0"><div class="linha-item" style="border:0;padding:2px 0"><span><b>${esc(n)}</b></span><span>
       <label style="font-size:12px"><input type="checkbox" id="cfg-cor-${esc(n)}" ${p.pode_corrigir?"checked":""}> corrige</label>
       <label style="font-size:12px;margin-left:10px"><input type="checkbox" id="cfg-del-${esc(n)}" ${p.pode_delegar?"checked":""}> delega</label>
-      <label style="font-size:12px;margin-left:10px" title="Janela de Prospecção: sem nada vencido (imediatas do próprio dia não travam), o planejador programa estes minutos no dia — quem delega vê o tempo como ocupado">&#127919; <input type="number" min="0" max="240" step="15" class="fsel" style="width:64px" id="cfg-pros-${esc(n)}" value="${parseInt(p.prospeccao_min)||0}"> min/dia</label>
+      <label style="font-size:12px;margin-left:10px" title="Janela de Prospecção: sem nada vencido (imediatas do próprio dia não travam), o planejador programa estes minutos no dia — quem delega vê o tempo como ocupado">&#127919; <input type="number" min="0" max="480" step="15" class="fsel" style="width:64px" id="cfg-pros-${esc(n)}" value="${parseInt(p.prospeccao_min)||0}"> min/dia</label>
       <label style="font-size:12px;margin-left:6px" title="Marcado: o bloco vale TODOS os dias, mesmo com atrasadas — reservado antes das demais tarefas (só as imediatas passam na frente)"><input type="checkbox" id="cfg-prossemp-${esc(n)}" ${p.prospeccao_sempre?"checked":""}> todo dia</label>
       <label style="font-size:12px;margin-left:10px" title="Follow-up diário de propostas: tempo-base bloqueado todos os dias para retomar as propostas na rua da pessoa. Cresce sozinho: +3 min por proposta na rua acima de 10 (teto 90)">&#128222; <input type="number" min="0" max="90" step="5" class="fsel" style="width:64px" id="cfg-fu-${esc(n)}" value="${parseInt(p.followup_min)||0}"> min/dia</label></span></div>
       <div style="font-size:11px;color:var(--gray);display:flex;gap:9px;flex-wrap:wrap;padding-left:6px">delega para:
@@ -2169,7 +2169,7 @@ async function salvarConfigPer(){const cf=E._cfgAtual;let n=0;
   for(const nome of (E.equipe||[]).map(m=>m.nome_sistema)){
     const c=ge("cfg-cor-"+nome),d=ge("cfg-del-"+nome);if(!c||!d)continue;
     const dp=OPERACIONAIS.filter(a=>a!==nome&&(ge("cfg-dp-"+nome+"-"+a)||{}).checked).join(",");
-    const pr=Math.max(0,Math.min(240,parseInt((ge("cfg-pros-"+nome)||{}).value)||0));
+    const pr=Math.max(0,Math.min(480,parseInt((ge("cfg-pros-"+nome)||{}).value)||0));
     const ps=!!((ge("cfg-prossemp-"+nome)||{}).checked);
     const fu=Math.max(0,Math.min(90,parseInt((ge("cfg-fu-"+nome)||{}).value)||0));
     const atual=(cf.per||[]).find(x=>x.nome===nome)||{pode_corrigir:false,pode_delegar:false,delega_para:"",prospeccao_min:0,prospeccao_sempre:false,followup_min:0};
