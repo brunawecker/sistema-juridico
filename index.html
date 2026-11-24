@@ -342,6 +342,20 @@ const LAUDO_DEPENDE={
   "Complementação de documentos":"nos",
   "Deferido":"fim","Indeferido":"fim"};
 function laudoDepende(e){return LAUDO_DEPENDE[e]||"nos";}
+// 📍 Etapa da operação (Bruna, 24/11/2026): fases por tipo de operação com
+// etiqueta colorida nas listas — catálogo em config_etapas (heads editam)
+const ETAPA_CORES={azul:["var(--dani-lt)","var(--dani)"],verde:["var(--green-lt)","var(--green)"],
+  ambar:["var(--amber-lt)","#7F6000"],vermelho:["var(--red-lt)","var(--red)"]};
+let ETAPAS_CFG={};  // lower(operacao) -> [linhas ordenadas]
+function etapasDe(op){return ETAPAS_CFG[String(op||"").trim().toLowerCase()]||[];}
+function etapaDias(t){return t.etapa_dt?(-diasAte(String(t.etapa_dt).slice(0,10))):null;}
+function etapaChip(t){
+  const l=etapasDe(t.operacao);if(!l.length||!t.etapa)return "";
+  const r=l.find(x=>x.etapa===t.etapa);
+  const par=ETAPA_CORES[(r&&r.cor)||"azul"]||ETAPA_CORES.azul;
+  const d=etapaDias(t);
+  const alerta=r&&r.alerta_dias&&d!==null&&d>=r.alerta_dias&&!t._concluida;
+  return ` <span class="tag" style="background:${alerta?"var(--red)":par[0]};color:${alerta?"#fff":par[1]}" title="Etapa da operação${d!==null?` — há ${d} dia(s) nela`:""}${alerta?` · parada além do limite de ${r.alerta_dias}d — cobre quem está com a bola`:""}">&#128205; ${esc(t.etapa)}${alerta?` &#9888; ${d}d`:""}</span>`;}
 function laudoCor(e){return /Deferido/.test(e||"")?"var(--green)":/Indeferido/.test(e||"")?"var(--red)"
   :laudoDepende(e)==="procuradoria"?"var(--amber)":laudoDepende(e)==="setor"?"var(--dani)":"var(--navy)";}
 const OPERACOES=["Audiência","Análise Prescricional","Cancelar transação","Cancelar negociação","Execução Fiscal","Estadual","Emissão CPEN","Embargos à Execução","ExcPreEx - Prescrição","E-Processo","FGTS","Laudo OPF","Laudo CAPAG","Levantamento - sem proposta","MS","MS Migração","MS Impedimento","MS laudo CAPAG","MS CND","Monitoramento","NJP","Negociação Estadual","Oferta de garantia","Outros","Petição","Parcelar","Prazo C3","Proposta Comercial - Parecer Tributário","Protesto","PRDI","Renegociação","Risco de bloqueio","Restituição SN","Revenda","Recurso","Simulação","TAX","TI - Transação Individual","Transacionar","TIS","Parecer de Novo Cliente","Contabilize","Contrato/Aditivo","Proposta para franqueado"];
@@ -1185,6 +1199,10 @@ const S = {
     const r=await supa.from("feedback_pautas").insert(p).select();okS(r);return (r.data||[])[0];},
   async hubspotLog(){return okS(await supa.from("hubspot_log").select("*").order("id",{ascending:false}).limit(300))||[];},
   async hubspotRodizio(){return okS(await supa.from("hubspot_rodizio").select("*"))||[];},
+  async etapasCfg(){return okS(await supa.from("config_etapas").select("*").order("operacao").order("ordem"))||[];},
+  async etapaCfgAdd(r){okS(await supa.from("config_etapas").insert(r));return{ok:true};},
+  async etapaCfgUpd(id,c){okS(await supa.from("config_etapas").update(c).eq("id",id));return{ok:true};},
+  async etapaCfgDel(id){okS(await supa.from("config_etapas").delete().eq("id",id));return{ok:true};},
 };
 const DB = MODO_SUPABASE ? S : L;
 
@@ -1833,6 +1851,14 @@ async function carregarConfig(){
       if(n&&!OPERACOES.some(x=>x.toLowerCase()===n.toLowerCase()))OPERACOES.push(n);});
     OPERACOES.sort((a,b)=>a.localeCompare(b,"pt-BR"));
   }catch(e){/* segue com a lista do código */}
+  // 📍 etapas por operação (24/11/2026, sql/160)
+  try{await cfgEtapasReload();}catch(e){/* sem etapas — chips ficam ocultos */}
+}
+async function cfgEtapasReload(){
+  const et=await DB.etapasCfg();const m={};
+  (et||[]).forEach(r=>{const k=String(r.operacao||"").trim().toLowerCase();
+    (m[k]=m[k]||[]).push(r);});
+  ETAPAS_CFG=m;
 }
 function nomeCompletoDe(sis){const m=E.equipe.find(x=>x.nome_sistema===sis);return m?m.nome_completo:"";}
 function loginDe(n){if(!n)return "";const s=String(n).trim().toLowerCase();
@@ -1993,6 +2019,10 @@ async function telaConfig(){setNav("cfg","Configurações");carregando();
     ${nomes.map(n=>`<div class="linha-item"><span>${esc(n)}</span>
       <input class="fsel" style="width:90px" type="number" min="60" max="720" id="cfg-cap-${esc(n)}" value="${capDeCfg(n)}" placeholder="420"></div>`).join("")}
     <div class="linha-acao"><button class="btn btp btsm" onclick="salvarConfigCap()">&#128190; Salvar capacidades</button></div></div>
+  <div class="painel"><div class="bloco-t">&#128205; Etapas por operação</div>
+    <div style="font-size:11px;color:var(--gray);margin-bottom:6px">As etapas aparecem como etiqueta colorida nas listas de tarefas e no card, e ao concluir/encerrar o sistema pede a etapa final. "Aviso d" = dias parados na etapa para acender o alerta vermelho (use nas que dependem de terceiros — C3, PGFN, cliente). Renomear uma etapa não atualiza as tarefas que já estão com o nome antigo.</div>
+    <div class="linha-acao"><select class="fsel" id="cfg-et-op" onchange="cfgEtapasLista()"><option value="">— escolha a operação —</option>${cfgEtapasOps().map(o=>`<option>${esc(o)}</option>`).join("")}</select></div>
+    <div id="cfg-et-lista" style="margin-top:6px"></div></div>
   <div class="painel"><div class="bloco-t">&#127958;&#65039; Férias / ausências</div>
     <div style="font-size:11px;color:var(--gray);margin-bottom:6px">Quem está ausente sai da régua de recebimento, das sugestões de delegação e da esteira de novos clientes até a data de volta (inclusive). No dia seguinte à data, volta sozinho a tudo.</div>
     ${nomes.map(n=>{const m=(E.equipe||[]).find(x=>x.nome_sistema===n)||{};
@@ -2290,7 +2320,7 @@ function cardTarefa(t,mostrarAssessor,mostrarTempo){
   const tmp=mostrarTempo?`<span class="tco" style="font-family:'DM Mono'">&#9201;${t._tempo}min</span>`:"";
   return `<div class="tc ${t._urg===0?"uF":t._urg===0.5?"uP":"u"+(t._g||5)}" onclick="abrirTarefa('${esc(t.id_tarefa)}')"><div style="flex:1;min-width:0">
     <div class="tcc">${esc(t.cliente)}${fin}</div>
-    <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${t._nproc>1?` <span class="tag ts" title="execução com vários processos — o tempo do dia já conta ×${t._nproc}">&#9878; ${t._nproc} proc.</span>`:""}${fasesChipsDe(t)}${t.numero_processual?` <span class="tco" style="font-family:'DM Mono';font-size:10px">${esc(t.numero_processual)}</span>`:""}${ec}${t._impulso?(()=>{const de=(String(t.supervisao||"").match(/IMPULSO de ([^|]+)\|/)||[])[1];return ` <span class="tag" style="background:#1F4E79;color:white" title="Cartinho de impulso — devolve ao dono quando finalizar">&#129309; impulso${de?" de "+esc(String(de).trim()):""}</span>`;})():""}${(/parecer|levantamento/i.test(t.operacao||"")&&!t._delegada&&!t._concluida)?(t.reuniao_cliente_dt?` <span class="tag" style="background:${String(t.reuniao_cliente_dt).slice(0,10)<=hojeISO()?"var(--red)":"#1E8449"};color:white" title="Reunião com o cliente marcada — o parecer precisa estar pronto antes">&#128197; reunião ${brData(t.reuniao_cliente_dt)}${t.reuniao_cliente_hora?" "+esc(t.reuniao_cliente_hora):""}</span>`:` <span class="tag" style="background:var(--gray-lt);color:var(--gray)" title="Ainda sem reunião marcada com o cliente — prioridade menor que as agendadas">reunião não agendada</span>`):""}${tagLanc(t)}${es}${hd}${pf}${ass}${tmp}</div></div>
+    <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${t._nproc>1?` <span class="tag ts" title="execução com vários processos — o tempo do dia já conta ×${t._nproc}">&#9878; ${t._nproc} proc.</span>`:""}${fasesChipsDe(t)}${etapaChip(t)}${t.numero_processual?` <span class="tco" style="font-family:'DM Mono';font-size:10px">${esc(t.numero_processual)}</span>`:""}${ec}${t._impulso?(()=>{const de=(String(t.supervisao||"").match(/IMPULSO de ([^|]+)\|/)||[])[1];return ` <span class="tag" style="background:#1F4E79;color:white" title="Cartinho de impulso — devolve ao dono quando finalizar">&#129309; impulso${de?" de "+esc(String(de).trim()):""}</span>`;})():""}${(/parecer|levantamento/i.test(t.operacao||"")&&!t._delegada&&!t._concluida)?(t.reuniao_cliente_dt?` <span class="tag" style="background:${String(t.reuniao_cliente_dt).slice(0,10)<=hojeISO()?"var(--red)":"#1E8449"};color:white" title="Reunião com o cliente marcada — o parecer precisa estar pronto antes">&#128197; reunião ${brData(t.reuniao_cliente_dt)}${t.reuniao_cliente_hora?" "+esc(t.reuniao_cliente_hora):""}</span>`:` <span class="tag" style="background:var(--gray-lt);color:var(--gray)" title="Ainda sem reunião marcada com o cliente — prioridade menor que as agendadas">reunião não agendada</span>`):""}${tagLanc(t)}${es}${hd}${pf}${ass}${tmp}</div></div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">${dt}${t.prazo_fatal_dt?`<span class="tdy ov" style="font-weight:700">FATAL: ${brData(t.prazo_fatal_dt)}</span>`:""}${t.simples_prazo_dt?`<span class="tdy" style="font-weight:700;background:#EFE6F7;color:#7B2D8B" title="cliente marcado como caso do Simples Nacional — acompanhamento para 2027">&#9203; SIMPLES NACIONAL 2027</span>`:""}${t.prazo_fatal_dt&&t.retomada_fatal_dt&&String(t.retomada_fatal_dt).slice(0,10)>hojeISO()?`<span class="tdy ok" title="Andamento do dia cumprido — dorme até a retomada">&#9203; retoma ${brData(t.retomada_fatal_dt)}</span>`:""}</div></div>`;
 }
 // Banner de prazos fatais desta semana (clicável)
@@ -2662,7 +2692,7 @@ async function telaDelegadas(){
     h+=`<div class="tc ${venc?"u1":"u5"}">
       <div style="flex:1;min-width:0">
         <div class="tcc" style="cursor:pointer" onclick="abrirTarefa('${esc(t.id_tarefa)}')">${esc(t.cliente)}</div>
-        <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${t._nproc>1?` <span class="tag ts" title="execução com vários processos — o tempo do dia já conta ×${t._nproc}">&#9878; ${t._nproc} proc.</span>`:""}${fasesChipsDe(t)}${t.numero_processual?` <span class="tco" style="font-family:'DM Mono';font-size:10px">${esc(t.numero_processual)}</span>`:""}
+        <div class="tcm"><span class="tco">${esc(t.operacao||"")}</span>${t._nproc>1?` <span class="tag ts" title="execução com vários processos — o tempo do dia já conta ×${t._nproc}">&#9878; ${t._nproc} proc.</span>`:""}${fasesChipsDe(t)}${etapaChip(t)}${t.numero_processual?` <span class="tco" style="font-family:'DM Mono';font-size:10px">${esc(t.numero_processual)}</span>`:""}
           <span class="tag" style="background:#1F4E79;color:white">&#129309; com ${esc(para)}</span>
           ${subs.map(s=>`<span class="tag ${typeof s._dias==="number"&&s._dias<0?"ti":"tm"}" style="cursor:pointer" onclick="abrirTarefa('${esc(s.id_tarefa)}')" title="abrir o impulso (${esc(s.id_tarefa)})">${esc(s.check_||"")}${typeof s._dias==="number"&&s._dias<0?` · vencido há ${Math.abs(s._dias)}d`:(s.data_revisao_dt?` · rodada ${brData(s.data_revisao_dt)}`:"")}</span>`).join("")}</div>
         ${pedido?`<div class="tco" style="margin-top:3px;font-style:italic">"${esc(pedido)}"</div>`:""}
@@ -2846,7 +2876,7 @@ async function abrirTarefa(id){
     DB.sessaoConcluir(c.min).catch(()=>{});
     if(c.min>=1)DB.tempo({id_tarefa:ant.id_tarefa,id_cliente:ant.id_cliente,minutos:c.min}).catch(()=>{});
     if(c.nota)DB.nota({id_tarefa:ant.id_tarefa,id_cliente:ant.id_cliente,tipo:"HISTORICO",texto:c.nota}).catch(()=>{});}
-  E.atual=t;E._propGateOk=false;E._laudoGateOk=false;E._snGateOk=false;
+  E.atual=t;E._propGateOk=false;E._laudoGateOk=false;E._snGateOk=false;E._etapaGateOk=false;
   t._consulta=!podeAgirNa(t);
   ge("m-titulo").textContent=t.cliente||"";
   ge("m-sub").innerHTML=`<span style="cursor:pointer" title="Clique para corrigir o tipo" onclick="editarOperacao()">${esc(t.operacao||"")} &#9998;</span> · ${esc(t.advogada||"")} · ${esc(t.check_||"")} · ${esc(t.assessor||"")}`;
@@ -2939,6 +2969,12 @@ function desenharCard(t,hist){
       <button class="btn bts btsm" style="padding:1px 8px;font-size:10px" onclick="editarEtapaLaudo()">&#9998;</button></span>
       <span id="le-ed" style="display:none;margin-top:4px"><select class="fsel" id="le-in">${LAUDO_ETAPAS.map(e2=>`<option ${t.etapa_laudo===e2?"selected":""}>${e2}</option>`).join("")}</select>
       <button class="btn btp btsm" onclick="salvarEtapaLaudo()">&#128190;</button></span></div>`:""}
+    ${(!t._laudo&&etapasDe(t.operacao).length)?`<div>Etapa da operação:<br><span id="et-ver">${t.etapa
+        ?`<b style="color:${(ETAPA_CORES[(etapasDe(t.operacao).find(x=>x.etapa===t.etapa)||{}).cor]||ETAPA_CORES.azul)[1]}">${esc(t.etapa)}</b>${etapaDias(t)!==null?` <span style="font-size:10px;color:${(()=>{const r=etapasDe(t.operacao).find(x=>x.etapa===t.etapa);return r&&r.alerta_dias&&etapaDias(t)>=r.alerta_dias?"var(--red)":"var(--gray)";})()}">há ${etapaDias(t)}d nesta etapa</span>`:""} `
+        :`<span class="tag ta">definir</span> `}
+      <button class="btn bts btsm" style="padding:1px 8px;font-size:10px" onclick="editarEtapa()">&#9998;</button></span>
+      <span id="et-ed" style="display:none;margin-top:4px"><select class="fsel" id="et-in"><option value="">—</option>${etapasDe(t.operacao).map(e2=>`<option ${t.etapa===e2.etapa?"selected":""}>${esc(e2.etapa)}</option>`).join("")}</select>
+      <button class="btn btp btsm" onclick="salvarEtapa()">&#128190;</button></span></div>`:""}
     ${t._impedimento?`<div>Queda do impedimento:<br><span id="qi-ver">${t.queda_impedimento_dt
         ?`<b style="color:${t._quedaDias!==null&&t._quedaDias<=1?"var(--red)":"var(--navy)"}">${brData(t.queda_impedimento_dt)}</b>${t._quedaDias!==null&&t._quedaDias<=0?' <span class="tag ti">CAIU</span>':""} `
         :`<span class="tag ti">PREENCHER</span> `}
@@ -3874,6 +3910,7 @@ async function concluirTarefa(){
   if(!chkConfirmaConclusao(t))return;
   // laudo: concluir exige confirmar/atualizar a FASE (Bruna, 17/09/2026)
   if(t._laudo&&!E._laudoGateOk){E._laudoDepois="concluir";abrirGateLaudo();return;}
+  if(!t._laudo&&etapasDe(t.operacao).length&&!E._etapaGateOk){E._etapaDepois="concluir";abrirGateEtapa();return;}
   // Simples Nacional: cada tarefa de cliente informa se envolve enquadramento
   if(t.id_cliente&&!t.simples_respondido&&!E._snGateOk&&!(E._cliCard&&E._cliCard.simples_na)){E._snDepois="concluir";abrirGateSimples();return;}
   let prox;if(dm)prox=dm;else{const d=new Date();d.setDate(d.getDate()+(/SEMANAL/.test(check)?7:/MENSAL/.test(check)?30:1));
@@ -3952,6 +3989,31 @@ async function gateLaudoOk(){
     t.etapa_laudo=v;t.etapa_laudo_dt=hojeISO();}
   E._laudoGateOk=true;fecharModal2();
   (E._laudoDepois==="encerrar"?abrirEncerrar:concluirTarefa)();
+}
+// portão da ETAPA da operação (24/11/2026): concluir/encerrar tarefa de
+// operação com etapas pede para confirmar em qual ela está
+function abrirGateEtapa(){
+  const t=E.atual,l=etapasDe(t.operacao);
+  modal2("&#128205; Em que etapa está esta operação? *",esc(t.cliente)+(etapaDias(t)!==null?` — há ${etapaDias(t)}d na etapa atual`:""),`
+    <div style="font-size:12.5px;margin-bottom:8px">${t.etapa
+      ?`Etapa registrada: <b>${esc(t.etapa)}</b>. Confirme ou atualize antes de seguir:`
+      :"Esta operação ainda está <b>sem etapa registrada</b> — escolha para continuar:"}</div>
+    <select class="fsel" id="eg-etapa" style="width:100%">
+      <option value=""${t.etapa?"":" selected"}>— escolher a etapa —</option>
+      ${l.map(e2=>`<option${t.etapa===e2.etapa?" selected":""}>${esc(e2.etapa)}</option>`).join("")}</select>
+    <button class="btn btp btw" style="margin-top:10px" onclick="gateEtapaOk()">&#10003; Confirmar etapa e continuar</button>`);
+}
+async function gateEtapaOk(){
+  const t=E.atual,v=ge("eg-etapa").value;
+  if(!v){toast("Escolha a etapa — é ela que deixa as listas visuais para todo mundo.","erro");return;}
+  const mudou=v!==(t.etapa||"");
+  if(mudou){
+    try{await DB.tarefaUpdate(t,{campos:{etapa:v,etapa_dt:hojeISO()},
+      hist_texto:`📍 Etapa: ${t.etapa||"—"} → ${v} (confirmada ao ${E._etapaDepois==="encerrar"?"encerrar":"concluir"})`,hist_tipo:"HISTORICO"});}
+    catch(e){toast("Erro: "+e.message,"erro");return;}
+    t.etapa=v;t.etapa_dt=hojeISO();}
+  E._etapaGateOk=true;fecharModal2();
+  (E._etapaDepois==="encerrar"?abrirEncerrar:concluirTarefa)();
 }
 function abrirGateSimples(){
   const t=E.atual;
@@ -4277,6 +4339,63 @@ async function salvarEtapaLaudo(){
   catch(e){toast("Erro: "+e.message,"erro");return;}
   t.etapa_laudo=v;if(mudou)t.etapa_laudo_dt=hojeISO();
   toast("Etapa registrada!","ok");abrirTarefa(t.id_tarefa);}
+// 📍 Etapa da operação no card (24/11/2026)
+function editarEtapa(){ge("et-ver").style.display="none";ge("et-ed").style.display="inline-block";}
+// editor das etapas (tela Configurações, só heads)
+function cfgEtapasOps(){
+  const m=new Map();
+  OPERACOES.forEach(o=>m.set(String(o).toLowerCase(),o));
+  Object.values(ETAPAS_CFG).forEach(l=>l.forEach(r=>{const k=String(r.operacao).toLowerCase();
+    if(!m.has(k))m.set(k,r.operacao);}));
+  return [...m.values()].sort((a,b)=>a.localeCompare(b,"pt-BR"));
+}
+function cfgEtapasLista(){
+  const op=ge("cfg-et-op").value;const box=ge("cfg-et-lista");
+  if(!op){box.innerHTML="";return;}
+  const l=etapasDe(op);
+  const linha=r=>`<div class="linha-item" style="gap:6px;flex-wrap:wrap">
+    <input class="fsel" style="width:56px" type="number" id="et-o-${r.id}" value="${r.ordem}" title="ordem na lista">
+    <input class="fsel" style="flex:1;min-width:150px" id="et-n-${r.id}" value="${esc(r.etapa)}">
+    <select class="fsel" id="et-c-${r.id}" title="cor da etiqueta">${["azul","verde","ambar","vermelho"].map(c=>`<option ${r.cor===c?"selected":""}>${c}</option>`).join("")}</select>
+    <input class="fsel" style="width:74px" type="number" id="et-a-${r.id}" value="${r.alerta_dias??""}" placeholder="aviso d" title="parada além de tantos dias = alerta (vazio = sem alerta)">
+    <span><button class="btn btp btsm" onclick="cfgEtapaSalvar(${r.id})">&#128190;</button>
+    <button class="btn bts btsm" onclick="cfgEtapaApagar(${r.id})" title="apagar etapa">&#128465;</button></span></div>`;
+  box.innerHTML=(l.length?l.map(linha).join(""):`<div style="font-size:12px;color:var(--gray)">Esta operação ainda não tem etapas — crie a primeira abaixo.</div>`)
+    +`<div class="linha-acao" style="margin-top:6px;flex-wrap:wrap"><input class="fsel" style="flex:1;min-width:150px" id="et-novo" placeholder="nova etapa…">
+      <select class="fsel" id="et-novo-cor">${["azul","verde","ambar","vermelho"].map(c=>`<option>${c}</option>`).join("")}</select>
+      <input class="fsel" style="width:74px" type="number" id="et-novo-al" placeholder="aviso d">
+      <button class="btn btg btsm" onclick="cfgEtapaAdd()">&#10133; adicionar</button></div>`;
+}
+async function cfgEtapaAdd(){
+  const op=ge("cfg-et-op").value,n=(ge("et-novo").value||"").trim();
+  if(!op||!n){toast("Escolha a operação e escreva o nome da etapa.","erro");return;}
+  const l=etapasDe(op);
+  try{await DB.etapaCfgAdd({operacao:op,etapa:n,ordem:(l.length?Math.max(...l.map(r=>r.ordem))+1:1),
+    cor:ge("et-novo-cor").value,alerta_dias:parseInt(ge("et-novo-al").value)||null});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  await cfgEtapasReload();cfgEtapasLista();toast("Etapa criada!","ok");
+}
+async function cfgEtapaSalvar(id){
+  const n=(ge("et-n-"+id).value||"").trim();
+  if(!n){toast("O nome da etapa não pode ficar vazio.","erro");return;}
+  try{await DB.etapaCfgUpd(id,{etapa:n,ordem:parseInt(ge("et-o-"+id).value)||0,
+    cor:ge("et-c-"+id).value,alerta_dias:parseInt(ge("et-a-"+id).value)||null});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  await cfgEtapasReload();cfgEtapasLista();toast("Etapa salva!","ok");
+}
+async function cfgEtapaApagar(id){
+  if(!confirm("Apagar esta etapa da lista? As tarefas que já estão nela continuam com o texto gravado."))return;
+  try{await DB.etapaCfgDel(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  await cfgEtapasReload();cfgEtapasLista();toast("Etapa apagada.","ok");
+}
+async function salvarEtapa(){
+  const t=E.atual,v=ge("et-in").value;
+  const mudou=v!==(t.etapa||"");
+  try{await DB.tarefaUpdate(t,{campos:{etapa:v||null,etapa_dt:v?(mudou?hojeISO():(t.etapa_dt||hojeISO())):null},
+    hist_texto:mudou?`📍 Etapa: ${t.etapa||"—"} → ${v||"—"}`:null,hist_tipo:"HISTORICO"});}
+  catch(e){toast("Erro: "+e.message,"erro");return;}
+  t.etapa=v||null;if(mudou)t.etapa_dt=v?hojeISO():null;
+  toast("Etapa registrada!","ok");abrirTarefa(t.id_tarefa);}
 function abrirCorrecao(){const t=E.atual;
   // pasta LEMBRADA: reaproveita o último link válido usado para ESTE cliente
   // (nesta tarefa ou em qualquer irmã) — pedido da Bruna, 20/08/2026
@@ -4333,6 +4452,7 @@ function abrirEncerrar(){const t=E.atual;
     if(nC<totC&&!confirm("📋 O checklist está em "+nC+" de "+totC+" itens. Encerrar (arquivar) mesmo assim?"))return;}
   // laudo: arquivar também exige a fase final (alimenta a taxa de deferimento)
   if(t._laudo&&!E._laudoGateOk){E._laudoDepois="encerrar";abrirGateLaudo();return;}
+  if(!t._laudo&&etapasDe(t.operacao).length&&!E._etapaGateOk){E._etapaDepois="encerrar";abrirGateEtapa();return;}
   // Simples Nacional: também pergunta ao encerrar
   if(t.id_cliente&&!t.simples_respondido&&!E._snGateOk&&!(E._cliCard&&E._cliCard.simples_na)){E._snDepois="encerrar";abrirGateSimples();return;}
   modal2("&#128193; Encerrar: "+esc(t.cliente),"Esta ação move para Casos Encerrados",`
@@ -4453,7 +4573,7 @@ function fecharModal(){
     if(conta.min>=1&&E.atual)DB.tempo({id_tarefa:E.atual.id_tarefa,id_cliente:E.atual.id_cliente,minutos:conta.min}).catch(()=>{});
     if(conta.nota&&E.atual)DB.nota({id_tarefa:E.atual.id_tarefa,id_cliente:E.atual.id_cliente,tipo:"HISTORICO",texto:conta.nota}).catch(()=>{});}
   const pa=document.getElementById("pergunta-atividade");if(pa)pa.remove();
-  ge("modal").classList.remove("aberto");E.atual=null;E.timerIni=null;E._propGateOk=false;E._laudoGateOk=false;}
+  ge("modal").classList.remove("aberto");E.atual=null;E.timerIni=null;E._propGateOk=false;E._laudoGateOk=false;E._etapaGateOk=false;}
 function modal2(titulo,sub,corpo){ge("m2-titulo").innerHTML=titulo;ge("m2-sub").innerHTML=sub;
   ge("m2-corpo").innerHTML=corpo;ge("modal2").classList.add("aberto");}
 function fecharModal2(){ge("modal2").classList.remove("aberto");}
@@ -5437,6 +5557,7 @@ async function telaCentral(){
     <div id="ct-corr"></div>
     <div id="ct-pautas"></div>
     <div id="ct-robo"></div>
+    <div id="ct-etapas"></div>
     ${pedsPremHtml}
     ${conflitosNic.length?`<div class="painel" style="border-left:4px solid var(--red);background:#FDEDEC">
       <div class="bloco-t" style="color:var(--red)">&#9888; Conflito na agenda do Nicholas (${conflitosNic.length}) — reuniões sobrepostas</div>
@@ -5548,6 +5669,7 @@ async function telaCentral(){
   painelRedirecionamentos("ct-redir",ts,cls);
   fbPautasCentral();
   hsRoboCentral();
+  etapasParadasCentral();
   desenhaCorrCentral(ts);
   // ⏱ tempo real: enquanto a Central estiver aberta, o painel de correções
   // se atualiza sozinho a cada 60s (some se a tela mudar)
@@ -9658,6 +9780,24 @@ async function hsRoboCentral(){
         <div style="font-size:11.5px;color:var(--gray);margin-top:8px">&#9878; Rodízio de heads até agora: ${(rod||[]).sort((a,b)=>a.head.localeCompare(b.head)).map(r=>`<b>${esc(r.head)}</b> ${r.contagem}`).join(" · ")||"—"}
           <span title="Felipe Matte → Bruna e Kátia Sileni → Danielly entram nessa conta">(exceções contam)</span></div>
       </div></details></div>`;
+}
+// 📍 paradas na mesma etapa além do limite — aviso na Central das heads
+function etapasParadasCentral(){
+  const el=ge("ct-etapas");if(!el)return;
+  const its=(E.tarefas||[]).filter(t=>t.id_tarefa&&t.etapa&&!t._concluida
+      &&!/IMPULSO de/.test(t.supervisao||""))
+    .map(t=>{const r=etapasDe(t.operacao).find(x=>x.etapa===t.etapa);const d=etapaDias(t);
+      return (r&&r.alerta_dias&&d!==null&&d>=r.alerta_dias)?{t,d,lim:r.alerta_dias}:null;})
+    .filter(Boolean).sort((a,b)=>b.d-a.d);
+  if(!its.length){el.innerHTML="";return;}
+  el.innerHTML=`<div class="painel" style="border-left:4px solid var(--amber)">
+    <details><summary style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px">
+      <span class="bloco-t" style="color:#7F6000">&#9888; Paradas na mesma etapa além do limite (${its.length})</span>
+      <span style="color:var(--gray);font-size:10px">(toque para abrir)</span></summary>
+    <div style="font-size:11px;color:var(--gray);margin:4px 0 6px">Tarefas cuja etapa depende de alguém (C3, PGFN, cliente) e não anda há mais dias que o limite configurado — caso de cobrar quem está com a bola.</div>
+    ${its.map(({t,d,lim})=>`<div class="linha-item"><span style="font-size:12.5px"><b>${esc(t.cliente)}</b>
+      <span style="color:var(--gray);font-size:11px">${esc(t.operacao||"")} · &#128205; ${esc(t.etapa)} há <b style="color:var(--red)">${d}d</b> (limite ${lim}d)${t.assessor?" · "+esc(t.assessor):""}</span></span>
+      <button class="btn bts btsm" onclick="abrirTarefa('${esc(t.id_tarefa)}')">abrir</button></div>`).join("")}</details></div>`;
 }
 // print → JPEG comprimido em base64 (máx. 1200px) para ir como contexto da IA
 function fbImgB64(file){return new Promise((res,rej)=>{
