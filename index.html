@@ -1048,8 +1048,12 @@ const S = {
       valor_mes:d.valor_mes||null,data_pagto_prevista:d.data_pagto||null,
       cond_pagamento:d.cond||"",origem:d.origem||"",
       forma_contato:d.contato||"",forma_parecer:d.parecer||"",link_sharepoint:d.sharepoint||"",
-      tempo_min:String(d.tempo||0),tempo_min_num:d.tempo||0,status:d.status||"Proposta enviada",obs:d.obs||"",fechada:"NÃO",data_reuniao:d.data_reuniao||null}));
-    if(idc)await histS("",idc,"PROPOSTA","Proposta "+pr+" lançada — R$ "+(d.valor||0)+" ("+(d.status||"Proposta enviada")+")");
+      tempo_min:String(d.tempo||0),tempo_min_num:d.tempo||0,status:d.status||"Proposta enviada",obs:d.obs||"",fechada:"NÃO",data_reuniao:d.data_reuniao||null,
+      empresas_extras:(d.empresas_extras&&d.empresas_extras.length)?d.empresas_extras:null}));
+    if(idc)await histS("",idc,"PROPOSTA","Proposta "+pr+" lançada — R$ "+(d.valor||0)+" ("+(d.status||"Proposta enviada")+")"
+      +((d.empresas_extras||[]).length?" · unificada com: "+d.empresas_extras.map(x=>x.nome).join(", "):""));
+    for(const x of (d.empresas_extras||[])){
+      try{await histS("",x.id_cliente,"PROPOSTA","Incluída na proposta unificada "+pr+" — principal: "+(d.cliente||""));}catch(e){}}
     return{ok:true,id:pr,id_cliente:idc};},
   async negociacao(d){const r=okS(await supa.from("propostas_visiveis").select("negociacao_log,id_cliente").eq("id_proposta",d.id_proposta));
     if(!r||!r.length)throw new Error("proposta não encontrada");
@@ -7351,7 +7355,9 @@ async function telaClientes(){
       <select class="fsel" id="cl-opfase" onchange="buscaPorOperacao()" title="fase processual (pelo recurso ativo de cada originário)">
         <option value="">&#9878; Qualquer fase</option><option>1º grau</option>${RECURSOS_PROC.map(r=>`<option>${esc(r)}</option>`).join("")}</select>
       <select class="fsel" id="cl-opvara" onchange="buscaPorOperacao()" title="vara federal do processo originário (preenchida no ⚖ de cada card)">
-        <option value="">&#127963; Qualquer vara</option>${(E._varasTodas||[]).map(v=>`<option>${esc(v)}</option>`).join("")}</select></div></div>
+        <option value="">&#127963; Qualquer vara</option>${(E._varasTodas||[]).map(v=>`<option>${esc(v)}</option>`).join("")}</select>
+      <select class="fsel" id="cl-opetapa" onchange="buscaPorOperacao()" title="etapa da operação (a etiqueta 📍 dos cards)">
+        <option value="">&#128205; Qualquer etapa</option><option value="__SEM__">— sem etapa definida —</option>${[...new Set(Object.values(ETAPAS_CFG).flat().map(r=>r.etapa))].sort((a,b)=>a.localeCompare(b,"pt-BR")).map(e2=>`<option>${esc(e2)}</option>`).join("")}</select></div></div>
     <div id="cl-assarea" style="display:none" class="painel">
       <div style="font-size:12px;color:var(--gray);margin-bottom:6px">Todas as tarefas <b>em andamento</b> de um assessor (delegadas aparecem com o dono):</div>
       <div class="linha-acao"><select class="fsel" id="cl-asssel" style="flex:1" onchange="buscaPorAssessor()">
@@ -7359,7 +7365,9 @@ async function telaClientes(){
       <select class="fsel" id="cl-assfase" onchange="buscaPorAssessor()" title="fase processual (pelo recurso ativo de cada originário)">
         <option value="">&#9878; Qualquer fase</option><option>1º grau</option>${RECURSOS_PROC.map(r=>`<option>${esc(r)}</option>`).join("")}</select>
       <select class="fsel" id="cl-assvara" onchange="buscaPorAssessor()" title="vara federal do processo originário (preenchida no ⚖ de cada card)">
-        <option value="">&#127963; Qualquer vara</option>${(E._varasTodas||[]).map(v=>`<option>${esc(v)}</option>`).join("")}</select></div></div>
+        <option value="">&#127963; Qualquer vara</option>${(E._varasTodas||[]).map(v=>`<option>${esc(v)}</option>`).join("")}</select>
+      <select class="fsel" id="cl-assetapa" onchange="buscaPorAssessor()" title="etapa da operação (a etiqueta 📍 dos cards)">
+        <option value="">&#128205; Qualquer etapa</option><option value="__SEM__">— sem etapa definida —</option>${[...new Set(Object.values(ETAPAS_CFG).flat().map(r=>r.etapa))].sort((a,b)=>a.localeCompare(b,"pt-BR")).map(e2=>`<option>${esc(e2)}</option>`).join("")}</select></div></div>
     <div id="cl-lista"></div>`;
   desenhaPills();desenhaClientes();
 }
@@ -7431,13 +7439,15 @@ function buscaPorAssessor(){
   const a=ge("cl-asssel").value;if(!a)return;
   const faseF=(ge("cl-assfase")?.value||"").trim();
   const varaF=(ge("cl-assvara")?.value||"").trim();
+  const etF=(ge("cl-assetapa")?.value||"").trim();
   const okCli=cliFiltroSet();
   const f=semDuplicataImpulso((E.tarefas||[]).filter(t=>t.id_tarefa
       &&loginDe(t.assessor||"")===a
       &&!/IMPULSO de/.test(t.supervisao||"")
       &&(!okCli||(t.id_cliente&&okCli.has(t.id_cliente)))
       &&(!faseF||((E._fasesPorTarefa||{})[t.id_tarefa]||[]).includes(faseF))
-      &&(!varaF||((E._varasPorTarefa||{})[t.id_tarefa]||[]).includes(varaF))))
+      &&(!varaF||((E._varasPorTarefa||{})[t.id_tarefa]||[]).includes(varaF))
+      &&(!etF||(etF==="__SEM__"?(etapasDe(t.operacao).length>0&&!t.etapa):t.etapa===etF))))
     .sort((x,y)=>(x._dias??9999)-(y._dias??9999));
   ge("cl-lista").innerHTML=`<p style="font-size:12px;color:var(--gray);margin-bottom:8px">${nProcSum(f)} tarefa(s) com <b>${esc(a)}</b>${nProcSum(f)!==f.length?` em ${f.length} cards`:""}${okCli?` · <b>somando com os filtros de cima</b>`:""} — delegadas aparecem aqui com o dono</p>`
     +(f.length?f.map(t=>cardTarefa(t,true)).join(""):`<div class="vazio">Nada ativo com ${esc(a)}${okCli?" dentro dos filtros escolhidos — limpe os filtros de cima para ver tudo":""}.</div>`);
@@ -7451,12 +7461,14 @@ function buscaPorOperacao(){
   const adv=(ge("cl-opadv")?.value||"").trim();
   const faseF=(ge("cl-opfase")?.value||"").trim();
   const varaF=(ge("cl-opvara")?.value||"").trim();
+  const etF=(ge("cl-opetapa")?.value||"").trim();
   const okCli=cliFiltroSet();
   const f=semDuplicataImpulso((E.tarefas||[]).filter(t=>t.id_tarefa&&String(t.operacao||"").toLowerCase().includes(alvo)
       &&(!adv||String(t.advogada||"").trim()===adv)
       &&(!okCli||(t.id_cliente&&okCli.has(t.id_cliente)))
       &&(!faseF||((E._fasesPorTarefa||{})[t.id_tarefa]||[]).includes(faseF))
-      &&(!varaF||((E._varasPorTarefa||{})[t.id_tarefa]||[]).includes(varaF)))
+      &&(!varaF||((E._varasPorTarefa||{})[t.id_tarefa]||[]).includes(varaF))
+      &&(!etF||(etF==="__SEM__"?(etapasDe(t.operacao).length>0&&!t.etapa):t.etapa===etF)))
     .sort((a,b)=>(a._dias??9999)-(b._dias??9999)));
   // vazio com filtros ligados: diz QUAIS tipos os clientes filtrados têm
   // (Bruna, 12/11/2026 — "GO + tipo de operação não saiu nenhum cliente")
@@ -7916,7 +7928,8 @@ async function verTarefasCliente(id){
   const box=ge("ct-"+id);box.innerHTML=`<div class="carregando"><div class="spin"></div></div>`;
   let r;try{r=await DB.clienteTarefas(id);}catch(e){box.innerHTML=`<div class="vazio">${esc(e.message)}</div>`;return;}
   // propostas do cliente (a visão mascarada aplica o sigilo sozinha)
-  let propsCli=[];try{propsCli=((await DB.propostas())||[]).filter(p=>p.id_cliente===id);}catch(e){}
+  let propsCli=[];try{propsCli=((await DB.propostas())||[]).filter(p=>p.id_cliente===id
+    ||(Array.isArray(p.empresas_extras)&&p.empresas_extras.some(x=>x&&x.id_cliente===id)));}catch(e){}
   const at0=(r.ativas||[]).map(classificar);
   at0.forEach(t=>{if(!E.tarefas.find(x=>x.id_tarefa===t.id_tarefa))E.tarefas.push(t);});
   // mãe delegada NÃO conta como ativa (Bruna, 06/10/2026): na ficha, o que
@@ -8210,7 +8223,7 @@ function desenhaProps(){
       // resumo: só o suficiente para NÃO duplicar proposta — sem detalhes
       return `<div class="painel" style="padding:10px 14px;background:#F7F9FB">
         <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center">
-          <div><b style="color:var(--navy)">${esc(p.cliente)}</b> ${prosp}
+          <div><b style="color:var(--navy)">${esc(p.cliente)}</b>${propEmpresasTag(p)} ${prosp}
             ${cnpj?`<span style="font-size:11px;color:var(--gray);font-family:'DM Mono'"> ${esc(cnpj)}</span>`:""}
             <div style="font-size:12px;color:var(--text)">&#128230; ${esc(p.produtos||"—")}</div>
             <div style="font-size:11px;color:var(--gray)">em andamento por <b>${esc(p.executor||p.quem_pediu||"—")}</b> desde ${esc(p.data_proposta||"—")}</div></div>
@@ -8219,7 +8232,7 @@ function desenhaProps(){
     const baixada=p.status==="Recusada";
     return `<div class="painel" style="padding:12px 14px${baixada?";opacity:.62;background:#F4F4F4":""}">
       <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
-        <div style="flex:1;min-width:160px;cursor:pointer" title="Abrir negociação" onclick='abrirNegociacao(${JSON.stringify(p.id_proposta)})'><div style="font-weight:700;color:var(--navy)">${esc(p.cliente)} ${prosp}</div>
+        <div style="flex:1;min-width:160px;cursor:pointer" title="Abrir negociação" onclick='abrirNegociacao(${JSON.stringify(p.id_proposta)})'><div style="font-weight:700;color:var(--navy)">${esc(p.cliente)}${propEmpresasTag(p)} ${prosp}</div>
           ${cnpj?`<div style="font-size:11px;color:var(--gray);font-family:'DM Mono'">${esc(cnpj)}</div>`:""}
           <div style="font-size:11px;color:var(--gray)">${esc(p.produtos||"")}</div>
           <div style="font-size:11px;color:var(--gray)">&#128100; Executou: <b>${esc(p.executor||"")}</b> · pediu: ${esc(p.quem_pediu||"")}</div></div>
@@ -8954,7 +8967,7 @@ async function telaMeuDia(){
       <div style="font-size:11px;color:var(--gray);margin-bottom:5px">Mais paradas primeiro (retorno vencido em vermelho). Clique para registrar a rodada. ${reservaFu?fmtMin(reservaFu)+" reservados no seu dia.":""}</div>
       ${ordFu.length?ordFu.slice(0,12).map(p=>{const dp=diasParada(p);
         return `<div class="linha-item" style="cursor:pointer" onclick='abrirNegociacao(${JSON.stringify(p.id_proposta)})'>
-        <span style="font-size:12.5px"><b>${esc(p.cliente)}</b> · R$ ${esc(p.valor||"0")} · ${esc(p.status||"")}</span>
+        <span style="font-size:12.5px"><b>${esc(p.cliente)}</b>${propEmpresasTag(p)} · R$ ${esc(p.valor||"0")} · ${esc(p.status||"")}</span>
         <span style="font-size:11px;color:${dp>=7?"var(--red)":"var(--gray)"}">${dp!==null?dp+"d sem movimento":"nova"}</span></div>`;}).join("")
         :'<div class="vazio">Nenhuma proposta na rua. 🎉</div>'}
       ${ordFu.length?`<button class="btn btp btw" style="margin-top:8px" onclick="iniciarFollowup()">&#128222; Começar follow-up (liga o relógio)</button>`:""}
@@ -10595,7 +10608,7 @@ async function abrirProposta(){
   if(!E._clsTodos||!E._clsTodos.length){try{E._clsTodos=await DB.clientes("");E._cli={};E._clsTodos.forEach(c=>E._cli[c.id_cliente]=c);}catch(e){}}
   // lista sempre fresca: o aviso de duplicidade confere contra o que está no banco AGORA
   try{E._props=await DB.propostas()||[];}catch(e){E._props=E._props||[];}
-  E._prCli=null;
+  E._prCli=null;E._prExtras=[];
   const chk=(cls,lista)=>lista.map(x=>`<label style="font-size:12px;display:inline-flex;gap:4px;margin-right:10px"><input type="checkbox" class="${cls}" value="${esc(x)}"> ${esc(x)}</label>`).join("");
   const equipeOps=[...["Bruna","Danielly","Eduarda"],...OPERACIONAIS.filter(x=>!["Mateus"].includes(x)),"Mateus","Nicholas"];
   modal2("&#128221; Lançar proposta comercial","Conta como compromisso do dia",`
@@ -10611,6 +10624,9 @@ async function abrirProposta(){
         ${(E.equipe||[]).filter(m=>/head/i.test(m.cargo||"")&&String(m.status||"").toUpperCase()==="ATIVO").map(m=>`<option>${esc(m.nome_sistema)}</option>`).join("")}</select>
       <div style="font-size:10px;color:var(--gray)">O cliente novo nasce na carteira dessa head — sem isso ele fica invisível nos painéis dela.</div></div>
     <div id="pr-dup"></div>
+    <div class="bloco-t" style="margin-top:8px">&#127970; Outras empresas na MESMA proposta <span style="font-weight:400;font-size:10px">(opcional — proposta unificada, ex.: várias empresas do mesmo dono)</span></div>
+    <input class="fi" id="pr-xq" placeholder="&#128269; Buscar e adicionar outra empresa..." oninput="buscaPrExtra()">
+    <div id="pr-xres" style="max-height:100px;overflow:auto"></div><div id="pr-xsel"></div>
     <div class="bloco-t" style="margin-top:8px">Responsáveis</div>
     <div class="linha-acao"><select class="fsel" id="pr-exec"><option value="">Quem executa *</option>${[...new Set(equipeOps)].map(n=>`<option>${n}</option>`).join("")}</select>
       <select class="fsel" id="pr-pediu" title="Quem pediu precisa ser quem vai CONDUZIR a venda — meta e follow-up contam para essa pessoa"><option value="">Quem pediu (conduz a venda) *</option>${[...new Set(equipeOps)].map(n=>`<option>${n}</option>`).join("")}</select></div>
@@ -10658,6 +10674,31 @@ function buscaPrCli(){
 function selPrCli(id){E._prCli=E._cli[id];ge("pr-res").innerHTML="";ge("pr-q").value=E._prCli.nome;
   ge("pr-sel").textContent="✓ "+E._prCli.nome+" selecionado";ge("pr-novo").checked=false;ge("pr-novo-w").style.display="none";
   avisaPropDup();}
+// 🏢 proposta unificada (sugestão da Maria Eduarda, 24/11/2026): outras
+// empresas penduradas na MESMA proposta — valor e funil continuam um só
+function buscaPrExtra(){
+  const q=(ge("pr-xq").value||"").trim();const box=ge("pr-xres");
+  if(q.length<2){box.innerHTML="";return;}
+  const f=filtraLocalClientes(E._clsTodos||[],q).slice(0,15);
+  box.innerHTML=f.map(c=>`<div class="linha-item" style="cursor:pointer" onclick='selPrExtra(${JSON.stringify(c.id_cliente)})'>
+    <span><b>${esc(c.nome)}</b> <span style="color:var(--gray);font-size:11px">${esc(c.cnpj_cpf||"")}</span></span></div>`).join("")
+    ||`<div style="font-size:12px;color:var(--gray)">Nenhuma empresa cadastrada com esse nome.</div>`;
+}
+function selPrExtra(id){const c=(E._cli||{})[id];if(!c)return;
+  if(E._prCli&&E._prCli.id_cliente===id){toast("Essa já é a empresa principal da proposta.","erro");return;}
+  E._prExtras=E._prExtras||[];
+  if(E._prExtras.some(x=>x.id_cliente===id))return;
+  E._prExtras.push({id_cliente:id,nome:c.nome});
+  ge("pr-xq").value="";ge("pr-xres").innerHTML="";desenhaPrExtras();}
+function tiraPrExtra(id){E._prExtras=(E._prExtras||[]).filter(x=>x.id_cliente!==id);desenhaPrExtras();}
+function desenhaPrExtras(){const el=ge("pr-xsel");if(!el)return;
+  const l=E._prExtras||[];
+  el.innerHTML=l.map(x=>`<span class="tag tda" style="margin:2px;font-size:11px">${esc(x.nome)} <b style="cursor:pointer" title="tirar da proposta" onclick='tiraPrExtra(${JSON.stringify(x.id_cliente)})'>&#10005;</b></span>`).join("")
+    +(l.length?`<div style="font-size:10px;color:var(--gray)">A proposta continua UMA só (valor total e negociação juntos) — mas aparece na ficha de cada empresa.</div>`:"");}
+// etiqueta "+N empresas" das propostas unificadas
+function propEmpresasTag(p){
+  const l=Array.isArray(p.empresas_extras)?p.empresas_extras:[];
+  return l.length?` <span class="tag tda" title="Proposta unificada — também cobre: ${esc(l.map(x=>x&&x.nome||"").filter(Boolean).join(", "))}">&#127970; +${l.length} empresa${l.length>1?"s":""}</span>`:"";}
 // conferência de duplicidade: propostas em aberto para o mesmo cliente
 function propostasAbertasDe(nome,idc){
   const alvo=String(nome||"").trim().toUpperCase();
@@ -10736,6 +10777,7 @@ async function lancarProposta(){
   if(novo&&!headCart){toast("Cliente novo precisa de uma head de carteira — escolha Bruna, Danielly ou Eduarda.","erro");return;}
   const vmesNT=numBR((ge("pr-vmes")||{}).value||""),dpagNT=(ge("pr-dpag")||{}).value||"";
   try{const r=await DB.criarProposta({cliente,id_cliente:idc,cnpj,novo_cliente:novo,head_carteira:headCart,
+    empresas_extras:(E._prExtras||[]),
     executor:exec,quem_pediu:pediu,responsavel:pediu||exec,produtos:prods.join(", "),verticais:verts.join(", "),
     valor:tot,valor_mes:vmesNT||null,data_pagto:dpagNT||null,cond,origem:orig,contato:cont,parecer:par,sharepoint:sp,tempo,
     data:ge("pr-data").value||hojeISO(),obs:ge("pr-obs").value||"",status:"Proposta enviada",
