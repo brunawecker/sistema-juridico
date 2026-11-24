@@ -7344,6 +7344,14 @@ function buscaPorOperacao(){
   ge("cl-lista").innerHTML=`<p style="font-size:12px;color:var(--gray);margin-bottom:8px">${f.length} tarefa(s) de "${esc(op)}"${adv?` · advogada <b>${esc(adv)}</b>`:""} em andamento${okCli?` · <b>somando com os filtros de cima</b>`:""}</p>`
     +(f.length?f.map(t=>cardTarefa(t,true)).join(""):`<div class="vazio">Nenhuma${adv?` de ${esc(adv)}`:""}${okCli?" dentro dos filtros escolhidos — limpe os filtros de cima para ver tudo":""}.${dica}</div>`);
 }
+// 🔑 e-CAC ao lado do nome na lista de clientes (sugestão da equipe via Bruna,
+// 24/11/2026): mostra o que a ficha diz sobre o e-CAC — normalmente o CNPJ da
+// Villela onde está liberado; cinza quando a ficha diz que NÃO está.
+function ecacTagCli(c){let v=String(c.e_cac||"").trim();if(!v)return "";
+  if(/^(n[aã]o(\s+liberado)?|sem\s+acesso\b.*)$/i.test(v))return `<span class="tag" style="background:var(--gray-lt);color:var(--gray)" title="situação do e-CAC na ficha: ${esc(v)}">&#128273; sem e-CAC</span>`;
+  let s=v.replace(/e-?cac liberado no cnpj da villela/i,"").trim()||v;
+  if(s.length>28)s=s.slice(0,26)+"…";
+  return `<span class="tag" style="background:var(--amber-lt);color:#7F6000" title="e-CAC — como está na ficha do cliente: ${esc(v)}">&#128273; ${esc(s)}</span>`;}
 function filtroCliente(c){
   if(E._fHead&&E._fHead!=="TODOS"){
     const h=String(c.head||"").trim();
@@ -7399,7 +7407,7 @@ function desenhaClientes(){
   alvo.innerHTML=`<p style="font-size:12px;color:var(--gray);margin-bottom:8px">${f.length} de ${E._clsTodos.length} cliente(s)${E._fAtivo==="MINHAS"?` · <b style="color:var(--navy)">${totMinhas} tarefa(s) ativas suas dentro deles</b>`:""}</p>`+
     f.slice(0,fim).map(c=>`<details class="det" id="cd-${esc(c.id_cliente)}"><summary onclick="prepCliente('${esc(c.id_cliente)}')">
       <div style="flex:1;min-width:0"><div style="font-weight:700;color:var(--navy)">${esc(c.nome)} ${tag(c)}
-        ${E._temTarefa[c.id_cliente]?'<span class="tag tek">com tarefa</span>':'<span class="tag ti">sem tarefa ativa</span>'}${String(c.assessor_responsavel||"").trim()===""?'<span class="tag" style="background:var(--red);color:white">&#9888; sem responsável</span>':""}${(E._minhaQtd||{})[c.id_cliente]?`<span class="tag" style="background:var(--ice);color:var(--dani)">&#128100; ${E._minhaQtd[c.id_cliente]} sua(s)</span>`:""}${(E._impedCli||{})[c.id_cliente]?`<span class="tag" style="background:#7B0000;color:white" title="Cliente IMPEDIDO — pela data de queda informada na tarefa">&#9940; impedido${E._impedCli[c.id_cliente].q!=="?"?" até "+brData(E._impedCli[c.id_cliente].q):" · sem data de queda"}</span>`:""}${c.grupo_dono?`<span class="tag" style="background:#FDEFE7;color:#B2502B" title="empresas do mesmo dono — grupo de ${esc(((E._cli||{})[c.grupo_dono]||{}).nome||c.grupo_dono)}">&#128101; mesmo dono</span>`:""}${prazoSNbadge(c)}</div>
+        ${ecacTagCli(c)}${E._temTarefa[c.id_cliente]?'<span class="tag tek">com tarefa</span>':'<span class="tag ti">sem tarefa ativa</span>'}${String(c.assessor_responsavel||"").trim()===""?'<span class="tag" style="background:var(--red);color:white">&#9888; sem responsável</span>':""}${(E._minhaQtd||{})[c.id_cliente]?`<span class="tag" style="background:var(--ice);color:var(--dani)">&#128100; ${E._minhaQtd[c.id_cliente]} sua(s)</span>`:""}${(E._impedCli||{})[c.id_cliente]?`<span class="tag" style="background:#7B0000;color:white" title="Cliente IMPEDIDO — pela data de queda informada na tarefa">&#9940; impedido${E._impedCli[c.id_cliente].q!=="?"?" até "+brData(E._impedCli[c.id_cliente].q):" · sem data de queda"}</span>`:""}${c.grupo_dono?`<span class="tag" style="background:#FDEFE7;color:#B2502B" title="empresas do mesmo dono — grupo de ${esc(((E._cli||{})[c.grupo_dono]||{}).nome||c.grupo_dono)}">&#128101; mesmo dono</span>`:""}${prazoSNbadge(c)}</div>
       <div style="font-size:11px;color:var(--gray)">${esc(c.cnpj_cpf||"")} · ${esc(c.head||"—")}${c.vertical?" · "+esc(c.vertical):""}${c.regime?" · "+esc(c.regime):""}${(String(c.municipio||"").trim()||String(c.uf||"").trim())?" · &#128205; "+esc([String(c.municipio||"").trim(),String(c.uf||"").trim().toUpperCase()].filter(Boolean).join("/")):""}</div></div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
         ${c.head?`<span class="tag tda">${esc(c.head)}</span>`:""}
