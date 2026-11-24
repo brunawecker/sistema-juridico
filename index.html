@@ -940,6 +940,8 @@ const S = {
   async checklistObs(id,txt){return okS(await supa.rpc("checklist_obs",{p_id_tarefa:id,p_texto:txt||""}));},
   async levantamentoDe(id){return okS(await supa.rpc("levantamento_de",{p_id_tarefa:id}));},
   async levantamentoSalvar(id,dados){return okS(await supa.rpc("levantamento_salvar",{p_id_tarefa:id,p_dados:dados}));},
+  async vcGerar(id,hon){return okS(await supa.rpc("vc_gerar",{p_id_tarefa:id,p_honorarios:hon}));},
+  async vcResposta(req){return okS(await supa.rpc("vc_resposta",{p_req:req}));},
   async modeloArquivo(nome){return okS(await supa.rpc("modelo_arquivo",{p_nome:nome}));},
   async operacaoNova(nome){return okS(await supa.rpc("operacao_nova",{p_nome:nome}));},
   async config(){return{cap:okS(await supa.from("config_capacidade").select("*"))||[],
@@ -3031,6 +3033,11 @@ function desenharCard(t,hist){
   // 📋 checklist de levantamento (Bruna, 23/11/2026, sql/158): o assessor marca
   // os itens enquanto desenvolve; progresso compartilhado (quem marcou fica registrado)
   if(CHECKLIST_OPS[t.operacao]&&!t._concluida)h+=levBoxHTML(t);
+  else if(CHECKLIST_OPS[t.operacao])h+=`<div class="bloco"><div class="bloco-t">&#128221; Levantamento (tarefa concluída)</div>
+    <div style="font-size:11.5px;color:var(--gray);margin-bottom:6px">O que o assessor preencheu ficou salvo — baixe os dados crus ou a versão comercial.</div>
+    <div class="linha-acao" style="flex-wrap:wrap">
+      <button class="btn bts btsm" onclick="levBaixarSalvo('${esc(t.id_tarefa)}','doc')">&#128196; Parecer salvo (Word)</button>
+      <button class="btn bts btsm" onclick="levBaixarSalvo('${esc(t.id_tarefa)}','vc')">&#10024; Versão comercial (Word)</button></div></div>`;
   if(t.supervisao)h+=`<div class="bloco"><div class="bloco-t">Orientação da head</div>
     <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:9px;padding:9px 12px;font-size:13px;color:#1E40AF;white-space:pre-line">${esc(t.supervisao)}</div></div>`;
   // andamento
@@ -3416,6 +3423,7 @@ async function levCarregar(t){
   const legN=(legado||[]).filter(r=>r.chave!=="_obs").length;
   E._lev={tarefa:t.id_tarefa,variante:CHECKLIST_OPS[t.operacao],
     v:d.v||{},x:d.x||{},l:Object.assign({parc_rfb:[],neg_pgfn:[]},d.l||{}),sel:d.sel||[],
+    doc:d.doc||null,vc:d.vc||null,
     legadoOk:legN>=chkItens(t.operacao).length&&legN>0,
     salvoEm:reg?reg.atualizado:null,autor:reg?reg.autor:null,dirty:false};
   levResumoCard();
@@ -3438,7 +3446,7 @@ function levSalvaAgenda(){
 async function levSalvaFlush(){
   if(!E._lev||!E._lev.dirty)return;
   const L=E._lev;
-  try{await DB.levantamentoSalvar(L.tarefa,{v:L.v,x:L.x,l:L.l,sel:L.sel});}
+  try{await DB.levantamentoSalvar(L.tarefa,{v:L.v,x:L.x,l:L.l,sel:L.sel,doc:L.doc||null,vc:L.vc||null});}
   catch(e){const st=ge("lev-status");if(st)st.textContent="⚠ erro ao salvar";toast("Erro ao salvar o levantamento: "+e.message,"erro");return;}
   L.dirty=false;L.salvoEm=new Date().toISOString();L.autor=E.perfil.nome_sistema;
   const st=ge("lev-status");if(st)st.textContent="salvo ✓ "+new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
@@ -3536,11 +3544,76 @@ function levDesenhaFicha(){
 // ---- aba 2: o parecer
 function levDesenhaParecer(){
   const box=ge("lev-v-par");if(!box||!E._lev)return;
-  box.innerHTML=`<div style="font-size:12px;background:var(--ice);color:var(--dani);border-radius:9px;padding:8px 12px;margin-bottom:10px">Montado sozinho com o levantamento — <b>versão de trabalho</b>: baixe em Word, revise e complete o que for análise sua. O modelo oficial em branco segue disponível no card.</div>
-    <div class="linha-acao" style="margin-bottom:10px">
+  const vc=E._lev.vc;
+  const nAv=vc?(vc.avisos.calculados.length+vc.avisos.confirmar.length+vc.avisos.inconsistencias.length):0;
+  const avGrupo=(tit,lista)=>lista.length?`<div style="font-weight:700;margin:7px 0 2px">${tit} (${lista.length})</div>`+lista.map(a=>`<div style="margin:2px 0 2px 10px">• ${esc(a)}</div>`).join(""):"";
+  box.innerHTML=`<div style="font-size:12px;background:var(--ice);color:var(--dani);border-radius:9px;padding:8px 12px;margin-bottom:10px">Montado sozinho com o levantamento — <b>versão de trabalho</b>: baixe em Word, revise e complete o que for análise sua. Ao baixar (e ao concluir a tarefa) esta versão fica <b>salva no sistema</b> para as heads e para quem corrigir. O modelo oficial em branco segue no card.</div>
+    <div class="linha-acao" style="margin-bottom:10px;flex-wrap:wrap">
       <button class="btn btp" onclick="levBaixarParecer()">&#11015; Baixar em Word (preenchido)</button>
-      <button class="btn bts" onclick="levCopiarParecer()">Copiar texto</button></div>
+      <button class="btn bts" onclick="levCopiarParecer()">Copiar texto</button>
+      <button class="btn btx" id="lev-vc-btn" onclick="levVcGerar()">&#10024; Gerar versão comercial (IA)</button></div>
+    ${vc?`<div class="painel" style="border-left:4px solid var(--roxo);margin-bottom:10px">
+      <div class="bloco-t" style="color:var(--roxo)">&#10024; Versão comercial — para apresentar ao cliente</div>
+      <div style="font-size:11.5px;color:var(--gray);margin-bottom:7px">Gerada por ${esc(vc.autor||"?")} em ${new Date(vc.em).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})} — <b>revise antes de apresentar</b>; os avisos abaixo são internos (não vão no documento).</div>
+      <div class="linha-acao" style="flex-wrap:wrap;margin-bottom:6px">
+        <button class="btn btx btsm" onclick="levBaixarVC()">&#11015; Baixar versão comercial (Word)</button></div>
+      ${nAv?`<details style="margin-bottom:6px"><summary style="font-size:12px;color:var(--amber);cursor:pointer;font-weight:700">⚠ Avisos da IA para a equipe (${nAv}) — conferir antes da reunião</summary>
+        <div style="font-size:11.5px;margin-top:5px">${avGrupo("Valores que a IA calculou",vc.avisos.calculados)}${avGrupo("Confirmar antes de apresentar",vc.avisos.confirmar)}${avGrupo("Inconsistências no levantamento",vc.avisos.inconsistencias)}</div></details>`:""}
+      <details><summary style="font-size:12px;color:var(--roxo);cursor:pointer;font-weight:700">Prévia do documento</summary>
+        <div style="margin-top:8px;border:1px solid var(--border);border-radius:9px;padding:10px;background:white;overflow-x:auto">${vc.html}</div></details></div>`:""}
     <div class="painel" id="lev-par-doc" style="line-height:1.55">${levParecerHTML(false)}</div>`;}
+function levBaixarVC(){
+  const vc=E._lev&&E._lev.vc;if(!vc){toast("Gere a versão comercial primeiro.","erro");return;}
+  const cli=levCliente();
+  levDownloadDoc(vc.html,"Proposta Comercial - "+(cli.nome||"cliente")+" - "+new Date().toLocaleDateString("pt-BR").replace(/\//g,"-"));
+  toast("✓ Versão comercial baixada — revise antes de apresentar ao cliente.","ok");}
+// ✨ IA: levantamento estruturado + honorários oficiais → parecer/proposta
+// comercial p/ o cliente leigo. Mesmo caminho dos feedbacks: o BANCO chama a
+// API (pg_net, sql/164) e o site só espera a resposta.
+function levVcParse(texto){
+  const marca="===AVISOS===";const i=texto.indexOf(marca);
+  let html=texto,av={calculados:[],confirmar:[],inconsistencias:[]};
+  if(i>=0){html=texto.slice(0,i);
+    let resto=texto.slice(i+marca.length).trim().replace(/^```(json)?\s*/i,"").replace(/```\s*$/,"").trim();
+    try{const j=JSON.parse(resto);["calculados","confirmar","inconsistencias"].forEach(k=>{if(Array.isArray(j[k]))av[k]=j[k].map(String);});}catch(e){}}
+  html=html.trim().replace(/^```html?\s*/i,"").replace(/```\s*$/,"").trim();
+  return{html:html,avisos:av};}
+async function levVcGerar(){
+  const L=E._lev;if(!L||!E.atual||L.tarefa!==E.atual.id_tarefa)return;
+  if(!L.sel.length){toast("Faça a precificação primeiro — a seção de investimento usa os honorários oficiais.","erro");levAba("pre");return;}
+  const f=L.legadoOk?0:levFaltas();
+  if(f>0&&!confirm("A ficha ainda tem "+f+" campo(s) em aberto — a IA vai marcar [CONFIRMAR] no que faltar. Gerar mesmo assim?"))return;
+  L.v.rfb_total=levTotalRFB();
+  const o=ORC.orcar(L.sel,L.v);
+  const hon=levTextoProposta()
+    +"\nTotal do investimento fixo à vista: "+(o.totalFixo>0?ORC.fmt(o.totalFixo):"—")
+    +" · Êxito estimado: "+(o.exito&&o.exito.valor!=null?ORC.fmt(o.exito.valor):"20% sobre o desconto obtido");
+  const bt=ge("lev-vc-btn");
+  if(bt){bt.disabled=true;bt.innerHTML="&#10024; gerando… (uns 3 a 5 min — pode seguir trabalhando nesta tela)";}
+  clearTimeout(E._levTimer);try{await levSalvaFlush();}catch(e){}
+  let req;
+  try{req=await DB.vcGerar(L.tarefa,hon);}
+  catch(e){toast("Erro: "+e.message,"erro");
+    if(bt){bt.disabled=false;bt.innerHTML="&#10024; Gerar versão comercial (IA)";}return;}
+  let ok=false,avisou=false;
+  for(let i=0;i<160;i++){
+    await new Promise(r=>setTimeout(r,3000));
+    if(!E._lev||E._lev.tarefa!==L.tarefa)return;
+    let r2;try{r2=await DB.vcResposta(req);}catch(e){continue;}
+    if(!r2||!r2.pronto)continue;
+    if(r2.status!==200){
+      const det=(r2.corpo&&r2.corpo.error&&r2.corpo.error.message)||r2.erro||(r2.estourou?"a chamada estourou o tempo":"");
+      toast("A IA não respondeu"+(r2.status?" ("+r2.status+")":"")+" — tente de novo."+(det?" Detalhe: "+det:""),"erro");avisou=true;break;}
+    const partes=(((r2.corpo||{}).content)||[]).filter(c=>c&&c.type==="text").map(c=>c.text);
+    const p=levVcParse(partes.join("\n"));
+    if(!p.html){toast("A IA devolveu resposta vazia — tente de novo.","erro");avisou=true;break;}
+    L.vc={html:p.html,avisos:p.avisos,em:new Date().toISOString(),autor:E.perfil.nome_sistema};
+    L.dirty=true;try{await levSalvaFlush();}catch(e){}
+    toast("✨ Versão comercial pronta — revise os avisos antes de apresentar.","ok");
+    ok=true;break;}
+  if(!ok&&!avisou)toast("A geração demorou demais — tente de novo em instantes.","erro");
+  if(bt){bt.disabled=false;bt.innerHTML="&#10024; Gerar versão comercial (IA)";}
+  levDesenhaParecer();}
 function levParecerHTML(paraWord){
   const L=E._lev,v=L.v,x=L.x,F=ORC.fmt;
   const cli=levCliente();
@@ -3584,14 +3657,30 @@ function levParecerHTML(paraWord){
     ${h3("5. Investimento")}
     ${o&&o.blocos.some(b=>b.alerta!=="vermelho")?`<p style="font-size:13px">${esc(levTextoProposta()).replace(/\n/g,"<br>")}</p>`:`<p style="color:#607D8B;font-size:12px">— marque os produtos na aba Precificação e as condições entram aqui sozinhas —</p>`}
     <div style="font-size:11px;color:#607D8B;font-style:italic;margin-top:14px">Versão de trabalho gerada pelo sistema a partir do levantamento — revise antes de enviar ao cliente.</div>`;}
-function levBaixarParecer(){
-  const cli=levCliente();
-  const html=`<html><head><meta charset="utf-8"><title>Levantamento</title></head><body style="font-family:Calibri,Arial,sans-serif;font-size:12pt">${levParecerHTML(true)}</body></html>`;
+function levDownloadDoc(miolo,nomeBase){
+  const html=`<html><head><meta charset="utf-8"><title>${esc(nomeBase)}</title></head><body style="font-family:Calibri,Arial,sans-serif;font-size:12pt">${miolo}</body></html>`;
   const blob=new Blob(["﻿"+html],{type:"application/msword"});
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);
-  a.download="Levantamento - "+(cli.nome||"cliente").replace(/[\\/:*?"<>|]/g,"")+" - "+new Date().toLocaleDateString("pt-BR").replace(/\//g,"-")+".doc";
-  document.body.appendChild(a);a.click();a.remove();
-  toast("✓ Parecer baixado em Word (versão de trabalho) — revise antes de enviar.","ok");}
+  a.download=nomeBase.replace(/[\\/:*?"<>|]/g,"")+".doc";
+  document.body.appendChild(a);a.click();a.remove();}
+// 📸 guarda a versão em Word no banco (dados crus p/ heads e correção),
+// mesmo que o assessor nunca clique em baixar — roda ao baixar e ao concluir
+async function levDocSnapshot(){
+  if(!E._lev)return;
+  E._lev.doc={html:levParecerHTML(true),em:new Date().toISOString(),autor:E.perfil.nome_sistema};
+  E._lev.dirty=true;clearTimeout(E._levTimer);await levSalvaFlush();}
+function levBaixarParecer(){
+  const cli=levCliente();
+  levDocSnapshot();
+  levDownloadDoc(levParecerHTML(true),"Levantamento - "+(cli.nome||"cliente")+" - "+new Date().toLocaleDateString("pt-BR").replace(/\//g,"-"));
+  toast("✓ Parecer baixado em Word e salvo no sistema — revise antes de enviar.","ok");}
+// ⬇ nas tarefas CONCLUÍDAS: baixa o que ficou salvo no banco
+async function levBaixarSalvo(id,tipo){
+  let reg;try{reg=await DB.levantamentoDe(id);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  const d=(reg&&reg.dados)||{};const o=tipo==="vc"?d.vc:d.doc;
+  if(!o||!o.html){toast(tipo==="vc"?"Esta tarefa não tem versão comercial gerada.":"Esta tarefa não tem parecer salvo — a ficha pode não ter sido preenchida.","erro");return;}
+  levDownloadDoc(o.html,(tipo==="vc"?"Proposta Comercial - ":"Levantamento - ")+id);
+  toast("✓ Baixado — versão salva em "+new Date(o.em).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})+(o.autor?" por "+o.autor:""),"ok");}
 function levCopiarParecer(){const el=ge("lev-par-doc");levCopia(el?el.innerText.trim():"","Texto do parecer copiado.");}
 function levCopia(t,msg){
   if(!t){toast("Nada para copiar ainda.","erro");return;}
@@ -4310,6 +4399,7 @@ async function salvarQueda(){
 async function enviarParecerFranq(){
   const s=E._parecerSol;if(!s)return;
   if(E.atual&&!chkConfirmaConclusao(E.atual))return;
+  if(E.atual&&CHECKLIST_OPS[E.atual.operacao]&&E._lev&&E._lev.tarefa===E.atual.id_tarefa)try{await levDocSnapshot();}catch(e){}
   const f=(ge("par-file").files||[])[0];
   if(!f){toast("Anexe o parecer antes de enviar.","erro");return;}
   const MSG="Análise finalizada! Já pode agendar com o jurídico a reunião de retorno para apresentarmos a proposta.";
@@ -4363,6 +4453,8 @@ async function concluirTarefa(){
     E._gateDepois="concluir";abrirGateProposta();return;}
   // 📋 checklist do levantamento: OBRIGATÓRIO completo para concluir
   if(!chkConfirmaConclusao(t))return;
+  // 📸 guarda o parecer em Word no banco antes de concluir (dados crus p/ heads)
+  if(CHECKLIST_OPS[t.operacao]&&E._lev&&E._lev.tarefa===t.id_tarefa)try{await levDocSnapshot();}catch(e){}
   // laudo: concluir exige confirmar/atualizar a FASE (Bruna, 17/09/2026)
   if(t._laudo&&!E._laudoGateOk){E._laudoDepois="concluir";abrirGateLaudo();return;}
   if(!t._laudo&&etapasDe(t.operacao).length&&!E._etapaGateOk){E._etapaDepois="concluir";abrirGateEtapa();return;}
