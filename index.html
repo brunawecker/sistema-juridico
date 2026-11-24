@@ -8185,7 +8185,15 @@ async function salvarPrazoSimplesCli(id,limpar){
 function prepCliente(id){
   const box=ge("cb-"+id);if(!box||box.dataset.ok)return;box.dataset.ok=1;
   const c=E._cli[id];const isHead=E.perfil.head_sim;
-  const podeConverter=(isHead||E.perfil.nome_sistema==="Nicholas")&&c.situacao==="PROSPECCAO";
+  // assessor com proposta vinculada ao prospect (Bruna, 24/11/2026) também
+  // converte — como principal ou empresa extra da proposta unificada; o banco
+  // confere de novo (sql/168)
+  const minhaPropDo=cid=>(E._props||[]).some(p=>!/^recusada/i.test(String(p.status||""))
+    &&String(p.responsavel||p.quem_pediu||p.executor||"").trim()===E.perfil.nome_sistema
+    &&(p.id_cliente===cid||(Array.isArray(p.empresas_extras)&&p.empresas_extras.some(x=>x&&x.id_cliente===cid))));
+  const podeConverter=c.situacao==="PROSPECCAO"&&(isHead||E.perfil.nome_sistema==="Nicholas"||minhaPropDo(id));
+  if(c.situacao==="PROSPECCAO"&&!podeConverter&&!E._props)
+    DB.propostas().then(ps=>{E._props=ps||[];const b=ge("cb-"+id);if(b){b.dataset.ok="";prepCliente(id);}}).catch(()=>{});
   const opsAss=OPERACIONAIS.map(a=>`<option ${c.assessor_responsavel===a?"selected":""}>${a}</option>`).join("");
   box.innerHTML=`
     <div style="background:#F4F8FB;border:1px solid var(--border);border-radius:9px;padding:9px 12px;margin-bottom:9px">
