@@ -938,6 +938,8 @@ const S = {
   async checklistDe(id){return okS(await supa.rpc("checklist_de",{p_id_tarefa:id}))||[];},
   async checklistMarcar(id,chave,feito){return okS(await supa.rpc("checklist_marcar",{p_id_tarefa:id,p_chave:chave,p_feito:!!feito}));},
   async checklistObs(id,txt){return okS(await supa.rpc("checklist_obs",{p_id_tarefa:id,p_texto:txt||""}));},
+  async levantamentoDe(id){return okS(await supa.rpc("levantamento_de",{p_id_tarefa:id}));},
+  async levantamentoSalvar(id,dados){return okS(await supa.rpc("levantamento_salvar",{p_id_tarefa:id,p_dados:dados}));},
   async modeloArquivo(nome){return okS(await supa.rpc("modelo_arquivo",{p_nome:nome}));},
   async operacaoNova(nome){return okS(await supa.rpc("operacao_nova",{p_nome:nome}));},
   async config(){return{cap:okS(await supa.from("config_capacidade").select("*"))||[],
@@ -3028,7 +3030,7 @@ function desenharCard(t,hist){
     <div style="font-size:11px;color:var(--gray);margin-top:7px">&#128257; <b>Continuar comigo</b>: registre antes um andamento (em "Adicionar andamento") contando o que já fez. Se quiser outro ritmo, ajuste a <b>Frequência</b> em "Atualizar / concluir" antes de clicar. O cartão volta para você na data — só devolva quando tiver tudo.</div></div>`;
   // 📋 checklist de levantamento (Bruna, 23/11/2026, sql/158): o assessor marca
   // os itens enquanto desenvolve; progresso compartilhado (quem marcou fica registrado)
-  if(CHECKLIST_OPS[t.operacao]&&!t._concluida)h+=chkBoxHTML(t);
+  if(CHECKLIST_OPS[t.operacao]&&!t._concluida)h+=levBoxHTML(t);
   if(t.supervisao)h+=`<div class="bloco"><div class="bloco-t">Orientação da head</div>
     <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:9px;padding:9px 12px;font-size:13px;color:#1E40AF;white-space:pre-line">${esc(t.supervisao)}</div></div>`;
   // andamento
@@ -3143,7 +3145,7 @@ function desenharCard(t,hist){
   ge("m-corpo").innerHTML=h;
   rascunhoLiga("nota-texto","and:"+t.id_tarefa);
   carregarCliExtra(t);carregarDocs(t);carregarProcs(t);
-  if(CHECKLIST_OPS[t.operacao]&&!t._concluida){chkCarregar(t);chkVigiaInicia(t);}
+  if(CHECKLIST_OPS[t.operacao]&&!t._concluida){levCarregar(t);chkVigiaInicia(t);}
 }
 // ===== 📋 checklist de levantamento no card (Bruna, 23/11/2026, sql/158) =====
 function chkBoxHTML(t){
@@ -3209,26 +3211,29 @@ async function chkObsSalvar(id){
   if(E._chk)E._chk.obs=txt;E._chkUlt=Date.now();
   toast("✓ Observações do checklist salvas.","ok");
 }
-// 🔒 TRAVA na conclusão (Bruna, 23/11/2026): sem checklist completo, não conclui
+// 🔒 TRAVA na conclusão (23/11, adaptada em 24/11/2026): sem a FICHA de
+// levantamento completa, não conclui — tarefa antiga com o checklist de
+// caixinhas completo continua passando (legadoOk)
 function chkConfirmaConclusao(t){
   if(!CHECKLIST_OPS[t.operacao])return true;
-  if(!E._chk||E._chk.tarefa!==t.id_tarefa){
-    toast("📋 O checklist ainda está carregando — aguarde um instante e tente de novo.","erro");return false;}
-  const tot=chkItens(t.operacao).length,n=Object.keys(E._chk.marc).length;
-  if(n>=tot)return true;
-  toast("📋 Para concluir é obrigatório completar o checklist — faltam "+(tot-n)+" de "+tot+" item(ns). Item que não se aplica: marque e anote \"N/A\" nas observações.","erro");
+  if(!E._lev||E._lev.tarefa!==t.id_tarefa){
+    toast("📝 O levantamento ainda está carregando — aguarde um instante e tente de novo.","erro");return false;}
+  if(E._lev.legadoOk)return true;
+  const f=levFaltas();
+  if(f===0)return true;
+  toast("📝 Para concluir é obrigatório completar a ficha de levantamento — faltam "+f+" campo(s). O que não se aplica: preencha 0 ou \"N/A\".","erro");
   return false;
 }
-// ⏰ vigia do checklist (Bruna, 23/11/2026): card aberto 10 min sem marcar
-// nenhum item → alerta (e repete a cada 10 min de inatividade no checklist)
+// ⏰ vigia (23/11, adaptado em 24/11/2026): card aberto 10 min sem preencher
+// a ficha de levantamento → alerta (repete a cada 10 min de inatividade)
 function chkVigiaTick(){
   const m=ge("modal");
   if(!m||!m.classList.contains("aberto")||!E.atual||E.atual.id_tarefa!==E._chkVigiaTarefa){chkVigiaPara();return;}
-  const tot=chkItens(E.atual.operacao).length;if(!tot){chkVigiaPara();return;}
-  const n=(E._chk&&E._chk.tarefa===E.atual.id_tarefa)?Object.keys(E._chk.marc).length:0;
-  if(n>=tot){chkVigiaPara();return;}
+  if(!CHECKLIST_OPS[E.atual.operacao]){chkVigiaPara();return;}
+  const f=(E._lev&&E._lev.tarefa===E.atual.id_tarefa)?(E._lev.legadoOk?0:levFaltas()):-1;
+  if(f===0){chkVigiaPara();return;}
   if(Date.now()-(E._chkUlt||0)>=10*60000){
-    toast("⏰ Já faz 10 minutos com o card aberto sem marcar itens do checklist ("+n+" de "+tot+") — vá marcando enquanto desenvolve.","erro");
+    toast("⏰ Já faz 10 minutos com o card aberto sem preencher o levantamento"+(f>0?" (faltam "+f+" campo(s))":"")+" — vá preenchendo enquanto desenvolve.","erro");
     E._chkUlt=Date.now();}
 }
 function chkVigiaInicia(t){
@@ -3238,6 +3243,446 @@ function chkVigiaInicia(t){
   E._chkVigia=setInterval(chkVigiaTick,30000);
 }
 function chkVigiaPara(){if(E._chkVigia){clearInterval(E._chkVigia);E._chkVigia=null;}}
+// ============ 📝 FICHA DE LEVANTAMENTO & PRECIFICAÇÃO (Bruna, 24/11/2026) ============
+// Substitui o checklist de caixinhas nas operações de levantamento: o assessor
+// preenche os DADOS uma vez e o sistema usa três vezes — parecer (Word),
+// precificação e texto da proposta. Regras de preço: espec. 19/11/2026
+// (16 casos de teste oficiais batendo centavo a centavo). Dados: sql/163.
+var ORC=(function(){
+const P={EXITO_PCT:.20,SO_AVISTA:.20,SO_BOLETO:.30,LIQ_PCT:.10,CRED_PCT:.30,
+  CARTAO_FATOR:1.12,BOL6_FATOR:1.20,
+  LAUDO_FAIXAS:[[100000,.10],[500000,.05],[1000000,.025],[Infinity,.01]],
+  LAUDO_FATOR_MEDIA:.80,QUEDA_ALTA:.40,QUEDA_MEDIA:.65,
+  LAUDO_PISO:7800,LAUDO_MARGEM:.80,TRAVA_BENEF:.15,LAUDO_ESTUDO:3800,
+  GAR_ENTRADA_MULT:2,MSMIG_PCT_PEDAGIO:1/3,MSMIG_PISO:3200,
+  MSIMP_PCT_ENTRADA:.30,MSIMP_PISO:5800,
+  MS_FAIXAS:[[200000,.04],[1000000,.02],[Infinity,.01]],
+  PRESC_ENTRADA:3200,PRESC_MENSAL:1500,APROVADORES:"Bruna, Danielly ou Eduarda"};
+const r2=v=>Math.round((v+Number.EPSILON)*100)/100;
+const fmt=v=>v==null?"—":v.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
+function faixas(v,f){let t=0,ant=0;for(const[lim,pct]of f){if(v<=ant)break;t+=(Math.min(v,lim)-ant)*pct;ant=lim;}return t;}
+function pag(v){return{avista:r2(v),cartao:r2(v*P.CARTAO_FATOR/12),b3:r2(v/3),b6:r2(v*P.BOL6_FATOR/6)};}
+const pagTxt=p=>`${fmt(p.avista)} à vista; ou 12x de ${fmt(p.cartao)} no cartão de crédito; ou 3x de ${fmt(p.b3)} no boleto sem acréscimo; ou 6x de ${fmt(p.b6)} no boleto`;
+function msMigracao(e){const ped=+e.pedagio_rf||0,rfb=+e.rfb_total||0;
+  const base=ped>0?ped*P.MSMIG_PCT_PEDAGIO:faixas(rfb,P.MS_FAIXAS);
+  const v=r2(Math.max(r2(base),P.MSMIG_PISO));
+  return{nome:"MS de migração",alerta:"verde",valor:v,pag:pag(v),
+    mem:[["Base",ped>0?`pedágio ${fmt(ped)} × 1/3`:`faixas sobre o débito RFB ${fmt(rfb)}`],["Calculado",fmt(r2(base))],["Piso",fmt(P.MSMIG_PISO)]]};}
+function msImpedimento(e){const ent=+e.entrada_sem||0,pg=+e.pgfn_total||0;
+  const base=ent>0?ent*P.MSIMP_PCT_ENTRADA:faixas(pg,P.MS_FAIXAS);
+  const v=r2(Math.max(r2(base),P.MSIMP_PISO));
+  return{nome:"MS de impedimento",alerta:"verde",valor:v,pag:pag(v),
+    mem:[["Base",ent>0?`entrada PGFN ${fmt(ent)} × 30%`:`faixas sobre o débito PGFN ${fmt(pg)}`],["Calculado",fmt(r2(base))],["Piso",fmt(P.MSIMP_PISO)]]};}
+function laudoC(e){const cap=+e.capag_capacidade||0,div=+e.capag_divida||0;
+  const hoje=+e.desconto_hoje||0,cl=+e.desconto_laudo||0;const adicional=r2(cl-hoje);
+  if(cap<=0||div<=0||adicional<=0)return{nome:"Laudo CAPAG",alerta:"vermelho",msg:"Confira capacidade, dívida e descontos — o desconto adicional precisa ser maior que zero.",valor:null,mem:[]};
+  const indice=cap/div;const classe=indice>=2?"A":indice>=1?"B":indice>=.5?"C":"D";
+  if(classe==="D")return{nome:"Laudo CAPAG",alerta:"amarelo",msg:"Cliente já está em D; o laudo não se aplica.",valor:null,mem:[["Índice",indice.toFixed(2)+" (classe D)"]]};
+  const alvo=indice>=1?1:.5;const queda=1-alvo/indice;
+  const chance=queda<=P.QUEDA_ALTA?"Alta":queda<=P.QUEDA_MEDIA?"Média":"Baixa";
+  const base={nome:"Laudo CAPAG",indice,classe,queda,chance,adicional};
+  if(chance==="Baixa"){const v=r2(P.LAUDO_ESTUDO);
+    return Object.assign(base,{nome:"Estudo de viabilidade da reclassificação",alerta:"amarelo",
+      msg:"Chance baixa: venda só o estudo. O valor é abatido do laudo se o caso seguir.",valor:v,pag:pag(v),
+      mem:[["Índice",indice.toFixed(2)+" (classe "+classe+")"],["Queda necessária",Math.round(queda*100)+"%"],["Chance","Baixa"],["Estudo",fmt(v)]]});}
+  const tabela=r2(faixas(adicional,P.LAUDO_FAIXAS));
+  const calculado=r2(tabela*(chance==="Alta"?1:P.LAUDO_FATOR_MEDIA));
+  const v=r2(Math.max(calculado,P.LAUDO_PISO));
+  const minimo=r2(Math.max(r2(v*P.LAUDO_MARGEM),P.LAUDO_PISO));
+  const met1=Math.ceil(v*100/2)/100,met2=r2(v-met1);
+  const estoura=v/adicional>P.TRAVA_BENEF;
+  return Object.assign(base,{alerta:estoura?"amarelo":"verde",
+    msg:estoura?"O laudo passa de 15% do desconto adicional. Avalie ir só no êxito ou peça aprovação.":"",
+    valor:v,minimo,met1,met2,pag:pag(v),
+    mem:[["Índice",indice.toFixed(2)+" (classe "+classe+")"],["Queda necessária",Math.round(queda*100)+"%"],["Chance",chance],["Desconto adicional",fmt(adicional)],["Valor de tabela",fmt(tabela)],["Mínimo negociável",fmt(minimo)],["1ª metade (estudo e laudo, na contratação)",fmt(met1)],["2ª metade (no deferimento da reclassificação)",fmt(met2)]]});}
+function garantiasC(e){const pg=+e.pgfn_total||0,parc=+e.parcela_pgfn||0,n=+e.n_parcelas_pgfn||0;
+  const taxa=+e.taxa_garantia||.04,meses=+e.meses_garantia||12;
+  if(pg<=0||parc<=0||n<=0)return{nome:"Garantias",alerta:"vermelho",msg:"Informe dívida na PGFN, parcela e número de parcelas do convencional.",valor:null,mem:[]};
+  const razao=parc/(pg/n);
+  if(razao<.15||razao>1.5)return{nome:"Garantias",alerta:"vermelho",msg:"A parcela informada não bate com a dívida. Confira no Regularize.",valor:null,mem:[]};
+  const mensal=r2(pg*taxa/12);const entrada=r2(mensal*P.GAR_ENTRADA_MULT);const alta=mensal>=parc;
+  return{nome:"Garantias",alerta:alta?"amarelo":"verde",
+    msg:alta?"A mensal não fica abaixo da parcela do convencional. Reduza o percentual ou peça aprovação.":"",
+    valor:entrada,mensal,meses,pag:pag(entrada),
+    mem:[["Dívida PGFN",fmt(pg)],["Taxa",(taxa*100).toLocaleString("pt-BR")+"% ao ano"],["Mensal",fmt(mensal)+" por "+meses+" meses"],["Entrada (2× a mensal)",fmt(entrada)]]};}
+function liquidezC(e){const sem=+e.entrada_sem||0,com=+e.entrada_com||0;
+  if(com>=sem)return{nome:"Êxito de liquidez",alerta:"vermelho",msg:"A entrada com a estratégia precisa ficar menor que a entrada de hoje.",valor:null,mem:[]};
+  const v=r2((sem-com)*P.LIQ_PCT);
+  return{nome:"Êxito de liquidez",alerta:"verde",exito:true,valor:v,
+    mem:[["Economia na entrada",fmt(r2(sem-com))],["Êxito (10%)",fmt(v)]]};}
+function creditosC(e){const c=+e.creditos||0;const v=r2(c*P.CRED_PCT);
+  return{nome:"Recuperação de créditos",alerta:"verde",exito:true,valor:v,
+    mem:[["Créditos apurados",fmt(c)],["Êxito estimado (30%)",fmt(v)]]};}
+function prescricaoC(){return{nome:"Acompanhamento de prescrição",alerta:"verde",valor:r2(P.PRESC_ENTRADA),
+  mensal:r2(P.PRESC_MENSAL),pag:pag(P.PRESC_ENTRADA),
+  mem:[["Entrada",fmt(P.PRESC_ENTRADA)],["Mensal",fmt(P.PRESC_MENSAL)],["Êxito","20% sobre o que for extinto"]]};}
+function soExitoC(e){const d=+e.desconto_projetado||0;
+  if(d<=0)return{nome:"Só êxito",alerta:"vermelho",msg:"Informe o desconto projetado na transação.",valor:null,mem:[]};
+  const av=r2(d*P.SO_AVISTA),bol=r2(d*P.SO_BOLETO/6);
+  return{nome:"Só êxito",alerta:"verde",exito:true,valor:av,soBoleto:bol,
+    mem:[["Desconto projetado",fmt(d)],["À vista (20%)",fmt(av)],["Boleto (30% em 6x)","6x de "+fmt(bol)]]};}
+function exitoGeral(e,temLaudo){const base=temLaudo?(+e.desconto_laudo||0):(+e.desconto_projetado||0);
+  return base>0?{valor:r2(base*P.EXITO_PCT),base}:{valor:null};}
+const CALC={msmig:msMigracao,msimp:msImpedimento,laudo:laudoC,gar:garantiasC,liq:liquidezC,cred:creditosC,presc:prescricaoC,soex:soExitoC};
+function orcar(produtos,e){
+  const blocos=produtos.map(p=>Object.assign({chave:p},CALC[p](e)));
+  const fixos=blocos.filter(b=>b.pag&&b.alerta!=="vermelho"&&!b.exito&&b.chave!=="soex");
+  const totalFixo=r2(fixos.reduce((s,b)=>s+b.valor,0));
+  const ex=produtos.includes("soex")?{valor:null}:exitoGeral(e,produtos.includes("laudo"));
+  return{blocos,totalFixo,exito:ex};}
+return{P,r2,fmt,faixas,pag,pagTxt,orcar,CALC};
+})();
+const LEV_PRODUTOS=[
+  {k:"msmig",n:"MS de migração",d:"destravar migração de parcelamento na Receita",fixo:true},
+  {k:"msimp",n:"MS de impedimento",d:"destravar impedimento na PGFN",fixo:true},
+  {k:"laudo",n:"Laudo CAPAG",d:"reclassificação da capacidade de pagamento",fixo:true},
+  {k:"gar",n:"Garantias",d:"garantia para a transação na PGFN",fixo:true},
+  {k:"liq",n:"Êxito de liquidez",d:"reduzir a entrada exigida — cobra no êxito",fixo:false},
+  {k:"cred",n:"Recuperação de créditos",d:"êxito sobre créditos apurados",fixo:false},
+  {k:"presc",n:"Acompanhamento de prescrição",d:"entrada + mensal + êxito sobre o extinto",fixo:true},
+  {k:"soex",n:"Só êxito",d:"sem honorário fixo — não combina com os fixos",fixo:false,exclusivo:true}];
+// campos da ficha, seção a seção (espelha o checklist/modelo oficial; v = COM/SEM)
+function levFichaDef(v){
+  return[
+   {t:"1 · Dados cadastrais",itens:[
+     {id:"cpen",tipo:"date",r:"CPEN — válida até",o:"Certidão de regularidade (emitir e salvar na pasta)"}]},
+   {t:"2 · Receita Federal (conta corrente)",itens:[
+     {id:"rfb_simples",tipo:"num",r:"Dívida do Simples Nacional",o:"e-CAC, situação fiscal"},
+     {id:"rfb_demais",tipo:"num",r:"Demais débitos — PIS, COFINS, IRPJ, CSLL etc.",o:"e-CAC, situação fiscal"},
+     {id:"rfb_prev",tipo:"num",r:"Previdenciário — CP-SEGUR., CP-PATRONAL etc.",o:"e-CAC, situação fiscal"},
+     {tipo:"autoRFB"},
+     {id:"parc_rfb",tipo:"rep",r:"Parcelamentos ATIVOS na Receita",o:"e-CAC, parcelamentos"},
+     {id:"pedagio_rf",tipo:"num",r:"Simulação de regularização: entrada/pedágio exigido (0 se não houver)",o:"Simulação do parcelamento no e-CAC"},
+     {id:"rfb_sim_n",tipo:"int",r:"Nº de parcelas da simulação",o:"Mesma tela"},
+     {id:"rfb_sim_parcela",tipo:"num",r:"Valor da parcela da simulação",o:"Mesma tela"}]},
+   {t:"3 · PGFN",itens:[
+     {id:"pgfn_total",tipo:"num",r:"Valor total inscrito em Dívida Ativa da União",o:"Regularize, dívida ativa"},
+     {id:"pgfn_cobranca",tipo:"num",r:"Valor em cobrança (sem negociação)",o:"Regularize"},
+     {id:"divida_estadual",tipo:"num",r:"Dívida estadual (0 se não houver)",o:"SEFAZ do estado"},
+     {tipo:"autoGlobal"},
+     {id:"neg_pgfn",tipo:"rep",r:"Negociações/parcelamentos ATIVOS na PGFN (dívida suspensa)",o:"Regularize, negociações"},
+     {id:"x_imped",tipo:"seg",r:"Impedimento de transacionar aplicado (ou risco pelas negociações ativas)?",ops:["Aplicado","Risco","Não"]},
+     {id:"x_tese3",tipo:"seg",r:"Enquadra na tese da notificação na 3ª parcela?",ops:["Sim","Não","Avaliar"]},
+     {id:"imped_queda",tipo:"date",r:"Data de queda do impedimento",o:"Regularize"},
+     {id:"entrada_sem",tipo:"num",r:"Entrada exigida na simulação disponível durante o impedimento (0 se não houver)",o:"Simulação do parcelamento convencional"},
+     {id:"parcela_pgfn",tipo:"num",r:"Parcela dessa simulação",o:"Mesma tela"},
+     {id:"n_parcelas_pgfn",tipo:"int",r:"Nº de parcelas dessa simulação",o:"Mesma tela"},
+     {id:"capag_capacidade",tipo:"num",r:"CAPAG — capacidade de pagamento em 60 meses",o:"Regularize, tela da CAPAG"},
+     {id:"capag_divida",tipo:"num",r:"CAPAG — valor total da dívida PGFN + RFB",o:"Mesma tela da CAPAG"},
+     {tipo:"autoCapag"},
+     {id:"desconto_hoje",tipo:"num",r:"Desconto disponível hoje (0 se não houver)",o:"Simulação com a CAPAG atual"},
+     {id:"desconto_laudo",tipo:"num",r:"Desconto projetado com a reclassificação",o:"Simulação com a CAPAG revisada"},
+     {id:"exec_fed",tipo:"int",r:"Nº de execuções fiscais federais",o:"PJe / sistemas dos tribunais"},
+     {id:"exec_est",tipo:"int",r:"Nº de execuções estaduais",o:"e-SAJ / Projudi"},
+     {id:"exec_mun",tipo:"int",r:"Nº de execuções municipais",o:"Sistema do município"},
+     {id:"x_processos",tipo:"txt",r:v==="COM"?"Relatório processo a processo (número, exequente, advogado habilitado?, ativo/suspenso, bloqueios, data do despacho de citação)":"Relatório processo a processo (número, exequente, advogado habilitado?, ativo/suspenso, bloqueios)",o:"Consulta processual"},
+     {id:"x_suspensos",tipo:"txt",r:v==="COM"?"Suspensos: fundamento (art. 40 da LEF, desde quando, projeção de prescrição intercorrente — manual) ou parcelamento":"Suspensos: fundamento (art. 40 da LEF, desde quando) ou parcelamento",o:"Análise manual obrigatória"}]
+     .concat(v==="COM"?[{id:"x_auditoria",tipo:"txt",r:"Auditoria do débito — análise prescricional (inscrições com tese de extinção e valor envolvido)",o:"Data de constituição × despacho de citação"}]:[])},
+   {t:"4 · Estratégia jurídica",itens:[
+     {id:"entrada_com",tipo:"num",r:"Cenário intermediário (com a Villela): entrada na melhor negociação de hoje",o:"Levantamento"},
+     {id:"x_futuro",tipo:"txt",r:"Cenário futuro — o que a estratégia busca (simulação final)",o:"Comparar com o cenário atual e o intermediário"},
+     {id:"x_estrategia",tipo:"txt",r:"Análise e estratégia recomendada (entra no parecer do jeito que você escrever)",o:"Parte sua — o resto o sistema monta"}]}];}
+function levParseBR(s){s=String(s||"").replace(/[R$\s]/g,"");if(!s)return 0;
+  if(s.includes(","))s=s.replace(/\./g,"").replace(",",".");
+  else if(!/^\d+\.\d{1,2}$/.test(s))s=s.replace(/\./g,"");
+  return parseFloat(s)||0;}
+function levTotalRFB(){const v=E._lev.v;return ORC.r2((v.rfb_simples||0)+(v.rfb_demais||0)+(v.rfb_prev||0));}
+function levTotalGlobal(){const v=E._lev.v;return ORC.r2(levTotalRFB()+(v.pgfn_total||0)+(v.divida_estadual||0));}
+function levFaltas(){
+  if(!E._lev)return 999;
+  const its=levFichaDef(E._lev.variante).flatMap(s=>s.itens).filter(c=>["num","int","date","seg","txt"].includes(c.tipo));
+  return its.filter(c=>c.tipo==="seg"?!E._lev.x[c.id]:(c.tipo==="txt"||c.tipo==="date")?!(E._lev.x[c.id]||"").trim():E._lev.v[c.id]==null).length;}
+function levBoxHTML(t){
+  const v=CHECKLIST_OPS[t.operacao];
+  return `<div class="bloco"><div class="bloco-t">&#128221; Levantamento &amp; precificação <span id="lev-cont" style="color:var(--gray);font-weight:normal"></span></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:7px;font-size:11.5px">
+      <span>&#128229; <b>Modelo do relatório</b> (${v==="COM"?"cliente com contrato ativo":"prospecção/sem contrato"}):</span>
+      <button class="btn bts btsm" onclick="baixarModelo('${v}','docx')">&#128196; Word em branco</button>
+      <button class="btn bts btsm" onclick="baixarModelo('${v}','pdf')">PDF</button></div>
+    <div id="lev-resumo" style="background:var(--gray-lt);border-radius:9px;padding:9px 12px;font-size:12px">carregando levantamento…</div>
+    <div class="linha-acao" style="margin-top:7px"><button class="btn btp" onclick="levAbrir()">&#128221; Abrir levantamento &amp; precificação</button></div></div>`;}
+async function levCarregar(t){
+  E._lev=null;
+  let reg=null,legado=[];
+  try{[reg,legado]=await Promise.all([DB.levantamentoDe(t.id_tarefa),DB.checklistDe(t.id_tarefa).catch(()=>[])]);}
+  catch(e){const b=ge("lev-resumo");if(b)b.innerHTML="Não consegui carregar o levantamento: "+esc(e.message);return;}
+  const d=(reg&&reg.dados)||{};
+  const legN=(legado||[]).filter(r=>r.chave!=="_obs").length;
+  E._lev={tarefa:t.id_tarefa,variante:CHECKLIST_OPS[t.operacao],
+    v:d.v||{},x:d.x||{},l:Object.assign({parc_rfb:[],neg_pgfn:[]},d.l||{}),sel:d.sel||[],
+    legadoOk:legN>=chkItens(t.operacao).length&&legN>0,
+    salvoEm:reg?reg.atualizado:null,autor:reg?reg.autor:null,dirty:false};
+  levResumoCard();
+  if(ge("lev-ov")&&ge("lev-ov").style.display!=="none")levRender();
+}
+function levResumoCard(){
+  const b=ge("lev-resumo"),c=ge("lev-cont");if(!E._lev)return;
+  const its=levFichaDef(E._lev.variante).flatMap(s=>s.itens).filter(x=>["num","int","date","seg","txt"].includes(x.tipo)).length;
+  const f=levFaltas(),pct=Math.round((its-f)/its*100);
+  if(c)c.textContent="· "+pct+"% preenchido";
+  if(!b)return;
+  b.innerHTML=`<div style="display:flex;align-items:center;gap:10px">
+    <div style="flex:1;height:7px;border-radius:20px;background:#fff;overflow:hidden"><div style="width:${pct}%;height:100%;background:linear-gradient(90deg,var(--navy),var(--navy-lt))"></div></div>
+    <b style="color:var(--navy);white-space:nowrap">${f===0?"✓ completo":"faltam "+f+" campo(s)"}</b></div>
+    <div style="font-size:10.5px;color:var(--gray);margin-top:4px">${E._lev.salvoEm?`Último salvamento: ${esc(E._lev.autor||"")} · ${new Date(E._lev.salvoEm).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}`:"Ainda não começou — preencha uma vez e o sistema monta o parecer, a precificação e o texto da proposta."}${E._lev.legadoOk?" · checklist antigo completo (vale na trava)":""}</div>`;}
+function levSalvaAgenda(){
+  if(!E._lev)return;E._lev.dirty=true;E._chkUlt=Date.now();
+  const st=ge("lev-status");if(st)st.textContent="salvando…";
+  clearTimeout(E._levTimer);E._levTimer=setTimeout(levSalvaFlush,1200);}
+async function levSalvaFlush(){
+  if(!E._lev||!E._lev.dirty)return;
+  const L=E._lev;
+  try{await DB.levantamentoSalvar(L.tarefa,{v:L.v,x:L.x,l:L.l,sel:L.sel});}
+  catch(e){const st=ge("lev-status");if(st)st.textContent="⚠ erro ao salvar";toast("Erro ao salvar o levantamento: "+e.message,"erro");return;}
+  L.dirty=false;L.salvoEm=new Date().toISOString();L.autor=E.perfil.nome_sistema;
+  const st=ge("lev-status");if(st)st.textContent="salvo ✓ "+new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+  levResumoCard();}
+function levCliente(){
+  const t=E.atual||{};
+  const c=(E._cliCard&&E._cliCard.id_cliente===t.id_cliente?E._cliCard:null)||(E._cli||{})[t.id_cliente]||{};
+  return{nome:t.cliente||c.nome||"",cnpj:c.cnpj_cpf||"",mun:[String(c.municipio||"").trim(),String(c.uf||"").trim().toUpperCase()].filter(Boolean).join("/"),
+    regime:c.regime||"",ecac:c.e_cac||""};}
+function levAbrir(){
+  if(!E._lev||!E.atual||E._lev.tarefa!==E.atual.id_tarefa){toast("O levantamento ainda está carregando — tente de novo em um instante.","erro");return;}
+  let ov=ge("lev-ov");
+  if(!ov){ov=document.createElement("div");ov.id="lev-ov";
+    ov.style.cssText="position:fixed;inset:0;background:var(--bg);z-index:4000;overflow:auto;display:none";
+    document.body.appendChild(ov);}
+  ov.style.display="block";
+  const cli=levCliente();
+  ov.innerHTML=`<div style="max-width:860px;margin:0 auto;padding:14px 16px 60px">
+    <div style="position:sticky;top:0;background:var(--bg);z-index:5;padding:6px 0 8px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <b style="color:var(--navy);font-size:15px">&#128221; ${esc(cli.nome)}</b>
+        <span style="font-size:11px;color:var(--gray)">${esc(cli.cnpj)}${cli.mun?" · "+esc(cli.mun):""}${cli.regime?" · "+esc(cli.regime):""} · ${esc(E.atual.operacao||"")}</span>
+        <span style="flex:1"></span>
+        <span id="lev-status" style="font-size:11px;color:var(--gray)"></span>
+        <button class="btn bts btsm" onclick="levFechar()">✕ Fechar</button></div>
+      <div style="display:flex;gap:6px;margin-top:7px;flex-wrap:wrap">
+        <button class="btn btsm" id="lev-aba-fic" onclick="levAba('fic')">&#128203; Levantamento</button>
+        <button class="btn btsm" id="lev-aba-par" onclick="levAba('par')">&#128196; Parecer</button>
+        <button class="btn btsm" id="lev-aba-pre" onclick="levAba('pre')">&#128176; Precificação</button></div></div>
+    <div id="lev-v-fic"></div>
+    <div id="lev-v-par" style="display:none"></div>
+    <div id="lev-v-pre" style="display:none"></div></div>`;
+  levRender();levAba("fic");}
+function levFechar(){clearTimeout(E._levTimer);levSalvaFlush();const ov=ge("lev-ov");if(ov)ov.style.display="none";}
+function levAba(k){["fic","par","pre"].forEach(x=>{
+  const v=ge("lev-v-"+x);if(v)v.style.display=x===k?"block":"none";
+  const b=ge("lev-aba-"+x);if(b){b.className="btn btsm "+(x===k?"btp":"bts");}});
+  if(k==="par")levDesenhaParecer();if(k==="pre")levDesenhaPre();}
+function levRender(){levDesenhaFicha();levDesenhaParecer();levDesenhaPre();}
+// ---- aba 1: a ficha
+const LEV_REP_COLS=["Modalidade","Valor total","Parcela","Situação","Em atraso p/ regularizar"];
+function levRepLinha(g,i,row){
+  const F=ORC.fmt;
+  return `<div style="display:grid;grid-template-columns:minmax(120px,1.4fr) repeat(2,minmax(85px,1fr)) minmax(88px,.9fr) minmax(85px,1fr) 30px;gap:6px;margin-bottom:6px;align-items:center">
+    <input class="fi" style="margin:0" placeholder="Modalidade" value="${esc(row.mod||"")}" oninput="levRepSet('${g}',${i},'mod',this.value)">
+    <input class="fi" style="margin:0" inputmode="decimal" placeholder="total" value="${row.total!=null?F(row.total):""}" oninput="levRepSet('${g}',${i},'total',this.value)">
+    <input class="fi" style="margin:0" inputmode="decimal" placeholder="parcela" value="${row.parcela!=null?F(row.parcela):""}" oninput="levRepSet('${g}',${i},'parcela',this.value)">
+    <select class="fsel" style="margin:0" onchange="levRepSet('${g}',${i},'sit',this.value)"><option></option><option ${row.sit==="Em dia"?"selected":""}>Em dia</option><option ${row.sit==="Em atraso"?"selected":""}>Em atraso</option></select>
+    <input class="fi" style="margin:0" inputmode="decimal" placeholder="0,00" value="${row.atraso!=null?F(row.atraso):""}" oninput="levRepSet('${g}',${i},'atraso',this.value)">
+    <button type="button" class="btn btr btsm" style="padding:5px 8px" onclick="levRepDel('${g}',${i})">×</button></div>`;}
+function levRepSet(g,i,c,v){E._lev.l[g][i][c]=(c==="mod"||c==="sit")?v:levParseBR(v);levSalvaAgenda();}
+function levRepAdd(g){E._lev.l[g].push({mod:"",total:null,parcela:null,sit:"",atraso:null});levSalvaAgenda();levDesenhaFicha();}
+function levRepDel(g,i){E._lev.l[g].splice(i,1);levSalvaAgenda();levDesenhaFicha();}
+function levNum(id,val){E._lev.v[id]=levParseBR(val);E._lev.v.rfb_total=levTotalRFB();levSalvaAgenda();levChips();levResumoCard();}
+function levNumBlur(el,id,tipo){const v=E._lev.v[id];if(v==null||v===0)return;el.value=tipo==="int"?String(Math.round(v)):ORC.fmt(v);}
+function levSeg(id,o){E._lev.x[id]=o;levSalvaAgenda();levDesenhaFicha();}
+function levTxt(id,val){E._lev.x[id]=val;levSalvaAgenda();levResumoCard();}
+function levChips(){
+  const l=ORC.CALC.laudo(E._lev.v);
+  const el1=ge("lev-chip-rfb");if(el1)el1.innerHTML=`Total Receita Federal (soma automática): <b style="color:var(--navy);font-family:'DM Mono',monospace">${ORC.fmt(levTotalRFB())}</b>`;
+  const el2=ge("lev-chip-glob");if(el2)el2.innerHTML=`Dívida global — Receita + PGFN + Estadual (soma automática): <b style="color:var(--navy);font-family:'DM Mono',monospace">${ORC.fmt(levTotalGlobal())}</b>`;
+  const el3=ge("lev-chip-capag");if(el3)el3.innerHTML=`Índice e classe CAPAG (calculado): <b style="color:var(--navy)">${l.classe?l.indice.toFixed(2)+" — classe "+l.classe:"—"}</b>${l.chance?` · chance da reclassificação: <b style="color:var(--navy)">${l.chance}</b>`:""}`;}
+function levDesenhaFicha(){
+  const box=ge("lev-v-fic");if(!box||!E._lev)return;
+  const F=ORC.fmt;
+  const chip=id=>`<div id="${id}" style="grid-column:1/-1;background:var(--gray-lt);border-radius:9px;padding:8px 12px;font-size:12px;color:var(--gray)"></div>`;
+  box.innerHTML=`<div style="font-size:12px;background:var(--ice);color:var(--dani);border-radius:9px;padding:8px 12px;margin-bottom:10px">Preencha <b>uma vez</b> — o parecer e a precificação saem daqui. Campo preenchido = item do checklist cumprido. O que não se aplica: 0 ou "N/A".</div>`+
+  levFichaDef(E._lev.variante).map(s=>`<div class="painel" style="margin-bottom:10px"><div class="bloco-t">${esc(s.t)}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">${
+    s.itens.map(c=>{
+      if(c.tipo==="autoRFB")return chip("lev-chip-rfb");
+      if(c.tipo==="autoGlobal")return chip("lev-chip-glob");
+      if(c.tipo==="autoCapag")return chip("lev-chip-capag");
+      if(c.tipo==="rep"){const rows=E._lev.l[c.id]||[];
+        return `<div style="grid-column:1/-1"><div style="font-size:12px;font-weight:700;margin-bottom:3px">${esc(c.r)}</div>
+          ${rows.length?`<div style="display:grid;grid-template-columns:minmax(120px,1.4fr) repeat(2,minmax(85px,1fr)) minmax(88px,.9fr) minmax(85px,1fr) 30px;gap:6px;font-size:9px;font-weight:700;text-transform:uppercase;color:var(--gray);margin-bottom:2px">${LEV_REP_COLS.map(x=>`<span>${x}</span>`).join("")}<span></span></div>`:""}
+          ${rows.map((row,i)=>levRepLinha(c.id,i,row)).join("")}
+          ${rows.length?"":`<div style="font-size:11px;color:var(--gray);margin:2px 0 5px">Nenhum — se não houver, deixe vazio mesmo.</div>`}
+          <button type="button" class="btn bts btsm" onclick="levRepAdd('${c.id}')">+ adicionar</button>
+          <div style="font-size:10.5px;color:var(--gray);margin-top:3px">Onde achar: ${esc(c.o)}</div></div>`;}
+      if(c.tipo==="seg")return `<div style="grid-column:1/-1"><div style="font-size:12px;font-weight:700;margin-bottom:3px">${esc(c.r)}</div>
+        <div style="display:flex;gap:5px">${c.ops.map(o=>`<button type="button" class="btn btsm ${E._lev.x[c.id]===o?"btp":"bts"}" style="flex:1" onclick="levSeg('${c.id}','${o}')">${o}</button>`).join("")}</div></div>`;
+      if(c.tipo==="txt")return `<div style="grid-column:1/-1"><div style="font-size:12px;font-weight:700;margin-bottom:3px">${esc(c.r)}</div>
+        <textarea class="fta" rows="3" oninput="levTxt('${c.id}',this.value)">${esc(E._lev.x[c.id]||"")}</textarea>
+        <div style="font-size:10.5px;color:var(--gray)">${esc(c.o)}</div></div>`;
+      if(c.tipo==="date")return `<div><div style="font-size:12px;font-weight:700;margin-bottom:3px">${esc(c.r)}</div>
+        <input type="date" class="fi" style="margin:0" value="${esc(E._lev.x[c.id]||"")}" onchange="levTxt('${c.id}',this.value);levResumoCard()">
+        <div style="font-size:10.5px;color:var(--gray)">${esc(c.o||"")}</div></div>`;
+      const v=E._lev.v[c.id];
+      return `<div><div style="font-size:12px;font-weight:700;margin-bottom:3px">${esc(c.r)}</div>
+        <input class="fi" style="margin:0" inputmode="decimal" placeholder="${c.tipo==="int"?"0":"0,00"}" value="${v==null?"":(c.tipo==="int"?String(v):F(v))}"
+          oninput="levNum('${c.id}',this.value)" onblur="levNumBlur(this,'${c.id}','${c.tipo}')">
+        <div style="font-size:10.5px;color:var(--gray)">Onde achar: ${esc(c.o)}</div></div>`;}).join("")}</div></div>`).join("");
+  levChips();}
+// ---- aba 2: o parecer
+function levDesenhaParecer(){
+  const box=ge("lev-v-par");if(!box||!E._lev)return;
+  box.innerHTML=`<div style="font-size:12px;background:var(--ice);color:var(--dani);border-radius:9px;padding:8px 12px;margin-bottom:10px">Montado sozinho com o levantamento — <b>versão de trabalho</b>: baixe em Word, revise e complete o que for análise sua. O modelo oficial em branco segue disponível no card.</div>
+    <div class="linha-acao" style="margin-bottom:10px">
+      <button class="btn btp" onclick="levBaixarParecer()">&#11015; Baixar em Word (preenchido)</button>
+      <button class="btn bts" onclick="levCopiarParecer()">Copiar texto</button></div>
+    <div class="painel" id="lev-par-doc" style="line-height:1.55">${levParecerHTML(false)}</div>`;}
+function levParecerHTML(paraWord){
+  const L=E._lev,v=L.v,x=L.x,F=ORC.fmt;
+  const cli=levCliente();
+  const l=ORC.CALC.laudo(v);
+  const hoje=new Date().toLocaleDateString("pt-BR");
+  const li=(r,val)=>`<tr><td style="color:#607D8B;padding:3px 10px 3px 0;border-bottom:1px dashed #CBE0EA">${r}</td><td style="text-align:right;padding:3px 0;border-bottom:1px dashed #CBE0EA;font-family:'DM Mono',Consolas,monospace">${val}</td></tr>`;
+  const tb=rows=>!rows.length?`<p style="color:#607D8B;font-size:12px">Nenhum ativo.</p>`
+    :`<table style="width:100%;border-collapse:collapse;font-size:12px"><tr>${LEV_REP_COLS.map(c=>`<th style="text-align:left;font-size:10px;color:#607D8B;padding:3px 6px 3px 0">${c}</th>`).join("")}</tr>${
+      rows.map(r=>`<tr>${[esc(r.mod||"—"),F(r.total),F(r.parcela),esc(r.sit||"—"),r.sit==="Em atraso"?F(r.atraso):"—"].map(cell=>`<td style="padding:3px 6px 3px 0;border-bottom:1px dashed #CBE0EA">${cell}</td>`).join("")}</tr>`).join("")}</table>`;
+  const tx=id=>((x[id]||"").trim()?`<p style="font-size:13px">${esc(x[id]).replace(/\n/g,"<br>")}</p>`:`<p style="color:#607D8B;font-size:12px">— pendente no levantamento —</p>`);
+  const h3=t2=>`<h3 style="font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:#447F98;border-bottom:1px solid #CBE0EA;padding-bottom:4px;margin:16px 0 7px">${t2}</h3>`;
+  const h4=t2=>`<div style="font-size:11.5px;color:#607D8B;font-weight:700;margin:9px 0 4px">${t2}</div>`;
+  const o=L.sel.length?ORC.orcar(L.sel,v):null;
+  return `<div style="font-size:11px;font-weight:700;letter-spacing:.12em;color:#447F98;text-transform:uppercase">Villela Advogados</div>
+    <h2 style="font-size:16px;margin:4px 0 2px">Relatório da Situação Fiscal e Plano de Regularização</h2>
+    <div style="font-size:11.5px;color:#607D8B;margin-bottom:12px">${L.variante==="COM"?"Cliente com contrato ativo":"Prospecção — sem contrato ativo"} · ${esc(cli.nome)} · ${esc(cli.cnpj)} · gerado do levantamento em ${hoje} por ${esc(E.perfil.nome_sistema)}</div>
+    ${h3("1. Dados cadastrais")}
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px">${li("Razão social",esc(cli.nome))}${li("CNPJ",esc(cli.cnpj))}${cli.mun?li("Município/UF",esc(cli.mun)):""}${cli.regime?li("Regime tributário",esc(cli.regime)):""}${cli.ecac?li("e-CAC",esc(cli.ecac)):""}${li("CPEN válida até",x.cpen?brData(x.cpen):"—")}</table>
+    ${h3("2. Receita Federal")}
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px">${li("Simples Nacional",F(v.rfb_simples??null))}${li("Demais débitos (PIS, COFINS, IRPJ, CSLL…)",F(v.rfb_demais??null))}${li("Previdenciário",F(v.rfb_prev??null))}${li("<b>Total em conta corrente — RFB</b>","<b>"+F(levTotalRFB())+"</b>")}</table>
+    ${h4("Parcelamentos ativos na Receita")}${tb(L.l.parc_rfb||[])}
+    ${h4("Simulação de regularização direta na RFB")}
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px">${li("Entrada/pedágio exigido",F(v.pedagio_rf??null))}${li("Parcelamento simulado",v.rfb_sim_parcela!=null?(v.rfb_sim_n||"—")+"x de "+F(v.rfb_sim_parcela):"—")}</table>
+    ${h3("3. PGFN")}
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px">${li("Total inscrito em Dívida Ativa da União",F(v.pgfn_total??null))}${li("Em cobrança (sem negociação)",F(v.pgfn_cobranca??null))}${li("Dívida estadual",F(v.divida_estadual??null))}${li("<b>Dívida global (RFB + PGFN + Estadual)</b>","<b>"+F(levTotalGlobal())+"</b>")}</table>
+    ${h4("Negociações ativas (dívida suspensa)")}${tb(L.l.neg_pgfn||[])}
+    ${h4("Impedimento de transacionar")}
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px">${li("Situação",x.x_imped||"—")}${li("Tese da notificação na 3ª parcela",x.x_tese3||"—")}${li("Data de queda do impedimento",x.imped_queda?brData(x.imped_queda):"—")}${li("Simulação disponível durante o impedimento",v.parcela_pgfn!=null?`entrada ${F(v.entrada_sem??0)} + ${v.n_parcelas_pgfn||"—"}x de ${F(v.parcela_pgfn)}`:"—")}</table>
+    ${h4("CAPAG")}
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px">${li("Capacidade de pagamento (60 meses)",F(v.capag_capacidade??null))}${li("Dívida considerada",F(v.capag_divida??null))}${l.classe?li("Índice / classe",l.indice.toFixed(2)+" — classe "+l.classe):""}${li("Desconto disponível hoje",F(v.desconto_hoje??null))}${li("Desconto projetado c/ reclassificação",F(v.desconto_laudo??null))}</table>
+    ${h4("Execuções fiscais")}
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px">${li("Federais / Estaduais / Municipais",(v.exec_fed??"—")+" · "+(v.exec_est??"—")+" · "+(v.exec_mun??"—"))}</table>
+    ${h4("Relatório processo a processo")}${tx("x_processos")}
+    ${h4("Suspensos — fundamento"+(L.variante==="COM"?" e prescrição intercorrente":""))}${tx("x_suspensos")}
+    ${L.variante==="COM"?h4("Auditoria do débito — análise prescricional")+tx("x_auditoria"):""}
+    ${h3("4. Estratégia jurídica")}
+    ${h4("Três cenários")}
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px">${li("Atual (sem a Villela — convencional)",v.parcela_pgfn!=null?`entrada ${F(v.entrada_sem??0)} + ${v.n_parcelas_pgfn||"—"}x de ${F(v.parcela_pgfn)}`:"—")}${li("Intermediário (com a Villela — hoje)",v.entrada_com!=null?"entrada "+F(v.entrada_com):"—")}</table>
+    ${h4("Cenário futuro — o que a estratégia busca")}${tx("x_futuro")}
+    ${h4("Análise e recomendação")}${tx("x_estrategia")}
+    ${h3("5. Investimento")}
+    ${o&&o.blocos.some(b=>b.alerta!=="vermelho")?`<p style="font-size:13px">${esc(levTextoProposta()).replace(/\n/g,"<br>")}</p>`:`<p style="color:#607D8B;font-size:12px">— marque os produtos na aba Precificação e as condições entram aqui sozinhas —</p>`}
+    <div style="font-size:11px;color:#607D8B;font-style:italic;margin-top:14px">Versão de trabalho gerada pelo sistema a partir do levantamento — revise antes de enviar ao cliente.</div>`;}
+function levBaixarParecer(){
+  const cli=levCliente();
+  const html=`<html><head><meta charset="utf-8"><title>Levantamento</title></head><body style="font-family:Calibri,Arial,sans-serif;font-size:12pt">${levParecerHTML(true)}</body></html>`;
+  const blob=new Blob(["﻿"+html],{type:"application/msword"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);
+  a.download="Levantamento - "+(cli.nome||"cliente").replace(/[\\/:*?"<>|]/g,"")+" - "+new Date().toLocaleDateString("pt-BR").replace(/\//g,"-")+".doc";
+  document.body.appendChild(a);a.click();a.remove();
+  toast("✓ Parecer baixado em Word (versão de trabalho) — revise antes de enviar.","ok");}
+function levCopiarParecer(){const el=ge("lev-par-doc");levCopia(el?el.innerText.trim():"","Texto do parecer copiado.");}
+function levCopia(t,msg){
+  if(!t){toast("Nada para copiar ainda.","erro");return;}
+  if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(t).then(()=>toast("✓ "+msg,"ok")).catch(()=>toast("Não consegui copiar — selecione o texto na tela.","erro"));
+  else toast("Não consegui copiar — selecione o texto na tela.","erro");}
+// ---- aba 3: precificação
+const LEV_PRE_CAMPOS=[
+  {id:"rfb_total",r:"Débito na Receita Federal",o:"soma da seção 2 do levantamento",p:["msmig"]},
+  {id:"pedagio_rf",r:"Pedágio/entrada na Receita (0 se não houver)",o:"Simulação no e-CAC",p:["msmig"]},
+  {id:"pgfn_total",r:"Débito na PGFN",o:"Regularize, dívida ativa",p:["msimp","gar","presc"]},
+  {id:"entrada_sem",r:"Entrada exigida hoje na PGFN (0 se não houver)",o:"Simulação do convencional",p:["msimp","liq"]},
+  {id:"entrada_com",r:"Entrada com a estratégia Villela",o:"Levantamento",p:["liq"]},
+  {id:"taxa_garantia",r:"Percentual da garantia",o:"Regra interna",p:["gar"],tipo:"sel",ops:[["0.04","4% ao ano"],["0.03","3% ao ano"]]},
+  {id:"parcela_pgfn",r:"Parcela do convencional na PGFN",o:"Simulação do convencional",p:["gar"]},
+  {id:"n_parcelas_pgfn",r:"Número de parcelas dessa simulação",o:"Mesma tela",p:["gar"],tipo:"int"},
+  {id:"meses_garantia",r:"Prazo do contrato",o:"Definir com o cliente",p:["gar"],tipo:"sel",ops:[["6","6 meses"],["12","12 meses"]]},
+  {id:"capag_capacidade",r:"Capacidade de pagamento em 60 meses",o:"Regularize, tela da CAPAG",p:["laudo"]},
+  {id:"capag_divida",r:"Valor total da dívida na PGFN e RFB",o:"Mesma tela da CAPAG",p:["laudo"]},
+  {id:"desconto_hoje",r:"Desconto disponível hoje (0 se não houver)",o:"Simulação com a CAPAG atual",p:["laudo"]},
+  {id:"desconto_laudo",r:"Desconto projetado com a reclassificação",o:"Simulação com a CAPAG revisada",p:["laudo"]},
+  {id:"desconto_projetado",r:"Desconto projetado na transação",o:"Simulação da transação",p:["soex"],extra:true},
+  {id:"creditos",r:"Créditos apurados",o:"Levantamento de créditos",p:["cred"]}];
+function levTgl(k){const L=E._lev;
+  L.sel=L.sel.includes(k)?L.sel.filter(x=>x!==k):[...L.sel,k];
+  levSalvaAgenda();levDesenhaPre();}
+function levDesenhaPre(){
+  const box=ge("lev-v-pre");if(!box||!E._lev)return;
+  const L=E._lev,F=ORC.fmt;
+  L.v.rfb_total=levTotalRFB();
+  const temFixo=L.sel.some(k=>LEV_PRODUTOS.find(p=>p.k===k).fixo);
+  const temSoEx=L.sel.includes("soex");
+  const prods=LEV_PRODUTOS.map(p=>{
+    const on=L.sel.includes(p.k);
+    const off=(p.exclusivo&&temFixo&&!on)||(p.fixo&&temSoEx&&!on);
+    return `<div onclick="${off?"":`levTgl('${p.k}')`}" style="border:1.5px solid ${on?"var(--navy)":"var(--border)"};background:${on?"var(--ice)":"white"};border-radius:11px;padding:9px 11px;cursor:${off?"default":"pointer"};opacity:${off?".38":"1"}">
+      <div style="font-weight:700;font-size:12.5px;color:${on?"var(--navy)":"var(--text)"}">${on?"✓ ":""}${p.n}</div>
+      <div style="font-size:10px;color:var(--gray)">${p.d}</div></div>`;}).join("");
+  let vis=LEV_PRE_CAMPOS.filter(c=>c.p.some(p=>L.sel.includes(p)));
+  if(L.sel.length&&!L.sel.includes("laudo")&&!L.sel.includes("soex")&&!vis.some(c=>c.id==="desconto_projetado"))
+    vis=vis.concat([Object.assign({},LEV_PRE_CAMPOS.find(c=>c.id==="desconto_projetado"),{opc:true})]);
+  const campos=!vis.length?`<div style="color:var(--gray);font-size:12px;background:var(--gray-lt);border-radius:9px;padding:12px;text-align:center">Marque um produto acima.</div>`
+    :`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:10px">`+vis.map(c=>{
+      if(c.tipo==="sel")return `<div><div style="font-size:12px;font-weight:700;margin-bottom:3px">${c.r}</div>
+        <select class="fsel" style="margin:0" onchange="E._lev.v['${c.id}']=+this.value;levSalvaAgenda();levDesenhaPre()">${c.ops.map(x2=>`<option value="${x2[0]}" ${L.v[c.id]==x2[0]?"selected":""}>${x2[1]}</option>`).join("")}</select>
+        <div style="font-size:10.5px;color:var(--gray)">${c.o}</div></div>`;
+      const v=L.v[c.id];const daFicha=v!=null&&!c.extra;
+      return `<div><div style="font-size:12px;font-weight:700;margin-bottom:3px">${c.r}${daFicha?' <span style="font-weight:400;color:var(--green)">· do levantamento ✓</span>':c.opc?' <span style="font-weight:400;color:var(--gray)">(p/ estimar o êxito)</span>':""}</div>
+        <input class="fi" style="margin:0" inputmode="decimal" placeholder="${c.tipo==="int"?"0":"0,00"}" value="${v==null?"":(c.tipo==="int"?String(v):F(v))}"
+          oninput="levNum('${c.id}',this.value)" onblur="levNumBlur(this,'${c.id}','${c.tipo||""}')">
+        <div style="font-size:10.5px;color:var(--gray)">Onde achar: ${c.o}</div></div>`;}).join("")+"</div>";
+  vis.filter(c=>c.tipo==="sel").forEach(c=>{if(L.v[c.id]==null)L.v[c.id]=+c.ops[0][0];});
+  let res="",tot="";
+  if(L.sel.length){
+    const o=ORC.orcar(L.sel,L.v);E._levOrc=o;
+    res=o.blocos.map(b=>{
+      const corB={verde:"var(--green)",amarelo:"var(--amber)",vermelho:"var(--red)"}[b.alerta];
+      const pill={verde:["tek","Conferido"],amarelo:["td2","Requer aprovação de "+ORC.P.APROVADORES],vermelho:["ti","Bloqueado"]}[b.alerta];
+      let corpo="";
+      if(b.alerta==="vermelho")corpo=`<div style="font-size:12px;margin-top:5px;padding:7px 10px;border-radius:8px;background:var(--red-lt);color:var(--red)">${b.msg}</div>`;
+      else{
+        if(b.msg)corpo+=`<div style="font-size:12px;margin-top:5px;padding:7px 10px;border-radius:8px;background:var(--amber-lt);color:#7F6000">${b.msg}</div>`;
+        if(b.chave==="soex")corpo+=`<div style="font-size:20px;font-family:'DM Mono',monospace;margin-top:6px">${F(b.valor)} <span style="font-size:11px;color:var(--gray);font-family:'DM Sans',sans-serif">à vista no êxito</span></div>
+          <div style="font-size:12px;color:var(--gray)">ou no boleto: <b>6x de ${F(b.soBoleto)}</b> · sem honorário fixo e sem entrada</div>`;
+        else if(b.exito)corpo+=`<div style="font-size:20px;font-family:'DM Mono',monospace;margin-top:6px">${F(b.valor)} <span style="font-size:11px;color:var(--gray);font-family:'DM Sans',sans-serif">estimativa — cobrado no êxito</span></div>`;
+        else{corpo+=`<div style="font-size:20px;font-family:'DM Mono',monospace;margin-top:6px">${F(b.valor)} <span style="font-size:11px;color:var(--gray);font-family:'DM Sans',sans-serif">à vista${b.chave==="gar"?" (entrada)":""}</span></div>
+          <div style="font-size:12px;color:var(--gray);line-height:1.7">cartão: <b>12x de ${F(b.pag.cartao)}</b> · boleto: <b>3x de ${F(b.pag.b3)}</b> sem acréscimo ou <b>6x de ${F(b.pag.b6)}</b></div>`;
+          if(b.mensal!=null)corpo+=`<div style="font-size:12px;color:var(--gray)">mensal: <b>${F(b.mensal)}</b>${b.meses?" por "+b.meses+" meses":" + êxito de 20% sobre o que for extinto"}</div>`;}
+        if(b.mem.length)corpo+=`<details style="margin-top:7px"><summary style="font-size:11px;color:var(--navy);cursor:pointer;font-weight:700">memória de cálculo</summary><table style="font-size:11.5px;margin-top:4px;width:100%;border-collapse:collapse">${b.mem.map(x2=>`<tr><td style="color:var(--gray);padding:2px 10px 2px 0;border-bottom:1px dashed var(--border)">${x2[0]}</td><td style="text-align:right;font-family:'DM Mono',monospace;border-bottom:1px dashed var(--border)">${x2[1]}</td></tr>`).join("")}</table></details>`;}
+      return `<div class="painel" style="border-left:4px solid ${corB};margin-bottom:9px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+          <b style="font-size:13.5px">${b.nome}</b><span class="tag ${pill[0]}">${pill[1]}</span></div>${corpo}</div>`;}).join("");
+    tot=`<div class="painel" style="background:linear-gradient(135deg,var(--dani),var(--navy));color:white;display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+      <div><div style="font-size:9.5px;font-weight:700;letter-spacing:.07em;opacity:.8;text-transform:uppercase">Investimento fixo à vista</div>
+        <div style="font-size:18px;font-family:'DM Mono',monospace">${o.totalFixo>0?F(o.totalFixo):"—"}</div></div>
+      <div><div style="font-size:9.5px;font-weight:700;letter-spacing:.07em;opacity:.8;text-transform:uppercase">Êxito estimado</div>
+        <div style="font-size:18px;font-family:'DM Mono',monospace">${L.sel.includes("soex")?F((o.blocos.find(b=>b.chave==="soex")||{}).valor??null):(o.exito.valor!=null?F(o.exito.valor):"20% s/ desconto")}</div></div>
+      <button class="btn" style="background:white;color:var(--dani)" onclick="levCopiarProposta()">Copiar texto da proposta</button></div>`;}
+  box.innerHTML=`<div style="font-size:12px;background:var(--ice);color:var(--dani);border-radius:9px;padding:8px 12px;margin-bottom:10px">💡 Débitos, entradas e CAPAG <b>já vieram do levantamento</b> — marque os produtos e confira. Amarelo = requer aprovação de ${ORC.P.APROVADORES}; vermelho = corrija o dado.</div>
+    <div class="bloco-t">O que vai na proposta? (pode mais de um)</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:8px;margin-bottom:12px">${prods}</div>
+    <div class="bloco-t">Números do caso</div>${campos}
+    ${L.sel.length?`<div class="bloco-t" style="margin-top:12px">Orçamento</div>${res}${tot}`:""}`;}
+function levTextoProposta(){
+  const L=E._lev;if(!L||!L.sel.length)return "";
+  L.v.rfb_total=levTotalRFB();
+  const o=ORC.orcar(L.sel,L.v),F=ORC.fmt,Ls=[];
+  o.blocos.forEach(b=>{
+    if(b.alerta==="vermelho")return;
+    const nome=(b.chave==="laudo"&&b.nome==="Laudo CAPAG")?"Laudo de capacidade de pagamento":b.nome;
+    if(b.chave==="soex")Ls.push(`Honorários somente no êxito: ${F(b.valor)} à vista; ou 6x de ${F(b.soBoleto)} no boleto`);
+    else if(b.chave==="gar")Ls.push(`${nome}: entrada de ${ORC.pagTxt(b.pag)}; mensal de ${F(b.mensal)} por ${b.meses} meses`);
+    else if(b.chave==="presc")Ls.push(`${nome}: entrada de ${F(b.valor)}; mensal de ${F(b.mensal)}; êxito de 20% sobre o que for extinto`);
+    else if(b.exito)Ls.push(`${nome}: honorários no êxito (${b.chave==="cred"?"30% sobre os créditos recuperados":"10% da redução da entrada"})`);
+    else Ls.push(`${nome}: ${ORC.pagTxt(b.pag)}`);});
+  if(!L.sel.includes("soex"))Ls.push("Êxito: 20% sobre o desconto obtido");
+  return Ls.join("\n");}
+function levCopiarProposta(){levCopia(levTextoProposta(),"Texto da proposta copiado — sem cifrão e sem memória de cálculo, pronto para colar.");}
 // ⚖ multi-processo (24/09/2026): lista de processos do card, com status,
 // destacar (vira card próprio) e mesclar (traz outro card p/ cá)
 async function carregarProcs(t){
@@ -4449,11 +4894,11 @@ function abrirEncerrar(){const t=E.atual;
   // uma porta lateral para fechar parecer sem proposta (fechada em 11/09/2026)
   if(/Proposta Comercial|Parecer de Novo Cliente|Proposta para franqueado/i.test(t.operacao||"")&&!E._propGateOk){
     E._gateDepois="encerrar";abrirGateProposta();return;}
-  // 📋 no ENCERRAR (arquivar) o checklist só pergunta — encerrar cobre desistência/
-  // prejudicado, onde exigir os 30 itens não faria sentido
-  if(CHECKLIST_OPS[t.operacao]&&E._chk&&E._chk.tarefa===t.id_tarefa){
-    const totC=chkItens(t.operacao).length,nC=Object.keys(E._chk.marc).length;
-    if(nC<totC&&!confirm("📋 O checklist está em "+nC+" de "+totC+" itens. Encerrar (arquivar) mesmo assim?"))return;}
+  // 📝 no ENCERRAR (arquivar) o levantamento só pergunta — encerrar cobre
+  // desistência/prejudicado, onde exigir a ficha completa não faria sentido
+  if(CHECKLIST_OPS[t.operacao]&&E._lev&&E._lev.tarefa===t.id_tarefa&&!E._lev.legadoOk){
+    const fE=levFaltas();
+    if(fE>0&&!confirm("📝 A ficha de levantamento ainda tem "+fE+" campo(s) em aberto. Encerrar (arquivar) mesmo assim?"))return;}
   // laudo: arquivar também exige a fase final (alimenta a taxa de deferimento)
   if(t._laudo&&!E._laudoGateOk){E._laudoDepois="encerrar";abrirGateLaudo();return;}
   if(!t._laudo&&etapasDe(t.operacao).length&&!E._etapaGateOk){E._etapaDepois="encerrar";abrirGateEtapa();return;}
