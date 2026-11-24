@@ -3404,9 +3404,9 @@ function levBoxHTML(t){
       <button class="btn bts btsm" onclick="baixarModelo('${v}','pdf')">PDF</button></div>
     <div id="lev-resumo" style="background:var(--gray-lt);border-radius:9px;padding:9px 12px;font-size:12px">carregando levantamento…</div>
     <div class="linha-acao" style="margin-top:7px;flex-wrap:wrap">
-      <button class="btn btp" onclick="levAbrir()">&#128221; Abrir levantamento</button>
-      <button class="btn bts" onclick="levAbrir('par')">&#128196; Parecer (baixar em Word)</button>
-      <button class="btn bts" onclick="levAbrir('pre')">&#128176; Precificação</button></div></div>`;}
+      <button class="btn btp" onclick="levAbrir()">&#128221; 1. Abrir levantamento</button>
+      <button class="btn bts" onclick="levAbrir('pre')">&#128176; 2. Precificação</button>
+      <button class="btn bts" onclick="levAbrir('par')">&#128196; 3. Parecer (baixar em Word)</button></div></div>`;}
 async function levCarregar(t){
   E._lev=null;
   let reg=null,legado=[];
@@ -3465,9 +3465,9 @@ function levAbrir(abaInicial){
         <span id="lev-status" style="font-size:11px;color:var(--gray)"></span>
         <button class="btn bts btsm" onclick="levFechar()">✕ Fechar</button></div>
       <div style="display:flex;gap:6px;margin-top:7px;flex-wrap:wrap">
-        <button class="btn btsm" id="lev-aba-fic" onclick="levAba('fic')">&#128203; Levantamento</button>
-        <button class="btn btsm" id="lev-aba-par" onclick="levAba('par')">&#128196; Parecer</button>
-        <button class="btn btsm" id="lev-aba-pre" onclick="levAba('pre')">&#128176; Precificação</button></div></div>
+        <button class="btn btsm" id="lev-aba-fic" onclick="levAba('fic')">&#128203; 1. Levantamento</button>
+        <button class="btn btsm" id="lev-aba-pre" onclick="levAba('pre')">&#128176; 2. Precificação</button>
+        <button class="btn btsm" id="lev-aba-par" onclick="levAba('par')">&#128196; 3. Parecer</button></div></div>
     <div id="lev-v-fic"></div>
     <div id="lev-v-par" style="display:none"></div>
     <div id="lev-v-pre" style="display:none"></div></div>`;
