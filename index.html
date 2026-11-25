@@ -10785,7 +10785,10 @@ function buscaNT(){
 function toggleNTInterna(on){
   ge("nt-busca-w").style.display=on?"none":"block";
   ge("nt-int-w").style.display=on?"block":"none";
-  if(on){E._ntCli={id_cliente:"",cnpj_cpf:"",interna:true};formNTCorpo("",true);}
+  if(on){E._ntCli={id_cliente:"",cnpj_cpf:"",interna:true};formNTCorpo("",true);
+    // ntInternaOutros (Bruna, 25/11/2026): tarefa interna já nasce com o tipo
+    // "Outros" selecionado — dá para trocar no próprio menu se for outro caso
+    const o=ge("nt-op");if(o){o.value="Outros";opSelChange("nt-op");}}
   else{E._ntCli=null;ge("nt-form").innerHTML="";const r=ge("nt-res");if(r)r.innerHTML="";}
 }
 // ===== UF/cidade oficiais (IBGE) + busca automática por CNPJ (BrasilAPI) —
