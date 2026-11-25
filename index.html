@@ -8198,7 +8198,17 @@ function prepCliente(id){
   if(c.situacao==="PROSPECCAO"&&!podeConverter&&!E._props)
     DB.propostas().then(ps=>{E._props=ps||[];const b=ge("cb-"+id);if(b){b.dataset.ok="";prepCliente(id);}}).catch(()=>{});
   const opsAss=OPERACIONAIS.map(a=>`<option ${c.assessor_responsavel===a?"selected":""}>${a}</option>`).join("");
+  // fichaResumoCad (Bruna, 25/11/2026): dados do cadastro visíveis direto na
+  // ficha, sem precisar abrir "Editar cadastro" — só mostra o que está preenchido
+  const _rc=(r,v)=>{v=String(v??"").trim();return v?`<span style="white-space:nowrap"><span style="color:var(--gray)">${r}:</span> <b>${esc(v)}</b></span>`:"";};
+  const _cid=[String(c.municipio||"").trim(),String(c.uf||"").trim().toUpperCase()].filter(Boolean).join("/");
+  const resumoCad=[_rc("&#128205; Cidade",_cid),_rc("S&oacute;cio",c.nome_socio),_rc("Regime",c.regime),
+    _rc("Porte",c.porte),_rc("CAPAG",c.capag),_rc("Vertical",c.vertical),_rc("Contrato",c.contrato),
+    _rc("&Ecirc;xito",c.exito_pct),_rc("In&iacute;cio",c.data_inicio),_rc("Franqueado",c.franqueado),
+    _rc("Contador",c.contador_parceiro),_rc("e-CAC",c.e_cac)].filter(Boolean);
   box.innerHTML=`
+    <div style="background:#FFFDF6;border:1px solid #E6D9AE;border-radius:9px;padding:8px 12px;margin-bottom:9px;font-size:12px;display:flex;flex-wrap:wrap;gap:4px 14px">
+      ${resumoCad.length?resumoCad.join(""):`<span style="color:var(--gray)">Cadastro sem dados preenchidos ainda — use "&#9998; Editar cadastro" abaixo.</span>`}</div>
     <div style="background:#F4F8FB;border:1px solid var(--border);border-radius:9px;padding:9px 12px;margin-bottom:9px">
       <div style="font-size:12px">Advogada responsável: <b style="color:var(--navy)">${esc(c.head||"—")}</b></div>
       <div class="linha-acao" style="margin-top:6px">
