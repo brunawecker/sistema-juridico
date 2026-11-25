@@ -1141,8 +1141,10 @@ const S = {
   // o relógio avulso e o cronômetro dos cartões vivem em "vagas" separadas:
   // abrir um cartão não derruba mais a atividade avulsa (e vice-versa)
   async sessaoIniciar(d){const ehAv=(d.id_tarefa||"")==="AVULSA";
+    // sem filtro de data: sessão pendurada de ONTEM (cartão/relógio esquecido
+    // aberto) também é fechada aqui, senão fica ATIVA para sempre
     let qi=supa.from("sessoes").update({status:"INTERROMPIDO",hora_fim:horaAgora(),hora_fim_hr:horaAgora()})
-      .eq("status","ATIVO").eq("data_dt",hojeISO()).eq("assessor",E.perfil.nome_sistema);
+      .eq("status","ATIVO").eq("assessor",E.perfil.nome_sistema);
     await(ehAv?qi.eq("id_tarefa","AVULSA"):qi.neq("id_tarefa","AVULSA"));
     const ses=await novoIdS("SES");
     okS(await supa.from("sessoes").insert({id_sessao:ses,data:brHoje(),data_dt:hojeISO(),
@@ -1152,7 +1154,7 @@ const S = {
   async sessaoConcluir(min,alvo){
     let qc=supa.from("sessoes").update({status:"CONCLUIDO",hora_fim:horaAgora(),
       hora_fim_hr:horaAgora(),duracao_min:String(min||0),duracao_min_num:min||0})
-      .eq("status","ATIVO").eq("data_dt",hojeISO()).eq("assessor",E.perfil.nome_sistema);
+      .eq("status","ATIVO").eq("assessor",E.perfil.nome_sistema);
     okS(await(alvo==="AVULSA"?qc.eq("id_tarefa","AVULSA"):qc.neq("id_tarefa","AVULSA")));return{ok:true};},
   async liberarAtrasadas(a,q){const cand=okS(await supa.from("operacional").select("linha,check_,data_revisao_dt,status_tarefa,correcao_head")
       .eq("assessor",a).lt("data_revisao_dt",hojeISO()).order("data_revisao_dt").limit(200))||[];
@@ -4371,12 +4373,13 @@ async function salvarProxFreq(){
   catch(e){toast("Erro: "+e.message,"erro");return;}
   toast("Cartão reprogramado: "+f+" · volta "+brData(prox),"ok");fecharModal2();fecharModal();recarregar();}
 async function salvarTempo(){
-  const min=Math.round((Date.now()-E.timerIni)/60000);
-  if(min<1){toast("Menos de 1 minuto — nada a salvar.");return;}
+  const c=minutosDaSessao(E.atual);   // mesma trava do concluir/fechar (noite, 3× padrão)
+  if(c.min<1){toast("Menos de 1 minuto — nada a salvar.");return;}
   const t=E.atual;
-  try{await DB.tempo({id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,minutos:min});}
+  try{await DB.tempo({id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,minutos:c.min});
+    if(c.nota)await DB.nota({id_tarefa:t.id_tarefa,id_cliente:t.id_cliente,tipo:"HISTORICO",texto:c.nota});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
-  toast(`Tempo salvo: ${min} min`,"ok");E.timerIni=Date.now();}
+  toast(`Tempo salvo: ${c.min} min`,"ok");E.timerIni=Date.now();}
 function impulsoTemRegistro(){
   return (E._hist||[]).some(h=>!h._daOrigem&&h.tipo==="ASSESSOR");}
 function travaImpedimento(t){
@@ -11605,10 +11608,17 @@ async function pararAvulsa(extraNota){
     if(desc.indexOf("🎯 Prospecção")>-1){abrirFechoProspeccao();return;}
     if(desc.indexOf("📞 Follow-up")>-1&&!(E._fuRodadasSessao>0)){abrirFechoFollowup();return;}
   }
-  const min=Math.round((Date.now()-E._avulsa.ini)/60000);
+  // mesma trava do cartão de tarefa (caso Malu 25/11/2026 — relógio avulso
+  // atravessou a noite e registrou 880 min): virou o dia ou terminou fora do
+  // expediente (19h–7h) com 60+ min → registra só 60 e explica no histórico
+  const bruto=Math.round((Date.now()-E._avulsa.ini)/60000);
+  const iniAv=new Date(E._avulsa.ini),agoraAv=new Date();
+  const capNoite=(iniAv.toDateString()!==agoraAv.toDateString()||agoraAv.getHours()>=19||agoraAv.getHours()<7)&&bruto>60;
+  const min=capNoite?60:bruto;
   clearInterval(E._avulsaInt);E._prosLimite=null;E._fuLimite=null;ge("chip-timer").style.display="none";
   try{await DB.sessaoConcluir(min,"AVULSA");
     if(min>=1)await DB.nota({id_tarefa:"AVULSA",id_cliente:null,tipo:"TIMER",texto:`Tempo registrado: ${min} min — ⏱️ ${E._avulsa.desc}`});
+    if(capNoite)await DB.nota({id_tarefa:"AVULSA",id_cliente:null,tipo:"HISTORICO",texto:`⚠️ Relógio avulso ficou ligado ${bruto} min (atravessou o fim do expediente — provável esquecimento). Tempo registrado limitado a 60 min.`});
     if(extraNota)await DB.nota({id_tarefa:"AVULSA",id_cliente:null,tipo:"HISTORICO",texto:extraNota});
     else if(desc.indexOf("📞 Follow-up")>-1&&E._fuRodadasSessao>0)
       await DB.nota({id_tarefa:"AVULSA",id_cliente:null,tipo:"HISTORICO",
