@@ -3256,9 +3256,10 @@ function chkConfirmaConclusao(t){
   if(!E._lev||E._lev.tarefa!==t.id_tarefa){
     toast("📝 O levantamento ainda está carregando — aguarde um instante e tente de novo.","erro");return false;}
   if(E._lev.legadoOk)return true;
-  const f=levFaltas();
-  if(f===0)return true;
-  toast("📝 Para concluir é obrigatório completar a ficha de levantamento — faltam "+f+" campo(s). O que não se aplica: preencha 0 ou \"N/A\". Travado por algo do cliente (ex.: e-CAC não liberado)? Reagende com 💾 Salvar + data futura — o sistema pede a justificativa.","erro");
+  const pend=levPendentes();
+  if(!pend.length)return true;
+  const nomes=pend.slice(0,4).map(c=>'"'+String(c.r).split("(")[0].split("—")[0].trim()+'"').join(", ")+(pend.length>4?" e mais "+(pend.length-4):"");
+  toast("📝 Para concluir é obrigatório completar a ficha de levantamento — faltam "+pend.length+" campo(s): "+nomes+". A ficha mostra todos com ● amarelo no topo. O que não se aplica: preencha 0 ou \"N/A\". Travado por algo do cliente (ex.: e-CAC não liberado)? Reagende com 💾 Salvar + data futura — o sistema pede a justificativa.","erro");
   return false;
 }
 // ⏰ vigia (23/11, adaptado em 24/11/2026): card aberto 10 min sem preencher
@@ -3436,14 +3437,15 @@ function levParseBR(s){s=String(s||"").replace(/[R$\s]/g,"");if(!s)return 0;
 function levTotalRFB(){const v=E._lev.v;return ORC.r2((v.rfb_simples||0)+(v.rfb_demais||0)+(v.rfb_prev||0));}
 function levTotalGlobal(){const v=E._lev.v;return ORC.r2(levTotalRFB()+(v.pgfn_total||0)+(v.divida_estadual||0));}
 function levTemExec(){const v=E._lev.v;return ((v.exec_fed||0)+(v.exec_est||0)+(v.exec_mun||0))>0;}
-function levFaltas(){
-  if(!E._lev)return 999;
+function levPendentes(){
+  if(!E._lev)return[];
   const its=levFichaDef(E._lev.variante).flatMap(s=>s.itens).filter(c=>["num","int","date","seg","txt"].includes(c.tipo)).filter(c=>!(c.so&&!c.so()));
   return its.filter(c=>{
     // ficha antiga: CPEN com data preenchida vale como "Sim" sem exigir o botão
     if(c.id==="x_cpen"&&!E._lev.x.x_cpen&&String(E._lev.x.cpen||"").trim())return false;
     if(c.id==="x_futuro")return !((E._lev.x.x_futuro||"").trim()||(E._lev.l.fut_sim||[]).some(r=>r.v!=null));
-    return c.tipo==="seg"?!E._lev.x[c.id]:(c.tipo==="txt"||c.tipo==="date")?!(E._lev.x[c.id]||"").trim():E._lev.v[c.id]==null;}).length;}
+    return c.tipo==="seg"?!E._lev.x[c.id]:(c.tipo==="txt"||c.tipo==="date")?!(E._lev.x[c.id]||"").trim():E._lev.v[c.id]==null;});}
+function levFaltas(){return E._lev?levPendentes().length:999;}
 function levBoxHTML(t){
   const v=CHECKLIST_OPS[t.operacao];
   return `<div class="bloco"><div class="bloco-t">&#128221; Levantamento &amp; precificação <span id="lev-cont" style="color:var(--gray);font-weight:normal"></span></div>
@@ -3617,7 +3619,11 @@ function levDesenhaFicha(){
   if(!E._lev.x.x_porte_sim){const p=levPorteSim();if(p){E._lev.x.x_porte_sim=p;levSalvaAgenda();}}
   const F=ORC.fmt;
   const chip=id=>`<div id="${id}" style="grid-column:1/-1;background:var(--gray-lt);border-radius:9px;padding:8px 12px;font-size:12px;color:var(--gray)"></div>`;
+  const pend=levPendentes(),pendSet=new Set(pend.map(c=>c.id));
+  const corta=s=>{s=String(s||"");return s.length>48?s.slice(0,48)+"…":s;};
+  const rot=c=>`${pendSet.has(c.id)?'<span style="color:#D68910">● </span>':""}${esc(c.r)}`;
   box.innerHTML=`<div style="font-size:12px;background:var(--ice);color:var(--dani);border-radius:9px;padding:8px 12px;margin-bottom:10px">Preencha <b>uma vez</b> — o parecer e a precificação saem daqui. Campo preenchido = item do checklist cumprido. O que não se aplica: 0 ou "N/A".</div>`+
+  (pend.length?`<div style="font-size:12px;background:#FBF3E4;color:#9A6A0B;border:1px solid #EBD5A8;border-radius:9px;padding:8px 12px;margin-bottom:10px"><b>⚠ Faltam ${pend.length} campo(s)</b> — estão marcados com ● abaixo: ${pend.map(c=>esc(corta(c.r))).join(" · ")}</div>`:"")+
   levFichaDef(E._lev.variante).map(s=>`<div class="painel" style="margin-bottom:10px"><div class="bloco-t">${esc(s.t)}</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">${
     s.itens.map(c=>{
@@ -3645,16 +3651,16 @@ function levDesenhaFicha(){
             <button type="button" class="btn btr btsm" style="padding:5px 8px" onclick="levFutDel('${c.id}',${i})">×</button></div>`).join("")}
           <button type="button" class="btn bts btsm" onclick="levFutAdd('${c.id}')">+ adicionar linha</button>
           <div style="font-size:10.5px;color:var(--gray);margin-top:3px">${esc(c.o)}</div></div>`;}
-      if(c.tipo==="seg")return `<div style="grid-column:1/-1"><div style="font-size:12px;font-weight:700;margin-bottom:3px">${esc(c.r)}</div>
+      if(c.tipo==="seg")return `<div style="grid-column:1/-1"><div style="font-size:12px;font-weight:700;margin-bottom:3px">${rot(c)}</div>
         <div style="display:flex;gap:5px">${c.ops.map(o=>`<button type="button" class="btn btsm ${E._lev.x[c.id]===o?"btp":"bts"}" style="flex:1" onclick="levSeg('${c.id}','${o}')">${o}</button>`).join("")}</div></div>`;
-      if(c.tipo==="txt")return `<div style="grid-column:1/-1"><div style="font-size:12px;font-weight:700;margin-bottom:3px">${esc(c.r)}</div>
+      if(c.tipo==="txt")return `<div style="grid-column:1/-1"><div style="font-size:12px;font-weight:700;margin-bottom:3px">${rot(c)}</div>
         <textarea class="fta" rows="3" oninput="levTxt('${c.id}',this.value)">${esc(E._lev.x[c.id]||"")}</textarea>
         <div style="font-size:10.5px;color:var(--gray)">${esc(c.o)}</div></div>`;
-      if(c.tipo==="date")return `<div><div style="font-size:12px;font-weight:700;margin-bottom:3px">${esc(c.r)}</div>
+      if(c.tipo==="date")return `<div><div style="font-size:12px;font-weight:700;margin-bottom:3px">${rot(c)}</div>
         <input type="date" class="fi" style="margin:0" value="${esc(E._lev.x[c.id]||"")}" onchange="levTxt('${c.id}',this.value);levResumoCard()">
         <div style="font-size:10.5px;color:var(--gray)">${esc(c.o||"")}</div></div>`;
       const v=E._lev.v[c.id];
-      return `<div><div style="font-size:12px;font-weight:700;margin-bottom:3px">${esc(c.r)}</div>
+      return `<div><div style="font-size:12px;font-weight:700;margin-bottom:3px">${rot(c)}</div>
         <input class="fi" style="margin:0" inputmode="decimal" placeholder="${c.tipo==="int"?"0":"0,00"}" value="${v==null?"":(c.tipo==="int"?String(v):F(v))}"
           oninput="levNum('${c.id}',this.value,this)" onblur="levNumBlur(this,'${c.id}','${c.tipo}')">
         <div id="lev-warn-${c.id}" style="display:none;font-size:10.5px;color:var(--amber);font-weight:700;margin-top:2px">⚠ Este campo é só para o número — escreva texto no campo de texto da seção (nada foi salvo aqui).</div>
