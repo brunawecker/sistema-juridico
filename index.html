@@ -3417,7 +3417,8 @@ function levFichaDef(v){
      .concat(v==="COM"?[{id:"x_auditoria",tipo:"txt",r:"Auditoria do débito — análise prescricional (inscrições com tese de extinção e valor envolvido)",o:"Data de constituição × despacho de citação"}]:[])},
    {t:"4 · Estratégia jurídica",itens:[
      {id:"entrada_com",tipo:"num",r:"Cenário intermediário (com a Villela): entrada na melhor negociação de hoje",o:"Levantamento"},
-     {id:"x_futuro",tipo:"txt",r:"Cenário futuro — o que a estratégia busca (simulação final)",o:"Comparar com o cenário atual e o intermediário"},
+     {id:"fut_sim",tipo:"fut",r:"Cenário futuro — simulação final (o que a estratégia busca)",o:"Uma linha por item: diga o que é, em quantas x (se for parcela) e o valor — o parecer monta a tabela sozinho"},
+     {id:"x_futuro",tipo:"txt",r:"Observações do cenário futuro (opcional — o que não couber nas linhas acima)",o:"Comparar com o cenário atual e o intermediário"},
      {id:"x_estrategia",tipo:"txt",r:"Análise e estratégia recomendada (entra no parecer do jeito que você escrever)",o:"Parte sua — o resto o sistema monta"}]}];}
 function levParseBR(s){s=String(s||"").replace(/[R$\s]/g,"");if(!s)return 0;
   if(s.includes(","))s=s.replace(/\./g,"").replace(",",".");
@@ -3431,6 +3432,7 @@ function levFaltas(){
   return its.filter(c=>{
     // sem impedimento ("Não"), a data de queda não é cobrada
     if(c.id==="imped_queda"&&E._lev.x.x_imped==="Não")return false;
+    if(c.id==="x_futuro")return !((E._lev.x.x_futuro||"").trim()||(E._lev.l.fut_sim||[]).some(r=>r.v!=null));
     return c.tipo==="seg"?!E._lev.x[c.id]:(c.tipo==="txt"||c.tipo==="date")?!(E._lev.x[c.id]||"").trim():E._lev.v[c.id]==null;}).length;}
 function levBoxHTML(t){
   const v=CHECKLIST_OPS[t.operacao];
@@ -3522,18 +3524,33 @@ function levRepLinha(g,i,row){
   const F=ORC.fmt;
   return `<div style="display:grid;grid-template-columns:minmax(120px,1.4fr) repeat(2,minmax(85px,1fr)) minmax(88px,.9fr) minmax(85px,1fr) 30px;gap:6px;margin-bottom:6px;align-items:center">
     <input class="fi" style="margin:0" placeholder="Modalidade" value="${esc(row.mod||"")}" oninput="levRepSet('${g}',${i},'mod',this.value)">
-    <input class="fi" style="margin:0" inputmode="decimal" placeholder="total" value="${row.total!=null?F(row.total):""}" oninput="levRepSet('${g}',${i},'total',this.value)">
-    <input class="fi" style="margin:0" inputmode="decimal" placeholder="parcela" value="${row.parcela!=null?F(row.parcela):""}" oninput="levRepSet('${g}',${i},'parcela',this.value)">
+    <input class="fi" style="margin:0" inputmode="decimal" placeholder="total" value="${row.total!=null?F(row.total):""}" oninput="levRepSet('${g}',${i},'total',this.value,this)">
+    <input class="fi" style="margin:0" inputmode="decimal" placeholder="parcela" value="${row.parcela!=null?F(row.parcela):""}" oninput="levRepSet('${g}',${i},'parcela',this.value,this)">
     <select class="fsel" style="margin:0" onchange="levRepSet('${g}',${i},'sit',this.value)"><option></option><option ${row.sit==="Em dia"?"selected":""}>Em dia</option><option ${row.sit==="Em atraso"?"selected":""}>Em atraso</option></select>
-    <input class="fi" style="margin:0" inputmode="decimal" placeholder="0,00" value="${row.atraso!=null?F(row.atraso):""}" oninput="levRepSet('${g}',${i},'atraso',this.value)">
+    <input class="fi" style="margin:0" inputmode="decimal" placeholder="0,00" value="${row.atraso!=null?F(row.atraso):""}" oninput="levRepSet('${g}',${i},'atraso',this.value,this)">
     <button type="button" class="btn btr btsm" style="padding:5px 8px" onclick="levRepDel('${g}',${i})">×</button></div>`;}
-function levRepSet(g,i,c,v){E._lev.l[g][i][c]=(c==="mod"||c==="sit")?v:levParseBR(v);levSalvaAgenda();}
+function levRepSet(g,i,c,v,el){
+  if(c==="mod"||c==="sit")E._lev.l[g][i][c]=v;
+  else{const ruim=levTemLetra(v);if(el)el.style.borderColor=ruim?"var(--amber)":"";E._lev.l[g][i][c]=ruim?null:levParseBR(v);}
+  levSalvaAgenda();}
 function levRepAdd(g){E._lev.l[g].push({mod:"",total:null,parcela:null,sit:"",atraso:null});levSalvaAgenda();levDesenhaFicha();}
 function levRepDel(g,i){E._lev.l[g].splice(i,1);levSalvaAgenda();levDesenhaFicha();}
-function levNum(id,val){E._lev.v[id]=levParseBR(val);E._lev.v.rfb_total=levTotalRFB();levSalvaAgenda();levChips();levResumoCard();}
+function levTemLetra(s){s=String(s||"").trim();return /[A-Za-zÀ-ÿ]/.test(s)&&!/^n\/?a$/i.test(s);}
+function levNum(id,val,el){
+  const w=ge("lev-warn-"+id);
+  if(levTemLetra(val)){E._lev.v[id]=null;if(el)el.style.borderColor="var(--amber)";if(w)w.style.display="block";}
+  else{if(el)el.style.borderColor="";if(w)w.style.display="none";E._lev.v[id]=levParseBR(val);}
+  E._lev.v.rfb_total=levTotalRFB();levSalvaAgenda();levChips();levResumoCard();}
 function levNumBlur(el,id,tipo){const v=E._lev.v[id];if(v==null||v===0)return;el.value=tipo==="int"?String(Math.round(v)):ORC.fmt(v);}
 function levSeg(id,o){E._lev.x[id]=o;levSalvaAgenda();levDesenhaFicha();}
 function levTxt(id,val){E._lev.x[id]=val;levSalvaAgenda();levResumoCard();}
+const LEV_FUT_SEED=()=>[{t:"Valor da dívida",n:"",v:null},{t:"Desconto",n:"",v:null},{t:"Entrada",n:"",v:null},{t:"Parcelas 1ª a 12ª",n:"12x",v:null},{t:"Parcelas 13ª em diante",n:"",v:null}];
+function levFutSet(g,i,c,v,el){const row=E._lev.l[g][i];
+  if(c==="v"){const ruim=levTemLetra(v);if(el)el.style.borderColor=ruim?"var(--amber)":"";row.v=ruim?null:(String(v).trim()===""?null:levParseBR(v));}
+  else row[c]=v;
+  levSalvaAgenda();levResumoCard();}
+function levFutAdd(g){E._lev.l[g].push({t:"",n:"",v:null});levSalvaAgenda();levDesenhaFicha();}
+function levFutDel(g,i){E._lev.l[g].splice(i,1);levSalvaAgenda();levDesenhaFicha();}
 function levChips(){
   const l=ORC.CALC.laudo(E._lev.v);
   const el1=ge("lev-chip-rfb");if(el1)el1.innerHTML=`Total Receita Federal (soma automática): <b style="color:var(--navy);font-family:'DM Mono',monospace">${ORC.fmt(levTotalRFB())}</b>`;
@@ -3557,6 +3574,18 @@ function levDesenhaFicha(){
           ${rows.length?"":`<div style="font-size:11px;color:var(--gray);margin:2px 0 5px">Nenhum — se não houver, deixe vazio mesmo.</div>`}
           <button type="button" class="btn bts btsm" onclick="levRepAdd('${c.id}')">+ adicionar</button>
           <div style="font-size:10.5px;color:var(--gray);margin-top:3px">Onde achar: ${esc(c.o)}</div></div>`;}
+      if(c.tipo==="fut"){if(!E._lev.l[c.id])E._lev.l[c.id]=LEV_FUT_SEED();
+        const rows=E._lev.l[c.id];
+        const gcols="minmax(150px,1.6fr) minmax(64px,.6fr) minmax(100px,1fr) 30px";
+        return `<div style="grid-column:1/-1"><div style="font-size:12px;font-weight:700;margin-bottom:3px">${esc(c.r)}</div>
+          <div style="display:grid;grid-template-columns:${gcols};gap:6px;font-size:9px;font-weight:700;text-transform:uppercase;color:var(--gray);margin-bottom:2px"><span>O que é</span><span>Quantas x</span><span>Valor (R$)</span><span></span></div>
+          ${rows.map((row,i)=>`<div style="display:grid;grid-template-columns:${gcols};gap:6px;margin-bottom:4px">
+            <input class="fi" style="margin:0" placeholder="ex.: Desconto" value="${esc(row.t||"")}" oninput="levFutSet('${c.id}',${i},'t',this.value)">
+            <input class="fi" style="margin:0" placeholder="ex.: 12x" value="${esc(row.n||"")}" oninput="levFutSet('${c.id}',${i},'n',this.value)">
+            <input class="fi" style="margin:0" inputmode="decimal" placeholder="0,00" value="${row.v!=null?F(row.v):""}" oninput="levFutSet('${c.id}',${i},'v',this.value,this)">
+            <button type="button" class="btn btr btsm" style="padding:5px 8px" onclick="levFutDel('${c.id}',${i})">×</button></div>`).join("")}
+          <button type="button" class="btn bts btsm" onclick="levFutAdd('${c.id}')">+ adicionar linha</button>
+          <div style="font-size:10.5px;color:var(--gray);margin-top:3px">${esc(c.o)}</div></div>`;}
       if(c.tipo==="seg")return `<div style="grid-column:1/-1"><div style="font-size:12px;font-weight:700;margin-bottom:3px">${esc(c.r)}</div>
         <div style="display:flex;gap:5px">${c.ops.map(o=>`<button type="button" class="btn btsm ${E._lev.x[c.id]===o?"btp":"bts"}" style="flex:1" onclick="levSeg('${c.id}','${o}')">${o}</button>`).join("")}</div></div>`;
       if(c.tipo==="txt")return `<div style="grid-column:1/-1"><div style="font-size:12px;font-weight:700;margin-bottom:3px">${esc(c.r)}</div>
@@ -3568,7 +3597,8 @@ function levDesenhaFicha(){
       const v=E._lev.v[c.id];
       return `<div><div style="font-size:12px;font-weight:700;margin-bottom:3px">${esc(c.r)}</div>
         <input class="fi" style="margin:0" inputmode="decimal" placeholder="${c.tipo==="int"?"0":"0,00"}" value="${v==null?"":(c.tipo==="int"?String(v):F(v))}"
-          oninput="levNum('${c.id}',this.value)" onblur="levNumBlur(this,'${c.id}','${c.tipo}')">
+          oninput="levNum('${c.id}',this.value,this)" onblur="levNumBlur(this,'${c.id}','${c.tipo}')">
+        <div id="lev-warn-${c.id}" style="display:none;font-size:10.5px;color:var(--amber);font-weight:700;margin-top:2px">⚠ Este campo é só para o número — escreva texto no campo de texto da seção (nada foi salvo aqui).</div>
         <div style="font-size:10.5px;color:var(--gray)">Onde achar: ${esc(c.o)}</div></div>`;}).join("")}</div></div>`).join("");
   levChips();}
 // ---- aba 2: o parecer
@@ -3657,6 +3687,7 @@ function levParecerHTML(paraWord){
   const h3=t2=>`<h3 style="font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:#447F98;border-bottom:1px solid #CBE0EA;padding-bottom:4px;margin:16px 0 7px">${t2}</h3>`;
   const h4=t2=>`<div style="font-size:11.5px;color:#607D8B;font-weight:700;margin:9px 0 4px">${t2}</div>`;
   const o=L.sel.length?ORC.orcar(L.sel,v):null;
+  const futRows=(L.l.fut_sim||[]).filter(r=>r.v!=null);
   return `<div style="font-size:11px;font-weight:700;letter-spacing:.12em;color:#447F98;text-transform:uppercase">Villela Advogados</div>
     <h2 style="font-size:16px;margin:4px 0 2px">Relatório da Situação Fiscal e Plano de Regularização</h2>
     <div style="font-size:11.5px;color:#607D8B;margin-bottom:12px">${L.variante==="COM"?"Cliente com contrato ativo":"Prospecção — sem contrato ativo"} · ${esc(cli.nome)} · ${esc(cli.cnpj)} · gerado do levantamento em ${hoje} por ${esc(E.perfil.nome_sistema)}</div>
@@ -3682,7 +3713,9 @@ function levParecerHTML(paraWord){
     ${h3("4. Estratégia jurídica")}
     ${h4("Três cenários")}
     <table style="width:100%;border-collapse:collapse;font-size:12.5px">${li("Atual (sem a Villela — convencional)",v.parcela_pgfn!=null?`entrada ${F(v.entrada_sem??0)} + ${v.n_parcelas_pgfn||"—"}x de ${F(v.parcela_pgfn)}`:"—")}${li("Intermediário (com a Villela — hoje)",v.entrada_com!=null?"entrada "+F(v.entrada_com):"—")}</table>
-    ${h4("Cenário futuro — o que a estratégia busca")}${tx("x_futuro")}
+    ${h4("Cenário futuro — o que a estratégia busca")}
+    ${futRows.length?`<table style="width:100%;border-collapse:collapse;font-size:12.5px">${futRows.map(r=>li(esc(r.t||"—"),(String(r.n||"").trim()?esc(r.n)+" de ":"")+F(r.v))).join("")}</table>`:""}
+    ${(x.x_futuro||"").trim()?tx("x_futuro"):(futRows.length?"":tx("x_futuro"))}
     ${h4("Análise e recomendação")}${tx("x_estrategia")}
     ${h3("5. Investimento")}
     ${o&&o.blocos.some(b=>b.alerta!=="vermelho")?`<p style="font-size:13px">${esc(levTextoProposta()).replace(/\n/g,"<br>")}</p>`:`<p style="color:#607D8B;font-size:12px">— marque os produtos na aba Precificação e as condições entram aqui sozinhas —</p>`}
