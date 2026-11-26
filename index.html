@@ -362,6 +362,10 @@ const OPERACOES=["Audiência","Análise Prescricional","Cancelar transação","C
 // ordem alfabética SEMPRE (pedido de 10/11/2026): operações novas podem ser
 // acrescentadas em qualquer lugar da lista acima que a ordenação conserta
 OPERACOES.sort((a,b)=>a.localeCompare(b,"pt-BR"));
+// 🔍 etiquetas do caderninho de prospecção (Bruna + Madu, 26/11/2026) — o que
+// o sistema NÃO descobre sozinho; o resto (tem proposta, fechada em tal data,
+// pedido pendente/aprovado) vira etiqueta automática na ficha
+const PROSPEC_STATUS=["Analisado — sem oportunidade","Tem proposta/tarefa — não abordar","Regularizado","Oportunidade — preparar abordagem","Abordado — aguardando retorno","Voltar a olhar depois"];
 const TEMPOS_PADRAO={"Fechamento Mensal (heads)":240,"Execução Fiscal":15,"Proposta Comercial - Parecer Tributário":25,"MS":35,"MS Migração":35,"MS Impedimento":35,"MS laudo CAPAG":35,"MS CND":35,"Transacionar":20,"Laudo CAPAG":25,"Laudo OPF":25,"Monitoramento":10,"Audiência":60,"NJP":20,"Renegociação":20,"Recurso":30,"Embargos à Execução":30,"Emissão CPEN":15,"PRDI":20,"Protesto":15,"Estadual":20,"E-Processo":15,"FGTS":20,"Petição":30,"Parcelar":15,"Simulação":20,"TAX":25,"TIS":20,"Contabilize":20,"Restituição SN":20,"Risco de bloqueio":15,"Revenda":15,"Cancelar transação":15,"Levantamento - sem proposta":30,"Parecer de Novo Cliente":30,"Outros":20,"Análise Prescricional":30,"ExcPreEx - Prescrição":25,"Negociação Estadual":20,"Oferta de garantia":20,"Proposta para franqueado":25,_default:20};
 const tempoDe=op=>TEMPOS_PADRAO[op]||TEMPOS_PADRAO._default;
 // documento sempre num formato só (evita duplicar cliente por grafia):
@@ -710,6 +714,12 @@ const L = {  // modo local (servidor de teste na máquina)
   roboStatus(){return this.f("/api/robo_status");},
   async equipeSet(){throw new Error("Gestão da equipe funciona no site publicado.");},
   async equipeAusencia(){throw new Error("Gestão da equipe funciona no site publicado.");},
+  async prospecNotas(){return[];},
+  async prospecNotaAdd(){throw new Error("O caderninho funciona no site publicado.");},
+  async abPedidos(){return[];},
+  async abPedir(){throw new Error("Pedidos de abordagem funcionam no site publicado.");},
+  async abDecidir(){throw new Error("Funciona no site publicado.");},
+  async abVisto(){return{ok:true};},
   async equipeAdd(){throw new Error("Gestão da equipe funciona no site publicado.");},
   async presencaPing(){return{ok:true};},
   async presencas(){return[];},
@@ -930,6 +940,13 @@ const S = {
     const e=await supa.from("casos_encerrados").select("*").eq("id_cliente",id);
     return{ativas:a.data||[],encerradas:e.data||[]};},
   async clientesComTarefa(){return okS(await supa.rpc("clientes_com_tarefa"))||[];},
+  // 🔍 caderninho de prospecção + pedidos de abordagem (sql/169, 26/11/2026)
+  async prospecNotas(){return okS(await supa.from("prospeccao_notas").select("*").order("criado",{ascending:false}).limit(4000))||[];},
+  async prospecNotaAdd(d){okS(await supa.from("prospeccao_notas").insert(d));return{ok:true};},
+  async abPedidos(){return okS(await supa.from("abordagem_pedidos").select("*").order("criado",{ascending:false}).limit(1000))||[];},
+  async abPedir(idc,op,obs){return okS(await supa.rpc("abordagem_pedir",{p_id_cliente:idc,p_operacao:op,p_obs:obs||""}));},
+  async abDecidir(id,aprovar,motivo){return okS(await supa.rpc("abordagem_decidir",{p_id:id,p_aprovar:aprovar,p_motivo:motivo||""}));},
+  async abVisto(id){return okS(await supa.rpc("abordagem_visto",{p_id:id}));},
   async casos(){return paginadoS(()=>supa.from("casos_encerrados").select("*").order("data_encerramento_dt",{ascending:false,nullsFirst:false}).order("linha"));},
   async propostas(){return okS(await supa.from("propostas_visiveis").select("*").order("linha",{ascending:false}))||[];},
   async docsProposta(idProp){return okS(await supa.from("documentos").select("*").eq("id_tarefa",idProp).order("linha",{ascending:false}))||[];},
@@ -2514,12 +2531,16 @@ async function telaMinhas(){
   // 💬 feedbacks das heads para MIM — aparecem no topo do dia (16/11/2026)
   E._fbMeus=[];
   try{E._fbMeus=(await DB.feedbacks()).filter(f=>f.status==="APROVADO"&&ehMeuNome(f.pessoa));}catch(e){}
+  // 🙋 respostas dos meus pedidos de abordagem ainda não vistas (26/11/2026)
+  E._abMeus=[];
+  try{E._abMeus=(await DB.abPedidos()).filter(p=>ehMeuNome(p.solicitante)&&p.status!=="PENDENTE"&&!p.visto);}catch(e){}
   // ------- monta html
   let h=bannerPrazoFatal(ativas);
   if(P.exclusivo)h+=`<div class="painel" style="border-left:4px solid var(--roxo);background:#EDE9FE">
     <div class="bloco-t" style="color:var(--roxo)">&#128274; HOJE É DIA EXCLUSIVO — FECHAMENTO MENSAL</div>
     <div style="font-size:13px;line-height:1.5">Seu dia inteiro é uma tarefa só: <b>ajustar a planilha do próximo mês, conferir os pagamentos e enviar os boletos</b>. As demais tarefas estão seguras na fila e a agenda do dia está travada — tudo libera na hora em que você clicar <b>"&#9989; Finalizei o fechamento"</b> dentro do card abaixo.</div></div>`;
   h+=fbBoxHtml();
+  h+=`<div id="ab-meus-box">${abDecisoesHtml()}</div>`;
   const pctCor=pct>90?"var(--red)":pct>70?"var(--amber)":"var(--green)";
   h+=`<div class="painel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
     <b style="color:var(--navy)">&#128202; Capacidade do dia</b>
@@ -6177,6 +6198,7 @@ async function telaCentral(){
       :mHeads?tarjaMeta("Meta das HEADS — conjunta de vocês três",+mHeads.meta,pagoHeads)
       :tarjaMeta("MINHA meta",0,pagoMeu)}
     <div id="ct-redir"></div>
+    <div id="ct-abord"></div>
     <div id="ct-corr"></div>
     <div id="ct-pautas"></div>
     <div id="ct-robo"></div>
@@ -6292,6 +6314,7 @@ async function telaCentral(){
   painelRedirecionamentos("ct-redir",ts,cls);
   fbPautasCentral();
   hsRoboCentral();
+  abordagemCentral();
   etapasParadasCentral();
   desenhaCorrCentral(ts);
   // ⏱ tempo real: enquanto a Central estiver aberta, o painel de correções
@@ -7904,9 +7927,19 @@ async function exportarClientesPlanilhaGo(){
 }
 async function telaClientes(){
   setNav("cli",E.perfil.head_sim?"Gestão de Clientes":"Buscar Clientes"); carregando();
-  E._fSit="TODOS";E._fReg="TODOS";E._fAtivo="TODOS";E._fSN="TODOS";E._fImp="TODOS";E._fUF="TODOS";E._fCid="TODOS";E._clPag=0;E._clModo="cli";
+  E._fSit="TODOS";E._fReg="TODOS";E._fAtivo="TODOS";E._fSN="TODOS";E._fImp="TODOS";E._fUF="TODOS";E._fCid="TODOS";E._fPros="TODOS";E._clPag=0;E._clModo="cli";
   if(E._fHead===undefined)E._fHead=escHead()||"TODOS";
-  let cs,ops;try{[cs,ops]=await Promise.all([DB.clientes(""),DB.tarefas()]);}catch(e){return erro(e.message);}
+  let cs,ops,pns,abs;try{[cs,ops,pns,abs]=await Promise.all([DB.clientes(""),DB.tarefas(),
+    DB.prospecNotas().catch(()=>[]),DB.abPedidos().catch(()=>[])]);}catch(e){return erro(e.message);}
+  // 🔍 caderninho de prospecção (26/11/2026): cada um só recebe as PRÓPRIAS
+  // anotações do banco (RLS); head recebe as de todos
+  E._prosNotas=pns||[];E._prosMinha={};E._prosUlt={};E._prosEquipe={};
+  E._prosNotas.forEach(n=>{   // já vêm da mais nova para a mais antiga
+    (E._prosEquipe[n.id_cliente]=E._prosEquipe[n.id_cliente]||[]).push(n);
+    if(ehMeuNome(n.autor)){
+      if(!E._prosUlt[n.id_cliente])E._prosUlt[n.id_cliente]=n;
+      if(!E._prosMinha[n.id_cliente]&&String(n.status||"").trim())E._prosMinha[n.id_cliente]=n;}});
+  E._abPed={};(abs||[]).forEach(a=>{(E._abPed[a.id_cliente]=E._abPed[a.id_cliente]||[]).push(a);});
   // ⚖ fases processuais por tarefa (recursos ativos) — para filtro e sinalizador
   E._fasesPorTarefa={};
   try{const prAll=okS(await supa.from("tarefa_processos").select("id,id_tarefa,numero,status,papel,vinculado_a,vara"))||[];
@@ -8033,7 +8066,13 @@ function desenhaPills(){
     <select class="fsel" onchange="E._fCid=this.value;E._clPag=0;desenhaClientes()" title="Cidade do cadastro do cliente${ufSel?" — mostrando só cidades de "+ufSel:""}">
       <option value="TODOS">&#128205; Cidade: todas</option>
       ${cidades.map(m=>`<option ${semAc(E._fCid)===semAc(m)?"selected":""}>${esc(m)}</option>`).join("")}
-      <option value="SEMCID" ${E._fCid==="SEMCID"?"selected":""}>&#9888; Sem cidade no cadastro</option></select>`;
+      <option value="SEMCID" ${E._fCid==="SEMCID"?"selected":""}>&#9888; Sem cidade no cadastro</option></select>
+    <select class="fsel" onchange="E._fPros=this.value;E._clPag=0;desenhaClientes()" title="Seu caderninho de prospecção — anotações que só você e as heads veem">
+      <option value="TODOS">&#128269; Prospecção: todas</option>
+      <option value="MINHA" ${E._fPros==="MINHA"?"selected":""}>&#128210; Com minha anotação</option>
+      <option value="SEM" ${E._fPros==="SEM"?"selected":""}>Sem anotação minha</option>
+      <option value="VOLTAR" ${E._fPros==="VOLTAR"?"selected":""}>&#9200; Para rever agora</option>
+      ${PROSPEC_STATUS.map(s=>`<option ${E._fPros===s?"selected":""}>${esc(s)}</option>`).join("")}</select>`;
 }
 function modoClientes(m){
   E._clModo=m;
@@ -8142,7 +8181,33 @@ function filtroCliente(c){
   if(E._fCid&&E._fCid!=="TODOS"){const m=String(c.municipio||"").trim();
     if(E._fCid==="SEMCID"){if(m)return false;}
     else if(semAc(m)!==semAc(E._fCid))return false;}
+  // 🔍 filtro do caderninho de prospecção (26/11/2026)
+  if(E._fPros&&E._fPros!=="TODOS"){
+    const u=(E._prosUlt||{})[c.id_cliente];
+    if(E._fPros==="MINHA"){if(!u)return false;}
+    else if(E._fPros==="SEM"){if(u)return false;}
+    else if(E._fPros==="VOLTAR"){
+      const v=(((E._prosEquipe||{})[c.id_cliente])||[]).find(n=>ehMeuNome(n.autor)&&n.voltar_em);
+      if(!v||String(v.voltar_em).slice(0,10)>hojeISO())return false;}
+    else{const m2=(E._prosMinha||{})[c.id_cliente];if(!m2||m2.status!==E._fPros)return false;}}
   return true;
+}
+// 🔍 etiquetas de prospecção na LISTA (26/11/2026): a "caixinha ao lado do
+// cliente" da Madu — o status que VOCÊ marcou (privado) + pedido em análise;
+// head vê também quantas anotações a equipe tem no cliente
+function prospecBadgeCli(c){
+  let h="";
+  const m=(E._prosMinha||{})[c.id_cliente],u=(E._prosUlt||{})[c.id_cliente];
+  if(m)h+=` <span class="tag" style="background:#EFE7FD;color:#6B4FBF" title="seu caderninho — só você e as heads veem">&#128269; ${esc(m.status)}</span>`;
+  else if(u)h+=` <span class="tag" style="background:#EFE7FD;color:#6B4FBF" title="você tem anotação neste cliente (sem etiqueta)">&#128269; anotado</span>`;
+  const v=(((E._prosEquipe||{})[c.id_cliente])||[]).find(n=>ehMeuNome(n.autor)&&n.voltar_em);
+  if(v&&String(v.voltar_em).slice(0,10)<=hojeISO())h+=` <span class="tag" style="background:var(--amber-lt);color:#7F6000" title="você marcou para rever este cliente">&#9200; rever</span>`;
+  const pend=(((E._abPed||{})[c.id_cliente])||[]).find(a=>a.status==="PENDENTE");
+  if(pend)h+=` <span class="tag" style="background:var(--amber-lt);color:#7F6000" title="pedido de abordagem aguardando a head (${esc(pend.solicitante)})">&#128587; ${esc(pend.operacao)} em análise</span>`;
+  if(E.perfil.head_sim){
+    const eq=(((E._prosEquipe||{})[c.id_cliente])||[]).filter(n=>!ehMeuNome(n.autor));
+    if(eq.length)h+=` <span class="tag" style="background:#EFE7FD;color:#6B4FBF" title="anotações de prospecção de: ${esc([...new Set(eq.map(n=>n.autor))].join(", "))} — abra a ficha para ler">&#128269; ${eq.length} da equipe</span>`;}
+  return h;
 }
 function desenhaClientes(){
   const alvo=ge("cl-lista");if(!alvo)return;
@@ -8170,7 +8235,7 @@ function desenhaClientes(){
   alvo.innerHTML=`<p style="font-size:12px;color:var(--gray);margin-bottom:8px">${f.length} de ${E._clsTodos.length} cliente(s)${E._fAtivo==="MINHAS"?` · <b style="color:var(--navy)">${totMinhas} tarefa(s) ativas suas dentro deles</b>`:""}</p>`+
     f.slice(0,fim).map(c=>`<details class="det" id="cd-${esc(c.id_cliente)}"><summary onclick="prepCliente('${esc(c.id_cliente)}')">
       <div style="flex:1;min-width:0"><div style="font-weight:700;color:var(--navy)">${esc(c.nome)} ${tag(c)}
-        ${ecacTagCli(c)}${E._temTarefa[c.id_cliente]?'<span class="tag tek">com tarefa</span>':'<span class="tag ti">sem tarefa ativa</span>'}${String(c.assessor_responsavel||"").trim()===""?'<span class="tag" style="background:var(--red);color:white">&#9888; sem responsável</span>':""}${(E._minhaQtd||{})[c.id_cliente]?`<span class="tag" style="background:var(--ice);color:var(--dani)">&#128100; ${E._minhaQtd[c.id_cliente]} sua(s)</span>`:""}${(E._impedCli||{})[c.id_cliente]?`<span class="tag" style="background:#7B0000;color:white" title="Cliente IMPEDIDO — pela data de queda informada na tarefa de MS Impedimento ou no cadastro">&#9940; impedido${E._impedCli[c.id_cliente].q!=="?"?" até "+brData(E._impedCli[c.id_cliente].q):" · sem data de queda"}</span>`:""}${c.grupo_dono?`<span class="tag" style="background:#FDEFE7;color:#B2502B" title="empresas do mesmo dono — grupo de ${esc(((E._cli||{})[c.grupo_dono]||{}).nome||c.grupo_dono)}">&#128101; mesmo dono</span>`:""}${prazoSNbadge(c)}</div>
+        ${ecacTagCli(c)}${E._temTarefa[c.id_cliente]?'<span class="tag tek">com tarefa</span>':'<span class="tag ti">sem tarefa ativa</span>'}${String(c.assessor_responsavel||"").trim()===""?'<span class="tag" style="background:var(--red);color:white">&#9888; sem responsável</span>':""}${(E._minhaQtd||{})[c.id_cliente]?`<span class="tag" style="background:var(--ice);color:var(--dani)">&#128100; ${E._minhaQtd[c.id_cliente]} sua(s)</span>`:""}${(E._impedCli||{})[c.id_cliente]?`<span class="tag" style="background:#7B0000;color:white" title="Cliente IMPEDIDO — pela data de queda informada na tarefa de MS Impedimento ou no cadastro">&#9940; impedido${E._impedCli[c.id_cliente].q!=="?"?" até "+brData(E._impedCli[c.id_cliente].q):" · sem data de queda"}</span>`:""}${c.grupo_dono?`<span class="tag" style="background:#FDEFE7;color:#B2502B" title="empresas do mesmo dono — grupo de ${esc(((E._cli||{})[c.grupo_dono]||{}).nome||c.grupo_dono)}">&#128101; mesmo dono</span>`:""}${prazoSNbadge(c)}${prospecBadgeCli(c)}</div>
       <div style="font-size:11px;color:var(--gray)">${esc(c.cnpj_cpf||"")} · ${esc(c.head||"—")}${c.vertical?" · "+esc(c.vertical):""}${c.regime?" · "+esc(c.regime):""}${(String(c.municipio||"").trim()||String(c.uf||"").trim())?" · &#128205; "+esc([String(c.municipio||"").trim(),String(c.uf||"").trim().toUpperCase()].filter(Boolean).join("/")):""}</div></div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
         ${c.head?`<span class="tag tda">${esc(c.head)}</span>`:""}
@@ -8195,7 +8260,9 @@ function prepCliente(id){
     &&String(p.responsavel||p.quem_pediu||p.executor||"").trim()===E.perfil.nome_sistema
     &&(p.id_cliente===cid||(Array.isArray(p.empresas_extras)&&p.empresas_extras.some(x=>x&&x.id_cliente===cid))));
   const podeConverter=c.situacao==="PROSPECCAO"&&(isHead||E.perfil.nome_sistema==="Nicholas"||minhaPropDo(id));
-  if(c.situacao==="PROSPECCAO"&&!podeConverter&&!E._props)
+  // propostas agora alimentam também as etiquetas automáticas do bloco de
+  // prospecção — carrega UMA vez ao abrir a primeira ficha (26/11/2026)
+  if(!E._props)
     DB.propostas().then(ps=>{E._props=ps||[];const b=ge("cb-"+id);if(b){b.dataset.ok="";prepCliente(id);}}).catch(()=>{});
   const opsAss=OPERACIONAIS.map(a=>`<option ${c.assessor_responsavel===a?"selected":""}>${a}</option>`).join("");
   // fichaResumoCad (Bruna, 25/11/2026): dados do cadastro visíveis direto na
@@ -8223,6 +8290,7 @@ function prepCliente(id){
       <button class="btn bts btsm" onclick="toggleEd('${esc(id)}')">&#9998; Editar cadastro</button>
       ${podeConverter?`<button class="btn btp btsm" onclick="converterCli('${esc(id)}')">&#10003; Converter em cliente oficial</button>`:""}
       ${E.perfil.head_sim&&c.situacao==="OFICIAL"?`<button class="btn bts btsm" style="color:var(--roxo);border-color:var(--roxo)" onclick="reverterCli('${esc(id)}')">&#8617; Voltar para prospecção</button>`:""}</div>
+    ${prospecBlocoHTML(id,c)}
     ${isHead?`<div class="linha-acao" style="margin-top:7px;align-items:center;background:#FDF3F2;border:1px solid #F3C9C4;border-radius:9px;padding:7px 10px">
       <label style="font-size:11px" title="Prazo máximo para regularização do enquadramento no Simples Nacional">&#9203; <b>Prazo Simples Nacional:</b></label>
       <input type="date" class="fsel" id="psn-${esc(id)}" value="${c.prazo_simples?String(c.prazo_simples).slice(0,10):""}" style="max-width:170px">
@@ -8251,6 +8319,150 @@ function prepCliente(id){
     <div id="ce-${esc(id)}" style="display:none;margin-top:8px"></div>`;
   if(E.perfil.head_sim)carregarLembretesCli(id);
   carregarNotasCli(id);
+}
+// ============== 🔍 PROSPECÇÃO NA BASE (Bruna + Madu, 26/11/2026) ==============
+// Bloco na ficha: etiquetas AUTOMÁTICAS (o que o sistema já sabe: tarefas,
+// propostas com data de fechamento, pedidos) + caderninho PRIVADO (autor +
+// heads, garantido por RLS) + pedido de autorização de abordagem (sql/169).
+function prospecPropsDo(id){
+  return (E._props||[]).filter(p=>p.id_cliente===id
+    ||(Array.isArray(p.empresas_extras)&&p.empresas_extras.some(x=>x&&x.id_cliente===id)));}
+function prospecChipsAuto(id){
+  const chips=[];
+  const tsC=(E.tarefas||[]).filter(t=>t.id_tarefa&&t.id_cliente===id
+    &&!String(t.cliente||"").startsWith("📌")&&String(t.status_tarefa||"")!=="TAREFA FIXA");
+  if(tsC.length)chips.push(`<span class="tag" style="background:var(--gray-lt);color:var(--navy)">&#128203; ${tsC.length} tarefa(s) ativa(s): ${esc([...new Set(tsC.map(t=>t.operacao||"?"))].slice(0,4).join(" · "))}</span>`);
+  else if(E._temTarefa&&E._temTarefa[id])chips.push(`<span class="tag" style="background:var(--gray-lt);color:var(--navy)">&#128203; com tarefa ativa</span>`);
+  prospecPropsDo(id).forEach(p=>{
+    const quem=String(p.quem_pediu||p.responsavel||p.executor||"").trim();
+    if(String(p.fechada||"")==="SIM")
+      chips.push(`<span class="tag" style="background:var(--green);color:white">&#127942; ${esc(p.produtos||"proposta")} — fechada${p.fechada_dt?" em "+brData(p.fechada_dt):""}</span>`);
+    else if(!/recusad/i.test(String(p.status||"")))
+      chips.push(`<span class="tag" style="background:var(--amber);color:white">&#129309; ${esc(p.produtos||"proposta")} em tratativa — ${esc(p.status||"")}${quem?" (com "+esc(quem)+")":""}</span>`);});
+  (((E._abPed||{})[id])||[]).forEach(a=>{
+    if(a.status==="PENDENTE")chips.push(`<span class="tag" style="background:var(--amber-lt);color:#7F6000">&#128587; ${esc(a.operacao)} — pedido de ${esc(a.solicitante)} aguardando a head${a.criado_dt?" desde "+brData(a.criado_dt):""}</span>`);
+    else if(a.status==="APROVADO")chips.push(`<span class="tag" style="background:#E6F7F1;color:#0E7C66">&#9989; ${esc(a.operacao)} — ${esc(a.solicitante)} autorizado${a.decidido_dt?" em "+brData(a.decidido_dt):""}</span>`);
+    else chips.push(`<span class="tag" style="background:#FDEBEA;color:#B3261E">&#128683; ${esc(a.operacao)} — recusado p/ ${esc(a.solicitante)}${a.decidido_dt?" em "+brData(a.decidido_dt):""}</span>`);});
+  return chips;
+}
+function prospecBlocoHTML(id,c){
+  const isHead=E.perfil.head_sim;
+  const podePedir=!isHead&&!["Nicholas","Raquel"].includes(E.perfil.nome_sistema)&&!E.perfil.vendo_como_outro;
+  const chips=prospecChipsAuto(id);
+  const notas=(((E._prosEquipe||{})[id])||[]);
+  const linhaNota=n=>`<div style="font-size:11.5px;margin-top:4px;border-left:3px solid #D8CCF4;padding-left:8px">
+      <b style="color:#6B4FBF">${esc(n.autor)}</b> · ${brData(String(n.criado||"").slice(0,10))}${String(n.status||"").trim()?` · <b>${esc(n.status)}</b>`:""}${n.voltar_em?` · &#9200; rever em ${brData(String(n.voltar_em).slice(0,10))}`:""}
+      ${String(n.texto||"").trim()?`<br><span style="color:var(--gray)">${esc(n.texto)}</span>`:""}</div>`;
+  return `<div style="margin-top:2px;margin-bottom:9px;background:#F8F5FE;border:1px solid #D8CCF4;border-radius:10px;padding:9px 11px">
+    <div class="bloco-t" style="color:#6B4FBF">&#128269; Prospecção e abordagem</div>
+    <div style="display:flex;flex-wrap:wrap;gap:4px;margin:4px 0 6px">
+      ${chips.length?chips.join(""):`<span style="font-size:11.5px;color:var(--gray)">${E._props?"Nada rodando: sem tarefa ativa, sem proposta e sem pedido — campo livre para analisar.":"Carregando propostas…"}</span>`}</div>
+    ${podePedir?`<div class="linha-acao" style="margin-bottom:6px"><button class="btn btp btsm" onclick="abrirPedidoAbordagem('${esc(id)}')">&#128587; Pedir autorização para abordar</button>
+      <span style="font-size:10.5px;color:var(--gray)">a head do cliente decide na Central do Dia — a resposta aparece no seu Minhas Tarefas</span></div>`:""}
+    <div style="background:white;border:1px dashed #D8CCF4;border-radius:8px;padding:7px 9px">
+      <div style="font-size:11px;color:#6B4FBF;font-weight:700">&#128210; Meu caderninho ${isHead?"<span style='font-weight:400;color:var(--gray)'>(as anotações da equipe aparecem abaixo — cada assessor só vê as próprias)</span>":"<span style='font-weight:400;color:var(--gray)'>(só você e as heads veem — os outros assessores não)</span>"}</div>
+      <div class="linha-acao" style="margin-top:5px">
+        <select class="fsel" id="pros-st-${esc(id)}"><option value="">— etiqueta (opcional) —</option>${PROSPEC_STATUS.map(s=>`<option>${esc(s)}</option>`).join("")}</select>
+        <label style="font-size:11px">&#9200; rever em:</label><input type="date" class="fsel" id="pros-vl-${esc(id)}" style="max-width:150px"></div>
+      <textarea class="fta" id="pros-tx-${esc(id)}" rows="2" style="margin-top:5px" placeholder="Anotação da sua análise (ex.: dívida ativa alta, vale MS; sócio é o mesmo da outra empresa...)"></textarea>
+      <button class="btn btp btsm" style="margin-top:5px" onclick="salvarProsNota('${esc(id)}')">&#128190; Salvar no caderninho</button>
+      <div id="pros-lst-${esc(id)}">${notas.slice(0,8).map(linhaNota).join("")}</div>
+    </div></div>`;
+}
+async function salvarProsNota(id){
+  const st=(ge("pros-st-"+id)||{}).value||"",vl=(ge("pros-vl-"+id)||{}).value||"",
+        tx=((ge("pros-tx-"+id)||{}).value||"").trim();
+  if(!st&&!tx){toast("Escolha uma etiqueta ou escreva a anotação.","erro");return;}
+  const n={id_cliente:id,autor:E.perfil.nome_sistema,status:st,texto:tx,voltar_em:vl||null};
+  try{await DB.prospecNotaAdd(n);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  n.criado=new Date().toISOString();
+  E._prosEquipe=E._prosEquipe||{};(E._prosEquipe[id]=E._prosEquipe[id]||[]).unshift(n);
+  E._prosUlt=E._prosUlt||{};E._prosUlt[id]=n;
+  if(st){E._prosMinha=E._prosMinha||{};E._prosMinha[id]=n;}
+  toast("Anotado no seu caderninho.","ok");
+  const b=ge("cb-"+id);if(b){b.dataset.ok="";prepCliente(id);}
+}
+function abrirPedidoAbordagem(id){
+  const c=(E._cli||{})[id]||{};E._abCli=id;
+  const ps=prospecPropsDo(id);
+  const ativas=ps.filter(p=>String(p.fechada||"")!=="SIM"&&!/recusad/i.test(String(p.status||"")));
+  modal2("&#128587; Pedir autorização para abordar",esc(c.nome||id),`
+    ${ativas.length?`<div class="aviso" style="background:var(--amber-lt);color:#7F6000;margin-bottom:6px">&#9888;&#65039; <b>Atenção:</b> este cliente já tem ${ativas.length} proposta(s) em tratativa — confira abaixo antes de pedir, para não oferecer o que já está rodando.</div>`:""}
+    <div style="font-size:11.5px;background:var(--ice);border-radius:8px;padding:7px 9px;margin-bottom:7px">
+      <b>O que o cliente já tem:</b><br>
+      ${prospecChipsAuto(id).join(" ")||'<span style="color:var(--gray)">nada rodando — campo livre</span>'}</div>
+    <div class="bloco-t">O que você quer oferecer? *</div>
+    <select class="fsel" id="ab-op" style="width:100%"><option value="">— escolha a operação —</option>${OPERACOES.map(o=>`<option>${esc(o)}</option>`).join("")}</select>
+    <div class="bloco-t" style="margin-top:8px">Por quê? (opcional, ajuda a head a decidir)</div>
+    <textarea class="fta" id="ab-obs" rows="2" placeholder="Ex.: vi dívida ativa de R$ 300 mil sem transação — cabe MS Migração"></textarea>
+    <button class="btn btp btw" style="margin-top:8px" onclick="umaVez(confirmarPedidoAbordagem)">&#128587; Enviar pedido para a head</button>
+    <div style="font-size:10.5px;color:var(--gray);text-align:center;margin-top:5px">Aprovou? A 1ª comunicação é no grupo de atendimento e a proposta entra no sistema em até 5 dias úteis.</div>`);
+}
+async function confirmarPedidoAbordagem(){
+  const id=E._abCli,op=(ge("ab-op")||{}).value||"",obs=((ge("ab-obs")||{}).value||"").trim();
+  if(!op){toast("Escolha a operação que quer oferecer.","erro");return;}
+  let pid;try{pid=await DB.abPedir(id,op,obs);}catch(e){toast(e.message,"erro");return;}
+  E._abPed=E._abPed||{};(E._abPed[id]=E._abPed[id]||[]).unshift({id:pid,id_cliente:id,operacao:op,solicitante:E.perfil.nome_sistema,obs:obs,status:"PENDENTE",criado_dt:hojeISO()});
+  const n={id_cliente:id,autor:E.perfil.nome_sistema,status:"🙋 Pedi autorização ("+op+")",texto:"Pedido "+pid+" enviado para a head decidir na Central do Dia.",criado:new Date().toISOString()};
+  E._prosEquipe=E._prosEquipe||{};(E._prosEquipe[id]=E._prosEquipe[id]||[]).unshift(n);
+  E._prosUlt=E._prosUlt||{};E._prosUlt[id]=n;E._prosMinha=E._prosMinha||{};E._prosMinha[id]=n;
+  fecharModal2();toast("Pedido enviado! A head decide na Central do Dia e a resposta aparece no seu Minhas Tarefas.","ok");
+  const b=ge("cb-"+id);if(b){b.dataset.ok="";prepCliente(id);}
+}
+// Central do Dia (heads): pedidos pendentes dos MEUS clientes (sem head: todas)
+// + aprovados há 5+ dias úteis sem a proposta prometida
+async function abordagemCentral(){
+  const el=ge("ct-abord");if(!el)return;
+  let peds=[];try{peds=await DB.abPedidos();}catch(e){el.innerHTML="";return;}
+  const eu=E.perfil.nome_sistema;
+  const meus=p=>String(p.head_cliente||"").trim()===eu||!String(p.head_cliente||"").trim();
+  const pend=peds.filter(p=>p.status==="PENDENTE"&&meus(p));
+  const aprov=peds.filter(p=>p.status==="APROVADO"&&meus(p)&&p.decidido_dt);
+  let parados=[];
+  if(aprov.length){try{const props=await DB.propostas();
+    parados=aprov.filter(p=>{
+      const dec=String(p.decidido_dt).slice(0,10);
+      if(new Date()<somaDiasUteis(new Date(dec+"T12:00:00"),5))return false;
+      return !(props||[]).some(pr=>(pr.id_cliente===p.id_cliente
+          ||(Array.isArray(pr.empresas_extras)&&pr.empresas_extras.some(x=>x&&x.id_cliente===p.id_cliente)))
+        &&String(pr.responsavel||pr.quem_pediu||pr.executor||"").trim()===p.solicitante
+        &&String(pr.data_lancamento_dt||"").slice(0,10)>=dec);});
+  }catch(e){}}
+  if(!pend.length&&!parados.length){el.innerHTML="";return;}
+  el.innerHTML=`<div class="painel" style="border-left:4px solid #6B4FBF">
+    <div class="bloco-t" style="color:#6B4FBF">&#128587; Pedidos de abordagem (${pend.length})</div>
+    ${pend.map(p=>`<div class="linha-item"><span style="font-size:12.5px"><b>${esc(p.cliente||p.id_cliente)}</b> · ${esc(p.operacao)} · pedido de <b>${esc(p.solicitante)}</b>${p.criado_dt?" em "+brData(p.criado_dt):""}
+        ${String(p.obs||"").trim()?`<br><i style="font-size:11px;color:var(--gray)">"${esc(p.obs)}"</i>`:""}</span>
+      <span style="white-space:nowrap">
+        <button class="btn bts btsm" onclick="prepCliente('${esc(p.id_cliente)}');telaClientes()">ver cliente</button>
+        <button class="btn btg btsm" onclick="abDecidirUI('${esc(p.id)}',true)">&#10003; Autorizar</button>
+        <button class="btn bts btsm" style="color:var(--red);border-color:var(--red)" onclick="abDecidirUI('${esc(p.id)}',false)">&#10007; Recusar</button></span></div>`).join("")}
+    ${parados.length?`<div style="font-size:11px;font-weight:700;color:#B45309;margin-top:6px">&#9203; Autorizados sem proposta (5+ dias úteis)</div>
+      ${parados.map(p=>`<div class="linha-item"><span style="font-size:12px"><b>${esc(p.cliente||p.id_cliente)}</b> · ${esc(p.operacao)} · <b>${esc(p.solicitante)}</b> autorizado em ${brData(p.decidido_dt)} e a proposta ainda não entrou no sistema — cobre.</span></div>`).join("")}`:""}
+    <div style="font-size:10.5px;color:var(--gray);margin-top:4px">Regra combinada: autorizou &rarr; 1ª comunicação no grupo de atendimento + proposta no sistema em até 5 dias úteis. Recusa sempre com motivo (o assessor lê no Minhas Tarefas).</div></div>`;
+}
+async function abDecidirUI(id,aprovar){
+  let motivo="";
+  if(!aprovar){motivo=(prompt("Motivo da recusa (o assessor vai ler):")||"").trim();if(!motivo)return;}
+  else if(!confirm("Autorizar a abordagem? O assessor será avisado e terá 5 dias úteis para criar a proposta."))return;
+  try{await DB.abDecidir(id,aprovar,motivo);}catch(e){toast("Erro: "+e.message,"erro");return;}
+  toast(aprovar?"Abordagem autorizada — o assessor será avisado.":"Pedido recusado — o assessor verá o motivo.","ok");
+  abordagemCentral();
+}
+// Minhas Tarefas: respostas dos MEUS pedidos ainda não vistas
+function abDecisoesHtml(){
+  if(!(E._abMeus||[]).length)return "";
+  return `<div class="painel" style="border-left:4px solid #6B4FBF">
+    <div class="bloco-t" style="color:#6B4FBF">&#128587; Respostas dos seus pedidos de abordagem</div>
+    ${E._abMeus.map(p=>`<div class="linha-item"><span style="font-size:12.5px">${p.status==="APROVADO"?"&#9989;":"&#128683;"} <b>${esc(p.cliente||p.id_cliente)}</b> · ${esc(p.operacao)} — ${p.status==="APROVADO"
+        ?`<b style="color:var(--green)">autorizado</b> por ${esc(p.decidido_por||"head")}${p.decidido_dt?" em "+brData(p.decidido_dt):""}. Lembre: 1ª comunicação no grupo de atendimento do cliente + criar a proposta no sistema em até 5 dias úteis.`
+        :`<b style="color:var(--red)">recusado</b> por ${esc(p.decidido_por||"head")}${String(p.motivo||"").trim()?" — motivo: <i>"+esc(p.motivo)+"</i>":""}`}</span>
+      <button class="btn bts btsm" onclick="abVistoUI('${esc(p.id)}')">ok, entendi</button></div>`).join("")}</div>`;
+}
+async function abVistoUI(id){
+  try{await DB.abVisto(id);}catch(e){}
+  E._abMeus=(E._abMeus||[]).filter(p=>p.id!==id);
+  const b=ge("ab-meus-box");if(b)b.outerHTML=`<div id="ab-meus-box">${abDecisoesHtml()}</div>`;
 }
 // esteira TAX: muda o status (grava data + histórico) e atualiza o selo
 async function setTaxCli(id,status){
@@ -8612,7 +8824,7 @@ async function verTarefasCliente(id){
     h+=`<div class="bloco-t" style="margin-top:10px;color:#7F5200">&#128221; Propostas comerciais — ${resumoP}</div>`+
       ps2.map(p=>{const e2=pEstado(p);
         const det=p.detalhes_visiveis!==false;
-        const selo=e2==="FECH"?'<span class="tag" style="background:var(--green);color:white">&#127942; FECHADA — virou contrato</span>'
+        const selo=e2==="FECH"?`<span class="tag" style="background:var(--green);color:white">&#127942; FECHADA${p.fechada_dt?" em "+brData(p.fechada_dt):""} — virou contrato</span>`
           :e2==="ENC"?'<span class="tag tm">&#10007; encerrada sem fechar</span>'
           :`<span class="tag" style="background:var(--amber);color:white">&#129309; EM TRATATIVA</span> <span class="tag td2">${esc(p.status||"")}</span>`;
         return `<div class="linha-item"${e2==="ENC"?' style="opacity:.6"':""}><span>${esc(p.produtos||"—")} · conduz a venda: <b>${esc(p.quem_pediu||p.executor||"—")}</b>${p.executor&&p.quem_pediu&&p.executor!==p.quem_pediu?` <span style="font-size:10px;color:var(--gray)">(execução: ${esc(p.executor)})</span>`:""}
@@ -8901,7 +9113,7 @@ function desenhaProps(){
         <select class="fsel" onchange='mudaStatusProp(${JSON.stringify(p.id_proposta)},this.value)'>
           ${[...ETAPAS_PROP,"Aceita","Recusada"].map(s=>`<option ${s===p.status?"selected":""}>${s}</option>`).join("")}</select>
         ${baixada?`<span class="tag" style="background:#8A8F94;color:white">&#10007; Baixada — reabra mudando a etapa</span>`
-          :p.fechada!=="SIM"?`<button class="btn btg btsm" onclick='fecharProp(${JSON.stringify(p.id_proposta)})'>&#10003; Fechada (vira cliente)</button>`:'<span class="tag tek">&#10003; Fechada</span>'}
+          :p.fechada!=="SIM"?`<button class="btn btg btsm" onclick='fecharProp(${JSON.stringify(p.id_proposta)})'>&#10003; Fechada (vira cliente)</button>`:`<span class="tag tek">&#10003; Fechada${p.fechada_dt?" em "+brData(p.fechada_dt):""}</span>`}
         <button class="btn bts btsm" style="color:var(--red);border-color:var(--red)" title="Apagar proposta (lançada errada/duplicada) — fica um retrato no histórico do cliente" onclick='apagarProposta(${JSON.stringify(p.id_proposta)})'>&#128465;</button></div>`:""}</div>`;}).join("")
     :`<div class="vazio">Nenhuma proposta.</div>`;
 }
@@ -9861,7 +10073,16 @@ function abrirResumoProspeccaoDia(){
     <div class="bloco-t" style="margin-top:9px">O que você conseguiu? *</div>
     <textarea class="fta" id="rp-rel" placeholder="Ex.: 12 contatos, 3 interessados, 1 reunião marcada para quinta — ou o motivo de não ter prospectado"></textarea>
     <button class="btn btp btw" style="margin-top:8px" onclick="umaVez(confirmarResumoProspeccaoDia)">&#128190; Registrar resumo do dia</button>
-    <div style="font-size:10.5px;color:var(--gray);text-align:center;margin-top:6px">Dica: ligando o relógio &#127919; na sua tela de tarefas, o relatório é pedido ao parar — e já vale como o resumo do dia.</div>`);}
+    <div style="font-size:10.5px;color:var(--gray);text-align:center;margin-top:6px">Dica: ligando o relógio &#127919; na sua tela de tarefas, o relatório é pedido ao parar — e já vale como o resumo do dia.</div>`);
+  // 📒 pré-rascunho pelo caderninho (26/11/2026): os clientes anotados hoje
+  // viram a primeira linha do relatório — é só completar
+  DB.prospecNotas().then(ns=>{const hj=hojeISO();
+    const minhas=(ns||[]).filter(n=>ehMeuNome(n.autor)&&String(n.criado||"").slice(0,10)===hj);
+    if(!minhas.length)return;const ta=ge("rp-rel");if(!ta||ta.value.trim())return;
+    const porCli={};minhas.forEach(n=>{if(!porCli[n.id_cliente])porCli[n.id_cliente]=n;});
+    ta.value="Analisei "+Object.keys(porCli).length+" cliente(s) da base (caderninho): "
+      +Object.values(porCli).map(n=>(((E._cli||{})[n.id_cliente]||{}).nome||n.id_cliente)+(String(n.status||"").trim()?" — "+n.status:"")).join("; ")+". ";
+  }).catch(()=>{});}
 async function confirmarResumoProspeccaoDia(){
   const b=(ge("rp-base")||{}).value||"",r=((ge("rp-rel")||{}).value||"").trim();
   if(!b){toast("Diga em que base você prospectou (ou marque que não conseguiu).","erro");return;}
