@@ -3406,6 +3406,7 @@ function levFichaDef(v){
      {id:"divida_estadual",tipo:"num",r:"Dívida estadual (0 se não houver)",o:"SEFAZ do estado"},
      {tipo:"autoGlobal"},
      {id:"neg_pgfn",tipo:"rep",r:"Negociações/parcelamentos ATIVOS na PGFN (dívida suspensa)",o:"Regularize, negociações"},
+     {id:"pgfn_adesao_prazo",tipo:"date",r:"Prazo de adesão da negociação disponível na PGFN (se houver)",o:"Regularize — prazo do edital/negociação",opc:true},
      {id:"x_imped",tipo:"seg",r:"Impedimento de transacionar aplicado (ou risco pelas negociações ativas)?",ops:["Aplicado","Risco","Não"]},
      {id:"x_tese3",tipo:"seg",r:"Enquadra na tese da notificação na 3ª parcela?",ops:["Sim","Não","Avaliar"]},
      {id:"imped_queda",tipo:"date",r:"Data de queda do impedimento",o:"Regularize",so:()=>E._lev.x.x_imped==="Aplicado"},
@@ -3439,7 +3440,7 @@ function levTotalGlobal(){const v=E._lev.v;return ORC.r2(levTotalRFB()+(v.pgfn_t
 function levTemExec(){const v=E._lev.v;return ((v.exec_fed||0)+(v.exec_est||0)+(v.exec_mun||0))>0;}
 function levPendentes(){
   if(!E._lev)return[];
-  const its=levFichaDef(E._lev.variante).flatMap(s=>s.itens).filter(c=>["num","int","date","seg","txt"].includes(c.tipo)).filter(c=>!(c.so&&!c.so()));
+  const its=levFichaDef(E._lev.variante).flatMap(s=>s.itens).filter(c=>["num","int","date","seg","txt"].includes(c.tipo)).filter(c=>!c.opc).filter(c=>!(c.so&&!c.so()));
   return its.filter(c=>{
     // ficha antiga: CPEN com data preenchida vale como "Sim" sem exigir o botão
     if(c.id==="x_cpen"&&!E._lev.x.x_cpen&&String(E._lev.x.cpen||"").trim())return false;
@@ -3764,7 +3765,7 @@ function levParecerHTML(paraWord){
     ${h4("Simulação de regularização direta na RFB")}
     <table style="width:100%;border-collapse:collapse;font-size:12.5px">${li("Entrada/pedágio exigido",F(v.pedagio_rf??null))}${li("Parcelamento simulado",v.rfb_sim_parcela!=null?(v.rfb_sim_n||"—")+"x de "+F(v.rfb_sim_parcela):"—")}</table>
     ${h3("3. PGFN")}
-    <table style="width:100%;border-collapse:collapse;font-size:12.5px">${li("Total inscrito em Dívida Ativa da União",F(v.pgfn_total??null))}${li("Em cobrança (sem negociação)",F(v.pgfn_cobranca??null))}${li("Dívida estadual",F(v.divida_estadual??null))}${li("<b>Dívida global (RFB + PGFN + Estadual)</b>","<b>"+F(levTotalGlobal())+"</b>")}</table>
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px">${li("Total inscrito em Dívida Ativa da União",F(v.pgfn_total??null))}${li("Em cobrança (sem negociação)",F(v.pgfn_cobranca??null))}${li("Dívida estadual",F(v.divida_estadual??null))}${li("<b>Dívida global (RFB + PGFN + Estadual)</b>","<b>"+F(levTotalGlobal())+"</b>")}${(x.pgfn_adesao_prazo||"").trim()?li("Prazo de adesão da negociação disponível",brData(x.pgfn_adesao_prazo)):""}</table>
     ${h4("Negociações ativas (dívida suspensa)")}${tb(L.l.neg_pgfn||[])}
     ${h4("Impedimento de transacionar")}
     <table style="width:100%;border-collapse:collapse;font-size:12.5px">${li("Situação",x.x_imped||"—")}${li("Tese da notificação na 3ª parcela",x.x_tese3||"—")}${(x.x_imped==="Aplicado"||(x.imped_queda||"").trim())?li("Data de queda do impedimento",x.imped_queda?brData(x.imped_queda):"—"):""}${(x.x_imped==="Aplicado"||v.parcela_pgfn!=null)?li("Simulação disponível durante o impedimento",v.parcela_pgfn!=null?`entrada ${F(v.entrada_sem??0)} + ${v.n_parcelas_pgfn||"—"}x de ${F(v.parcela_pgfn)}`:"—"):""}</table>
@@ -3800,6 +3801,7 @@ function levParecerHTML(paraWord){
     ${h4("Análise e recomendação")}${tx("x_estrategia")}
     ${h3("5. Investimento")}
     ${o&&o.blocos.some(b=>b.alerta!=="vermelho")?`<p style="font-size:13px">${esc(levTextoProposta()).replace(/\n/g,"<br>")}</p>`:`<p style="color:#607D8B;font-size:12px">— marque os produtos na aba Precificação e as condições entram aqui sozinhas —</p>`}
+    ${(x.validade_proposta||"").trim()?`<p style="font-size:13px"><b>Proposta válida até ${brData(x.validade_proposta)}.</b></p>`:""}
     <div style="font-size:11px;color:#607D8B;font-style:italic;margin-top:14px">Versão de trabalho gerada pelo sistema a partir do levantamento — revise antes de enviar ao cliente.</div>`;}
 function levDownloadDoc(miolo,nomeBase){
   const html=`<html><head><meta charset="utf-8"><title>${esc(nomeBase)}</title></head><body style="font-family:Calibri,Arial,sans-serif;font-size:12pt">${miolo}</body></html>`;
@@ -3960,6 +3962,10 @@ function levDesenhaPre(){
     <div class="bloco-t">O que vai na proposta? (pode mais de um)</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:8px;margin-bottom:12px">${prods}</div>
     <div class="bloco-t">Números do caso</div>${campos}
+    <div class="bloco-t" style="margin-top:12px">Validade da proposta</div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input type="date" class="fi" style="margin:0;max-width:170px" value="${esc(L.x.validade_proposta||"")}" onchange="levTxt('validade_proposta',this.value)">
+      <span style="font-size:11px;color:var(--gray)">prazo para o cliente aceitar — entra nos "Próximos passos" da versão comercial (vazio = a IA marca [CONFIRMAR])</span></div>
     ${L.sel.length?`<div class="bloco-t" style="margin-top:12px">Orçamento</div>${res}${tot}`:""}`;}
 function levTextoProposta(){
   const L=E._lev;if(!L||!L.sel.length)return "";
