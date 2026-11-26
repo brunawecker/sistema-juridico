@@ -3395,7 +3395,6 @@ function levFichaDef(v){
      {id:"rfb_prev_j",tipo:"num",r:"Previdenciário — juros embutidos",o:"e-CAC, detalhamento do débito",so:()=>(E._lev.v.rfb_prev||0)>0},
      {id:"rfb_prev_m",tipo:"num",r:"Previdenciário — multa embutida",o:"e-CAC, detalhamento do débito",so:()=>(E._lev.v.rfb_prev||0)>0},
      {tipo:"autoRFB"},
-     {tipo:"autoMig"},
      {id:"parc_rfb",tipo:"rep",r:"Parcelamentos ATIVOS na Receita",o:"e-CAC, parcelamentos"},
      {id:"pedagio_rf",tipo:"num",r:"Simulação de regularização: entrada/pedágio exigido (0 se não houver)",o:"Simulação do parcelamento no e-CAC"},
      {id:"rfb_sim_n",tipo:"int",r:"Nº de parcelas da simulação",o:"Mesma tela"},
@@ -3425,6 +3424,8 @@ function levFichaDef(v){
      .concat(v==="COM"?[{id:"x_auditoria",tipo:"txt",r:"Auditoria do débito — análise prescricional (inscrições com tese de extinção e valor envolvido)",o:"Data de constituição × despacho de citação",so:levTemExec}]:[])},
    {t:"4 · Estratégia jurídica",itens:[
      {id:"entrada_com",tipo:"num",r:"Cenário intermediário (com a Villela): entrada na melhor negociação de hoje",o:"Levantamento"},
+     {id:"x_porte_sim",tipo:"seg",r:"Porte para a simulação da transação (ME/EPP: até 145x e desconto até 70% · Demais: até 120x e 65%)",ops:["ME/EPP","Demais"]},
+     {tipo:"autoMig"},
      {id:"fut_sim",tipo:"fut",r:"Cenário futuro — simulação final (o que a estratégia busca)",o:"Uma linha por item: diga o que é, em quantas x (se for parcela) e o valor — o parecer monta a tabela sozinho"},
      {id:"x_futuro",tipo:"txt",r:"Observações do cenário futuro (opcional — o que não couber nas linhas acima)",o:"Comparar com o cenário atual e o intermediário"},
      {id:"x_estrategia",tipo:"txt",r:"Análise e estratégia recomendada (entra no parecer do jeito que você escrever)",o:"Parte sua — o resto o sistema monta"}]}];}
@@ -3496,7 +3497,7 @@ function levCliente(){
   const t=E.atual||{};
   const c=(E._cliCard&&E._cliCard.id_cliente===t.id_cliente?E._cliCard:null)||(E._cli||{})[t.id_cliente]||{};
   return{nome:t.cliente||c.nome||"",cnpj:c.cnpj_cpf||"",mun:[String(c.municipio||"").trim(),String(c.uf||"").trim().toUpperCase()].filter(Boolean).join("/"),
-    regime:c.regime||"",ecac:c.e_cac||""};}
+    regime:c.regime||"",ecac:c.e_cac||"",porte:c.porte||""};}
 function levAbrir(abaInicial){
   if(!E._lev||!E.atual||E._lev.tarefa!==E.atual.id_tarefa){toast("O levantamento ainda está carregando — tente de novo em um instante.","erro");return;}
   let ov=ge("lev-ov");
@@ -3567,17 +3568,51 @@ function levChips(){
   const el1=ge("lev-chip-rfb");if(el1)el1.innerHTML=`Total Receita Federal (soma automática): <b style="color:var(--navy);font-family:'DM Mono',monospace">${ORC.fmt(levTotalRFB())}</b>`;
   const el2=ge("lev-chip-glob");if(el2)el2.innerHTML=`Dívida global — Receita + PGFN + Estadual (soma automática): <b style="color:var(--navy);font-family:'DM Mono',monospace">${ORC.fmt(levTotalGlobal())}</b>`;
   const el3=ge("lev-chip-capag");if(el3)el3.innerHTML=`Índice e classe CAPAG (calculado): <b style="color:var(--navy)">${l.classe?l.indice.toFixed(2)+" — classe "+l.classe:"—"}</b>${l.chance?` · chance da reclassificação: <b style="color:var(--navy)">${l.chance}</b>`:""}`;
-  const el4=ge("lev-chip-mig");if(el4){const m=levMig();
-    el4.innerHTML=m?`Migração — consolidação calculada (encargos de 10% na inscrição, <b>antes do desconto</b> da transação):${m.sn?`<br>· Simples + demais: <b style="color:var(--navy);font-family:'DM Mono',monospace">${ORC.fmt(m.sn)}</b> → com encargos <b style="color:var(--navy);font-family:'DM Mono',monospace">${ORC.fmt(m.snc)}</b>, em até 145x ≈ <b style="color:var(--navy);font-family:'DM Mono',monospace">${ORC.fmt(m.snc/145)}</b>/mês`:""}${m.pv?`<br>· Previdenciário: <b style="color:var(--navy);font-family:'DM Mono',monospace">${ORC.fmt(m.pv)}</b> → com encargos <b style="color:var(--navy);font-family:'DM Mono',monospace">${ORC.fmt(m.pvc)}</b>, em até 60x ≈ <b style="color:var(--navy);font-family:'DM Mono',monospace">${ORC.fmt(m.pvc/60)}</b>/mês`:""}${m.jm?`<br>· Juros + multa informados (base do desconto): <b style="color:var(--navy);font-family:'DM Mono',monospace">${ORC.fmt(m.jm)}</b>`:""}`
-    :"Migração — consolidação calculada: preencha as dívidas da Receita acima.";}}
+  const el4=ge("lev-chip-mig");if(el4){const s=levSim(),B=t=>`<b style="color:var(--navy);font-family:'DM Mono',monospace">${t}</b>`;
+    el4.innerHTML=!s?"Simulação da transação na migração: preencha as dívidas da Receita na seção 2."
+    :s.semPorte?"Simulação da transação na migração: responda o <b>porte</b> acima para eu calcular."
+    :`Simulação da transação na migração (modelo das planilhas · ${esc(s.porte)} · desconto até ${Math.round(s.teto*100)}% · CAPAG calculada: <b>${l.classe||"—"}</b> — desconto pleno exige C/D):<br>
+      · Consolidado com encargos de 10%: ${B(ORC.fmt(s.tot))}${s.temJM?"":" · <b style='color:var(--amber)'>informe juros e multa na seção 2 para o desconto completo</b>"}<br>
+      · <b>Transação (entrada 6%)</b>: desconto ${B(ORC.fmt(s.m1f.d))} → 1ª a ${s.nEnt}ª ≈ ${B(ORC.fmt(s.m1f.ent)+"/mês")} · ${s.nEnt+1}ª a 60ª ≈ ${B(ORC.fmt(s.m1f.ate60))}${s.temNP&&s.m1f.apos60?` · 61ª a ${s.prazoNP}ª ≈ ${B(ORC.fmt(s.m1f.apos60))}`:""}<br>
+      · <b>TIS escalonado</b>: desconto ${B(ORC.fmt(s.m2f.d))} → 1ª a 12ª ≈ ${B(ORC.fmt(s.m2f.t1)+"/mês")} · 13ª a 24ª ≈ ${B(ORC.fmt(s.m2f.t2))} · 25ª a 36ª ≈ ${B(ORC.fmt(s.m2f.t3))} · 37ª a 60ª ≈ ${B(ORC.fmt(s.m2f.t4))}${s.temNP&&s.m2f.t5?` · 61ª a ${s.prazoNP}ª ≈ ${B(ORC.fmt(s.m2f.t5))}`:""}`;}}
 function levMig(){
-  const v=E._lev.v;
-  const sn=ORC.r2((v.rfb_simples||0)+(v.rfb_demais||0)),pv=ORC.r2(v.rfb_prev||0);
-  if(!sn&&!pv)return null;
-  const jm=ORC.r2((v.rfb_simples_j||0)+(v.rfb_simples_m||0)+(v.rfb_demais_j||0)+(v.rfb_demais_m||0)+(v.rfb_prev_j||0)+(v.rfb_prev_m||0));
-  return{sn,pv,jm,snc:ORC.r2(sn*1.1),pvc:ORC.r2(pv*1.1)};}
+  // blocos da migração: consolidado = total e-CAC + 10% de encargos na inscrição
+  const v=E._lev.v,bl=[];
+  const mk=(nome,tot,j,m,prev)=>{if(!(tot>0))return;bl.push({nome,tot0:tot,t:ORC.r2(tot*1.1),e:ORC.r2(tot*0.1),j:j||0,m:m||0,prev});};
+  mk("Simples Nacional",v.rfb_simples,v.rfb_simples_j,v.rfb_simples_m,false);
+  mk("Demais débitos",v.rfb_demais,v.rfb_demais_j,v.rfb_demais_m,false);
+  mk("Previdenciário",v.rfb_prev,v.rfb_prev_j,v.rfb_prev_m,true);
+  return bl.length?bl:null;}
+function levPorteSim(){
+  const p=E._lev.x.x_porte_sim;if(p)return p;
+  const cp=String(levCliente().porte||"").toUpperCase();
+  return cp==="ME"||cp==="EPP"?"ME/EPP":cp==="DEMAIS"?"Demais":null;}
+function levSim(){
+  // fórmulas das planilhas 'Simulação - Transação CAPAG D' e 'TIS Escalonado CAPAG D' (26/11/2026)
+  const bl=levMig();if(!bl)return null;
+  const porte=levPorteSim();if(!porte)return{semPorte:true};
+  const me=porte==="ME/EPP",teto=me?0.70:0.65,prazoNP=me?145:120,nEnt=me?12:6;
+  const r2=ORC.r2,soma=(a,f)=>r2(a.reduce((s,b)=>s+f(b),0));
+  const m1=bl.map(b=>{const jme=r2(b.j+b.m+b.e);
+    const entTot=r2(b.t*0.06),pEnt=r2(entTot/nEnt);
+    const desc=r2(Math.max(0,Math.min(jme,b.t*teto)-0.06*jme));
+    const nResto=(b.prev?60:prazoNP)-nEnt;
+    return{...b,jme,entTot,pEnt,desc,nResto,pResto:r2(Math.max(0,(b.t-entTot-desc)/nResto))};});
+  const m2=bl.map(b=>{const jme=r2(b.j+b.m+b.e),princ=r2(Math.max(0,b.t-jme));
+    const desc=r2(Math.min(b.t-princ,b.t*teto));
+    const apos=r2(Math.max(princ,b.t*(1-teto)));
+    const p1=r2(apos*0.003),p2=r2(apos*0.004),p3=r2(apos*0.005);
+    const nResto=(b.prev?60:prazoNP)-36;
+    return{...b,jme,princ,desc,apos,p1,p2,p3,nResto,pResto:r2(Math.max(0,(apos-12*(p1+p2+p3))/nResto))};});
+  const temNP=bl.some(b=>!b.prev);
+  return{porte,me,teto,prazoNP,nEnt,bl,m1,m2,
+    temJM:bl.some(b=>b.j||b.m),temNP,
+    tot:soma(bl,b=>b.t),
+    m1f:{d:soma(m1,b=>b.desc),ent:soma(m1,b=>b.pEnt),ate60:soma(m1,b=>b.pResto),apos60:soma(m1.filter(b=>!b.prev),b=>b.pResto)},
+    m2f:{d:soma(m2,b=>b.desc),t1:soma(m2,b=>b.p1),t2:soma(m2,b=>b.p2),t3:soma(m2,b=>b.p3),t4:soma(m2,b=>b.pResto),t5:soma(m2.filter(b=>!b.prev),b=>b.pResto)}};}
 function levDesenhaFicha(){
   const box=ge("lev-v-fic");if(!box||!E._lev)return;
+  if(!E._lev.x.x_porte_sim){const p=levPorteSim();if(p){E._lev.x.x_porte_sim=p;levSalvaAgenda();}}
   const F=ORC.fmt;
   const chip=id=>`<div id="${id}" style="grid-column:1/-1;background:var(--gray-lt);border-radius:9px;padding:8px 12px;font-size:12px;color:var(--gray)"></div>`;
   box.innerHTML=`<div style="font-size:12px;background:var(--ice);color:var(--dani);border-radius:9px;padding:8px 12px;margin-bottom:10px">Preencha <b>uma vez</b> — o parecer e a precificação saem daqui. Campo preenchido = item do checklist cumprido. O que não se aplica: 0 ou "N/A".</div>`+
@@ -3734,9 +3769,21 @@ function levParecerHTML(paraWord){
     ${h4("Suspensos — fundamento"+(L.variante==="COM"?" e prescrição intercorrente":""))}${tx("x_suspensos")}
     ${L.variante==="COM"?h4("Auditoria do débito — análise prescricional")+tx("x_auditoria"):""}`}
     ${h3("4. Estratégia jurídica")}
-    ${(()=>{const m=levMig();if(!m)return"";
-      return h4("Migração — consolidação calculada (encargos de 10% na inscrição; antes do desconto da transação)")+
-      `<table style="width:100%;border-collapse:collapse;font-size:12.5px">${m.sn?li("Simples + demais débitos — consolidado com encargos",F(m.snc))+li("&nbsp;&nbsp;↳ em até 145x","≈ "+F(m.snc/145)+"/mês"):""}${m.pv?li("Previdenciário — consolidado com encargos",F(m.pvc))+li("&nbsp;&nbsp;↳ em até 60x","≈ "+F(m.pvc/60)+"/mês"):""}${m.jm?li("Juros + multa informados (base do desconto)",F(m.jm)):""}</table>`;})()}
+    ${(()=>{const s=levSim();if(!s||s.semPorte)return"";
+      return h4(`Simulação da transação na migração — ${esc(s.porte)} (encargos de 10% na inscrição; desconto até ${Math.round(s.teto*100)}%, condicionado à CAPAG C/D${l.classe?" — classe calculada: "+l.classe:""})`)+
+      `<table style="width:100%;border-collapse:collapse;font-size:12.5px">
+        ${li("Consolidado com encargos (RFB migrada p/ PGFN)",F(s.tot))}
+        ${li("<b>Modelo 1 — Transação com entrada de 6%</b>","desconto <b>"+F(s.m1f.d)+"</b>")}
+        ${li("&nbsp;&nbsp;↳ 1ª a "+s.nEnt+"ª (entrada)","≈ "+F(s.m1f.ent)+"/mês")}
+        ${li("&nbsp;&nbsp;↳ "+(s.nEnt+1)+"ª a 60ª","≈ "+F(s.m1f.ate60)+"/mês")}
+        ${s.temNP&&s.m1f.apos60?li("&nbsp;&nbsp;↳ 61ª a "+s.prazoNP+"ª","≈ "+F(s.m1f.apos60)+"/mês"):""}
+        ${li("<b>Modelo 2 — TIS escalonado</b>","desconto <b>"+F(s.m2f.d)+"</b>")}
+        ${li("&nbsp;&nbsp;↳ 1ª a 12ª","≈ "+F(s.m2f.t1)+"/mês")}
+        ${li("&nbsp;&nbsp;↳ 13ª a 24ª","≈ "+F(s.m2f.t2)+"/mês")}
+        ${li("&nbsp;&nbsp;↳ 25ª a 36ª","≈ "+F(s.m2f.t3)+"/mês")}
+        ${li("&nbsp;&nbsp;↳ 37ª a 60ª","≈ "+F(s.m2f.t4)+"/mês")}
+        ${s.temNP&&s.m2f.t5?li("&nbsp;&nbsp;↳ 61ª a "+s.prazoNP+"ª","≈ "+F(s.m2f.t5)+"/mês"):""}</table>
+      ${s.temJM?"":`<p style="color:#607D8B;font-size:12px">Juros e multa não informados no levantamento — o desconto acima considera apenas os encargos da inscrição.</p>`}`;})()}
     ${h4("Três cenários")}
     <table style="width:100%;border-collapse:collapse;font-size:12.5px">${li("Atual (sem a Villela — convencional)",v.parcela_pgfn!=null?`entrada ${F(v.entrada_sem??0)} + ${v.n_parcelas_pgfn||"—"}x de ${F(v.parcela_pgfn)}`:"—")}${li("Intermediário (com a Villela — hoje)",v.entrada_com!=null?"entrada "+F(v.entrada_com):"—")}</table>
     ${h4("Cenário futuro — o que a estratégia busca")}
