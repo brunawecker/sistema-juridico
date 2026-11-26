@@ -3382,12 +3382,20 @@ const LEV_PRODUTOS=[
 function levFichaDef(v){
   return[
    {t:"1 · Dados cadastrais",itens:[
-     {id:"cpen",tipo:"date",r:"CPEN — válida até",o:"Certidão de regularidade (emitir e salvar na pasta)"}]},
+     {id:"x_cpen",tipo:"seg",r:"Cliente utiliza CPEN?",ops:["Sim","Não"]},
+     {id:"cpen",tipo:"date",r:"CPEN — válida até",o:"Certidão de regularidade (emitir e salvar na pasta)",so:()=>E._lev.x.x_cpen==="Sim"||(!E._lev.x.x_cpen&&String(E._lev.x.cpen||"").trim()!=="")}]},
    {t:"2 · Receita Federal (conta corrente)",itens:[
      {id:"rfb_simples",tipo:"num",r:"Dívida do Simples Nacional",o:"e-CAC, situação fiscal"},
+     {id:"rfb_simples_j",tipo:"num",r:"Simples — juros embutidos no total",o:"e-CAC, detalhamento do débito",so:()=>(E._lev.v.rfb_simples||0)>0},
+     {id:"rfb_simples_m",tipo:"num",r:"Simples — multa embutida no total",o:"e-CAC, detalhamento do débito",so:()=>(E._lev.v.rfb_simples||0)>0},
      {id:"rfb_demais",tipo:"num",r:"Demais débitos — PIS, COFINS, IRPJ, CSLL etc.",o:"e-CAC, situação fiscal"},
+     {id:"rfb_demais_j",tipo:"num",r:"Demais débitos — juros embutidos",o:"e-CAC, detalhamento do débito",so:()=>(E._lev.v.rfb_demais||0)>0},
+     {id:"rfb_demais_m",tipo:"num",r:"Demais débitos — multa embutida",o:"e-CAC, detalhamento do débito",so:()=>(E._lev.v.rfb_demais||0)>0},
      {id:"rfb_prev",tipo:"num",r:"Previdenciário — CP-SEGUR., CP-PATRONAL etc.",o:"e-CAC, situação fiscal"},
+     {id:"rfb_prev_j",tipo:"num",r:"Previdenciário — juros embutidos",o:"e-CAC, detalhamento do débito",so:()=>(E._lev.v.rfb_prev||0)>0},
+     {id:"rfb_prev_m",tipo:"num",r:"Previdenciário — multa embutida",o:"e-CAC, detalhamento do débito",so:()=>(E._lev.v.rfb_prev||0)>0},
      {tipo:"autoRFB"},
+     {tipo:"autoMig"},
      {id:"parc_rfb",tipo:"rep",r:"Parcelamentos ATIVOS na Receita",o:"e-CAC, parcelamentos"},
      {id:"pedagio_rf",tipo:"num",r:"Simulação de regularização: entrada/pedágio exigido (0 se não houver)",o:"Simulação do parcelamento no e-CAC"},
      {id:"rfb_sim_n",tipo:"int",r:"Nº de parcelas da simulação",o:"Mesma tela"},
@@ -3400,10 +3408,10 @@ function levFichaDef(v){
      {id:"neg_pgfn",tipo:"rep",r:"Negociações/parcelamentos ATIVOS na PGFN (dívida suspensa)",o:"Regularize, negociações"},
      {id:"x_imped",tipo:"seg",r:"Impedimento de transacionar aplicado (ou risco pelas negociações ativas)?",ops:["Aplicado","Risco","Não"]},
      {id:"x_tese3",tipo:"seg",r:"Enquadra na tese da notificação na 3ª parcela?",ops:["Sim","Não","Avaliar"]},
-     {id:"imped_queda",tipo:"date",r:"Data de queda do impedimento",o:"Regularize"},
-     {id:"entrada_sem",tipo:"num",r:"Entrada exigida na simulação disponível durante o impedimento (0 se não houver)",o:"Simulação do parcelamento convencional"},
-     {id:"parcela_pgfn",tipo:"num",r:"Parcela dessa simulação",o:"Mesma tela"},
-     {id:"n_parcelas_pgfn",tipo:"int",r:"Nº de parcelas dessa simulação",o:"Mesma tela"},
+     {id:"imped_queda",tipo:"date",r:"Data de queda do impedimento",o:"Regularize",so:()=>E._lev.x.x_imped==="Aplicado"},
+     {id:"entrada_sem",tipo:"num",r:"Entrada exigida na simulação disponível durante o impedimento (0 se não houver)",o:"Simulação do parcelamento convencional",so:()=>E._lev.x.x_imped==="Aplicado"},
+     {id:"parcela_pgfn",tipo:"num",r:"Parcela dessa simulação",o:"Mesma tela",so:()=>E._lev.x.x_imped==="Aplicado"},
+     {id:"n_parcelas_pgfn",tipo:"int",r:"Nº de parcelas dessa simulação",o:"Mesma tela",so:()=>E._lev.x.x_imped==="Aplicado"},
      {id:"capag_capacidade",tipo:"num",r:"CAPAG — capacidade de pagamento em 60 meses",o:"Regularize, tela da CAPAG"},
      {id:"capag_divida",tipo:"num",r:"CAPAG — valor total da dívida PGFN + RFB",o:"Mesma tela da CAPAG"},
      {tipo:"autoCapag"},
@@ -3412,9 +3420,9 @@ function levFichaDef(v){
      {id:"exec_fed",tipo:"int",r:"Nº de execuções fiscais federais",o:"PJe / sistemas dos tribunais"},
      {id:"exec_est",tipo:"int",r:"Nº de execuções estaduais",o:"e-SAJ / Projudi"},
      {id:"exec_mun",tipo:"int",r:"Nº de execuções municipais",o:"Sistema do município"},
-     {id:"x_processos",tipo:"txt",r:v==="COM"?"Relatório processo a processo (número, exequente, advogado habilitado?, ativo/suspenso, bloqueios, data do despacho de citação)":"Relatório processo a processo (número, exequente, advogado habilitado?, ativo/suspenso, bloqueios)",o:"Consulta processual"},
-     {id:"x_suspensos",tipo:"txt",r:v==="COM"?"Suspensos: fundamento (art. 40 da LEF, desde quando, projeção de prescrição intercorrente — manual) ou parcelamento":"Suspensos: fundamento (art. 40 da LEF, desde quando) ou parcelamento",o:"Análise manual obrigatória"}]
-     .concat(v==="COM"?[{id:"x_auditoria",tipo:"txt",r:"Auditoria do débito — análise prescricional (inscrições com tese de extinção e valor envolvido)",o:"Data de constituição × despacho de citação"}]:[])},
+     {id:"x_processos",tipo:"txt",r:v==="COM"?"Relatório processo a processo (número, exequente, advogado habilitado?, ativo/suspenso, bloqueios, data do despacho de citação)":"Relatório processo a processo (número, exequente, advogado habilitado?, ativo/suspenso, bloqueios)",o:"Consulta processual",so:levTemExec},
+     {id:"x_suspensos",tipo:"txt",r:v==="COM"?"Suspensos: fundamento (art. 40 da LEF, desde quando, projeção de prescrição intercorrente — manual) ou parcelamento":"Suspensos: fundamento (art. 40 da LEF, desde quando) ou parcelamento",o:"Análise manual obrigatória",so:levTemExec}]
+     .concat(v==="COM"?[{id:"x_auditoria",tipo:"txt",r:"Auditoria do débito — análise prescricional (inscrições com tese de extinção e valor envolvido)",o:"Data de constituição × despacho de citação",so:levTemExec}]:[])},
    {t:"4 · Estratégia jurídica",itens:[
      {id:"entrada_com",tipo:"num",r:"Cenário intermediário (com a Villela): entrada na melhor negociação de hoje",o:"Levantamento"},
      {id:"fut_sim",tipo:"fut",r:"Cenário futuro — simulação final (o que a estratégia busca)",o:"Uma linha por item: diga o que é, em quantas x (se for parcela) e o valor — o parecer monta a tabela sozinho"},
@@ -3426,12 +3434,13 @@ function levParseBR(s){s=String(s||"").replace(/[R$\s]/g,"");if(!s)return 0;
   return parseFloat(s)||0;}
 function levTotalRFB(){const v=E._lev.v;return ORC.r2((v.rfb_simples||0)+(v.rfb_demais||0)+(v.rfb_prev||0));}
 function levTotalGlobal(){const v=E._lev.v;return ORC.r2(levTotalRFB()+(v.pgfn_total||0)+(v.divida_estadual||0));}
+function levTemExec(){const v=E._lev.v;return ((v.exec_fed||0)+(v.exec_est||0)+(v.exec_mun||0))>0;}
 function levFaltas(){
   if(!E._lev)return 999;
-  const its=levFichaDef(E._lev.variante).flatMap(s=>s.itens).filter(c=>["num","int","date","seg","txt"].includes(c.tipo));
+  const its=levFichaDef(E._lev.variante).flatMap(s=>s.itens).filter(c=>["num","int","date","seg","txt"].includes(c.tipo)).filter(c=>!(c.so&&!c.so()));
   return its.filter(c=>{
-    // sem impedimento ("Não"), a data de queda não é cobrada
-    if(c.id==="imped_queda"&&E._lev.x.x_imped==="Não")return false;
+    // ficha antiga: CPEN com data preenchida vale como "Sim" sem exigir o botão
+    if(c.id==="x_cpen"&&!E._lev.x.x_cpen&&String(E._lev.x.cpen||"").trim())return false;
     if(c.id==="x_futuro")return !((E._lev.x.x_futuro||"").trim()||(E._lev.l.fut_sim||[]).some(r=>r.v!=null));
     return c.tipo==="seg"?!E._lev.x[c.id]:(c.tipo==="txt"||c.tipo==="date")?!(E._lev.x[c.id]||"").trim():E._lev.v[c.id]==null;}).length;}
 function levBoxHTML(t){
@@ -3541,7 +3550,9 @@ function levNum(id,val,el){
   if(levTemLetra(val)){E._lev.v[id]=null;if(el)el.style.borderColor="var(--amber)";if(w)w.style.display="block";}
   else{if(el)el.style.borderColor="";if(w)w.style.display="none";E._lev.v[id]=levParseBR(val);}
   E._lev.v.rfb_total=levTotalRFB();levSalvaAgenda();levChips();levResumoCard();}
-function levNumBlur(el,id,tipo){const v=E._lev.v[id];if(v==null||v===0)return;el.value=tipo==="int"?String(Math.round(v)):ORC.fmt(v);}
+function levNumBlur(el,id,tipo){const v=E._lev.v[id];
+  if(v!=null&&v!==0)el.value=tipo==="int"?String(Math.round(v)):ORC.fmt(v);
+  if(["exec_fed","exec_est","exec_mun","rfb_simples","rfb_demais","rfb_prev"].includes(id))levDesenhaFicha();}
 function levSeg(id,o){E._lev.x[id]=o;levSalvaAgenda();levDesenhaFicha();}
 function levTxt(id,val){E._lev.x[id]=val;levSalvaAgenda();levResumoCard();}
 const LEV_FUT_SEED=()=>[{t:"Valor da dívida",n:"",v:null},{t:"Desconto",n:"",v:null},{t:"Entrada",n:"",v:null},{t:"Parcelas 1ª a 12ª",n:"12x",v:null},{t:"Parcelas 13ª em diante",n:"",v:null}];
@@ -3555,7 +3566,16 @@ function levChips(){
   const l=ORC.CALC.laudo(E._lev.v);
   const el1=ge("lev-chip-rfb");if(el1)el1.innerHTML=`Total Receita Federal (soma automática): <b style="color:var(--navy);font-family:'DM Mono',monospace">${ORC.fmt(levTotalRFB())}</b>`;
   const el2=ge("lev-chip-glob");if(el2)el2.innerHTML=`Dívida global — Receita + PGFN + Estadual (soma automática): <b style="color:var(--navy);font-family:'DM Mono',monospace">${ORC.fmt(levTotalGlobal())}</b>`;
-  const el3=ge("lev-chip-capag");if(el3)el3.innerHTML=`Índice e classe CAPAG (calculado): <b style="color:var(--navy)">${l.classe?l.indice.toFixed(2)+" — classe "+l.classe:"—"}</b>${l.chance?` · chance da reclassificação: <b style="color:var(--navy)">${l.chance}</b>`:""}`;}
+  const el3=ge("lev-chip-capag");if(el3)el3.innerHTML=`Índice e classe CAPAG (calculado): <b style="color:var(--navy)">${l.classe?l.indice.toFixed(2)+" — classe "+l.classe:"—"}</b>${l.chance?` · chance da reclassificação: <b style="color:var(--navy)">${l.chance}</b>`:""}`;
+  const el4=ge("lev-chip-mig");if(el4){const m=levMig();
+    el4.innerHTML=m?`Migração — consolidação calculada (encargos de 10% na inscrição, <b>antes do desconto</b> da transação):${m.sn?`<br>· Simples + demais: <b style="color:var(--navy);font-family:'DM Mono',monospace">${ORC.fmt(m.sn)}</b> → com encargos <b style="color:var(--navy);font-family:'DM Mono',monospace">${ORC.fmt(m.snc)}</b>, em até 145x ≈ <b style="color:var(--navy);font-family:'DM Mono',monospace">${ORC.fmt(m.snc/145)}</b>/mês`:""}${m.pv?`<br>· Previdenciário: <b style="color:var(--navy);font-family:'DM Mono',monospace">${ORC.fmt(m.pv)}</b> → com encargos <b style="color:var(--navy);font-family:'DM Mono',monospace">${ORC.fmt(m.pvc)}</b>, em até 60x ≈ <b style="color:var(--navy);font-family:'DM Mono',monospace">${ORC.fmt(m.pvc/60)}</b>/mês`:""}${m.jm?`<br>· Juros + multa informados (base do desconto): <b style="color:var(--navy);font-family:'DM Mono',monospace">${ORC.fmt(m.jm)}</b>`:""}`
+    :"Migração — consolidação calculada: preencha as dívidas da Receita acima.";}}
+function levMig(){
+  const v=E._lev.v;
+  const sn=ORC.r2((v.rfb_simples||0)+(v.rfb_demais||0)),pv=ORC.r2(v.rfb_prev||0);
+  if(!sn&&!pv)return null;
+  const jm=ORC.r2((v.rfb_simples_j||0)+(v.rfb_simples_m||0)+(v.rfb_demais_j||0)+(v.rfb_demais_m||0)+(v.rfb_prev_j||0)+(v.rfb_prev_m||0));
+  return{sn,pv,jm,snc:ORC.r2(sn*1.1),pvc:ORC.r2(pv*1.1)};}
 function levDesenhaFicha(){
   const box=ge("lev-v-fic");if(!box||!E._lev)return;
   const F=ORC.fmt;
@@ -3564,8 +3584,10 @@ function levDesenhaFicha(){
   levFichaDef(E._lev.variante).map(s=>`<div class="painel" style="margin-bottom:10px"><div class="bloco-t">${esc(s.t)}</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">${
     s.itens.map(c=>{
+      if(c.so&&!c.so())return "";
       if(c.tipo==="autoRFB")return chip("lev-chip-rfb");
       if(c.tipo==="autoGlobal")return chip("lev-chip-glob");
+      if(c.tipo==="autoMig")return chip("lev-chip-mig");
       if(c.tipo==="autoCapag")return chip("lev-chip-capag");
       if(c.tipo==="rep"){const rows=E._lev.l[c.id]||[];
         return `<div style="grid-column:1/-1"><div style="font-size:12px;font-weight:700;margin-bottom:3px">${esc(c.r)}</div>
@@ -3692,9 +3714,9 @@ function levParecerHTML(paraWord){
     <h2 style="font-size:16px;margin:4px 0 2px">Relatório da Situação Fiscal e Plano de Regularização</h2>
     <div style="font-size:11.5px;color:#607D8B;margin-bottom:12px">${L.variante==="COM"?"Cliente com contrato ativo":"Prospecção — sem contrato ativo"} · ${esc(cli.nome)} · ${esc(cli.cnpj)} · gerado do levantamento em ${hoje} por ${esc(E.perfil.nome_sistema)}</div>
     ${h3("1. Dados cadastrais")}
-    <table style="width:100%;border-collapse:collapse;font-size:12.5px">${li("Razão social",esc(cli.nome))}${li("CNPJ",esc(cli.cnpj))}${cli.mun?li("Município/UF",esc(cli.mun)):""}${cli.regime?li("Regime tributário",esc(cli.regime)):""}${cli.ecac?li("e-CAC",esc(cli.ecac)):""}${li("CPEN válida até",x.cpen?brData(x.cpen):"—")}</table>
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px">${li("Razão social",esc(cli.nome))}${li("CNPJ",esc(cli.cnpj))}${cli.mun?li("Município/UF",esc(cli.mun)):""}${cli.regime?li("Regime tributário",esc(cli.regime)):""}${cli.ecac?li("e-CAC",esc(cli.ecac)):""}${li("CPEN",x.x_cpen==="Não"?"Não utiliza":(x.cpen?"válida até "+brData(x.cpen):"—"))}</table>
     ${h3("2. Receita Federal")}
-    <table style="width:100%;border-collapse:collapse;font-size:12.5px">${li("Simples Nacional",F(v.rfb_simples??null))}${li("Demais débitos (PIS, COFINS, IRPJ, CSLL…)",F(v.rfb_demais??null))}${li("Previdenciário",F(v.rfb_prev??null))}${li("<b>Total em conta corrente — RFB</b>","<b>"+F(levTotalRFB())+"</b>")}</table>
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px">${li("Simples Nacional",F(v.rfb_simples??null))}${(v.rfb_simples_j!=null||v.rfb_simples_m!=null)?li("&nbsp;&nbsp;↳ juros / multa",F(v.rfb_simples_j??0)+" · "+F(v.rfb_simples_m??0)):""}${li("Demais débitos (PIS, COFINS, IRPJ, CSLL…)",F(v.rfb_demais??null))}${(v.rfb_demais_j!=null||v.rfb_demais_m!=null)?li("&nbsp;&nbsp;↳ juros / multa",F(v.rfb_demais_j??0)+" · "+F(v.rfb_demais_m??0)):""}${li("Previdenciário",F(v.rfb_prev??null))}${(v.rfb_prev_j!=null||v.rfb_prev_m!=null)?li("&nbsp;&nbsp;↳ juros / multa",F(v.rfb_prev_j??0)+" · "+F(v.rfb_prev_m??0)):""}${li("<b>Total em conta corrente — RFB</b>","<b>"+F(levTotalRFB())+"</b>")}</table>
     ${h4("Parcelamentos ativos na Receita")}${tb(L.l.parc_rfb||[])}
     ${h4("Simulação de regularização direta na RFB")}
     <table style="width:100%;border-collapse:collapse;font-size:12.5px">${li("Entrada/pedágio exigido",F(v.pedagio_rf??null))}${li("Parcelamento simulado",v.rfb_sim_parcela!=null?(v.rfb_sim_n||"—")+"x de "+F(v.rfb_sim_parcela):"—")}</table>
@@ -3702,15 +3724,19 @@ function levParecerHTML(paraWord){
     <table style="width:100%;border-collapse:collapse;font-size:12.5px">${li("Total inscrito em Dívida Ativa da União",F(v.pgfn_total??null))}${li("Em cobrança (sem negociação)",F(v.pgfn_cobranca??null))}${li("Dívida estadual",F(v.divida_estadual??null))}${li("<b>Dívida global (RFB + PGFN + Estadual)</b>","<b>"+F(levTotalGlobal())+"</b>")}</table>
     ${h4("Negociações ativas (dívida suspensa)")}${tb(L.l.neg_pgfn||[])}
     ${h4("Impedimento de transacionar")}
-    <table style="width:100%;border-collapse:collapse;font-size:12.5px">${li("Situação",x.x_imped||"—")}${li("Tese da notificação na 3ª parcela",x.x_tese3||"—")}${li("Data de queda do impedimento",x.imped_queda?brData(x.imped_queda):"—")}${li("Simulação disponível durante o impedimento",v.parcela_pgfn!=null?`entrada ${F(v.entrada_sem??0)} + ${v.n_parcelas_pgfn||"—"}x de ${F(v.parcela_pgfn)}`:"—")}</table>
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px">${li("Situação",x.x_imped||"—")}${li("Tese da notificação na 3ª parcela",x.x_tese3||"—")}${(x.x_imped==="Aplicado"||(x.imped_queda||"").trim())?li("Data de queda do impedimento",x.imped_queda?brData(x.imped_queda):"—"):""}${(x.x_imped==="Aplicado"||v.parcela_pgfn!=null)?li("Simulação disponível durante o impedimento",v.parcela_pgfn!=null?`entrada ${F(v.entrada_sem??0)} + ${v.n_parcelas_pgfn||"—"}x de ${F(v.parcela_pgfn)}`:"—"):""}</table>
     ${h4("CAPAG")}
     <table style="width:100%;border-collapse:collapse;font-size:12.5px">${li("Capacidade de pagamento (60 meses)",F(v.capag_capacidade??null))}${li("Dívida considerada",F(v.capag_divida??null))}${l.classe?li("Índice / classe",l.indice.toFixed(2)+" — classe "+l.classe):""}${li("Desconto disponível hoje",F(v.desconto_hoje??null))}${li("Desconto projetado c/ reclassificação",F(v.desconto_laudo??null))}</table>
     ${h4("Execuções fiscais")}
     <table style="width:100%;border-collapse:collapse;font-size:12.5px">${li("Federais / Estaduais / Municipais",(v.exec_fed??"—")+" · "+(v.exec_est??"—")+" · "+(v.exec_mun??"—"))}</table>
+    ${!levTemExec()&&v.exec_fed!=null&&v.exec_est!=null&&v.exec_mun!=null?`<p style="font-size:13px">Sem execuções fiscais em andamento.</p>`:`
     ${h4("Relatório processo a processo")}${tx("x_processos")}
     ${h4("Suspensos — fundamento"+(L.variante==="COM"?" e prescrição intercorrente":""))}${tx("x_suspensos")}
-    ${L.variante==="COM"?h4("Auditoria do débito — análise prescricional")+tx("x_auditoria"):""}
+    ${L.variante==="COM"?h4("Auditoria do débito — análise prescricional")+tx("x_auditoria"):""}`}
     ${h3("4. Estratégia jurídica")}
+    ${(()=>{const m=levMig();if(!m)return"";
+      return h4("Migração — consolidação calculada (encargos de 10% na inscrição; antes do desconto da transação)")+
+      `<table style="width:100%;border-collapse:collapse;font-size:12.5px">${m.sn?li("Simples + demais débitos — consolidado com encargos",F(m.snc))+li("&nbsp;&nbsp;↳ em até 145x","≈ "+F(m.snc/145)+"/mês"):""}${m.pv?li("Previdenciário — consolidado com encargos",F(m.pvc))+li("&nbsp;&nbsp;↳ em até 60x","≈ "+F(m.pvc/60)+"/mês"):""}${m.jm?li("Juros + multa informados (base do desconto)",F(m.jm)):""}</table>`;})()}
     ${h4("Três cenários")}
     <table style="width:100%;border-collapse:collapse;font-size:12.5px">${li("Atual (sem a Villela — convencional)",v.parcela_pgfn!=null?`entrada ${F(v.entrada_sem??0)} + ${v.n_parcelas_pgfn||"—"}x de ${F(v.parcela_pgfn)}`:"—")}${li("Intermediário (com a Villela — hoje)",v.entrada_com!=null?"entrada "+F(v.entrada_com):"—")}</table>
     ${h4("Cenário futuro — o que a estratégia busca")}
