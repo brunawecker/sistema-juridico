@@ -8505,16 +8505,18 @@ function abrirPedidoAbordagem(id){
     <div style="font-size:11.5px;background:var(--ice);border-radius:8px;padding:7px 9px;margin-bottom:7px">
       <b>O que o cliente já tem:</b><br>
       ${prospecChipsAuto(id).join(" ")||'<span style="color:var(--gray)">nada rodando — campo livre</span>'}</div>
-    <div class="bloco-t">O que você quer oferecer? *</div>
-    <select class="fsel" id="ab-op" style="width:100%"><option value="">— escolha a operação —</option>${OPERACOES.map(o=>`<option>${esc(o)}</option>`).join("")}</select>
+    <div class="bloco-t">O que você quer oferecer? * <span style="font-weight:normal;color:var(--gray);text-transform:none">(pode marcar mais de um)</span></div>
+    <div id="ab-ops" style="max-height:170px;overflow:auto;border:1.5px solid var(--border);border-radius:8px;padding:7px 9px;display:grid;grid-template-columns:1fr 1fr;gap:2px 10px">
+      ${PROP_PRODUTOS.map(o=>`<label style="display:flex;gap:6px;align-items:flex-start;font-size:12.5px;cursor:pointer;padding:2px 0"><input type="checkbox" class="ab-opk" value="${esc(o)}" style="margin-top:2px;flex:none">${esc(o)}</label>`).join("")}</div>
     <div class="bloco-t" style="margin-top:8px">Por quê? (opcional, ajuda a head a decidir)</div>
     <textarea class="fta" id="ab-obs" rows="2" placeholder="Ex.: vi dívida ativa de R$ 300 mil sem transação — cabe MS Migração"></textarea>
     <button class="btn btp btw" style="margin-top:8px" onclick="umaVez(confirmarPedidoAbordagem)">&#128587; Enviar pedido para a head</button>
     <div style="font-size:10.5px;color:var(--gray);text-align:center;margin-top:5px">Aprovou? A 1ª comunicação é no grupo de atendimento e a proposta entra no sistema em até 5 dias úteis.</div>`);
 }
 async function confirmarPedidoAbordagem(){
-  const id=E._abCli,op=(ge("ab-op")||{}).value||"",obs=((ge("ab-obs")||{}).value||"").trim();
-  if(!op){toast("Escolha a operação que quer oferecer.","erro");return;}
+  const id=E._abCli,obs=((ge("ab-obs")||{}).value||"").trim();
+  const op=Array.from(document.querySelectorAll("#ab-ops .ab-opk:checked")).map(x=>x.value).join(", ");
+  if(!op){toast("Marque pelo menos um produto que quer oferecer.","erro");return;}
   let pid;try{pid=await DB.abPedir(id,op,obs);}catch(e){toast(e.message,"erro");return;}
   E._abPed=E._abPed||{};(E._abPed[id]=E._abPed[id]||[]).unshift({id:pid,id_cliente:id,operacao:op,solicitante:E.perfil.nome_sistema,obs:obs,status:"PENDENTE",criado_dt:hojeISO()});
   const n={id_cliente:id,autor:E.perfil.nome_sistema,status:"🙋 Pedi autorização ("+op+")",texto:"Pedido "+pid+" enviado para a head decidir na Central do Dia.",criado:new Date().toISOString()};
