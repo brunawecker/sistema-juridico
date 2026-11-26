@@ -3574,7 +3574,7 @@ function levChips(){
     :`Simulação da transação na migração (modelo das planilhas · ${esc(s.porte)} · desconto até ${Math.round(s.teto*100)}% · CAPAG calculada: <b>${l.classe||"—"}</b> — desconto pleno exige C/D):<br>
       · Consolidado com encargos de 10%: ${B(ORC.fmt(s.tot))}${s.temJM?"":" · <b style='color:var(--amber)'>informe juros e multa na seção 2 para o desconto completo</b>"}<br>
       · <b>Transação (entrada 6%)</b>: desconto ${B(ORC.fmt(s.m1f.d))} → 1ª a ${s.nEnt}ª ≈ ${B(ORC.fmt(s.m1f.ent)+"/mês")} · ${s.nEnt+1}ª a 60ª ≈ ${B(ORC.fmt(s.m1f.ate60))}${s.temNP&&s.m1f.apos60?` · 61ª a ${s.prazoNP}ª ≈ ${B(ORC.fmt(s.m1f.apos60))}`:""}<br>
-      · <b>TIS escalonado</b>: desconto ${B(ORC.fmt(s.m2f.d))} → 1ª a 12ª ≈ ${B(ORC.fmt(s.m2f.t1)+"/mês")} · 13ª a 24ª ≈ ${B(ORC.fmt(s.m2f.t2))} · 25ª a 36ª ≈ ${B(ORC.fmt(s.m2f.t3))} · 37ª a 60ª ≈ ${B(ORC.fmt(s.m2f.t4))}${s.temNP&&s.m2f.t5?` · 61ª a ${s.prazoNP}ª ≈ ${B(ORC.fmt(s.m2f.t5))}`:""}`;}}
+      ${s.tisOk?`· <b>TIS escalonado</b>: desconto ${B(ORC.fmt(s.m2f.d))} → 1ª a 12ª ≈ ${B(ORC.fmt(s.m2f.t1)+"/mês")} · 13ª a 24ª ≈ ${B(ORC.fmt(s.m2f.t2))} · 25ª a 36ª ≈ ${B(ORC.fmt(s.m2f.t3))} · 37ª a 60ª ≈ ${B(ORC.fmt(s.m2f.t4))}${s.temNP&&s.m2f.t5?` · 61ª a ${s.prazoNP}ª ≈ ${B(ORC.fmt(s.m2f.t5))}`:""}`:`· <b>TIS escalonado</b>: não se aplica — dívida RFB + PGFN de ${B(ORC.fmt(s.fedTotal))}, abaixo de R$ 1 milhão`}`;}}
 function levMig(){
   // blocos da migração: consolidado = total e-CAC + 10% de encargos na inscrição
   const v=E._lev.v,bl=[];
@@ -3605,9 +3605,11 @@ function levSim(){
     const nResto=(b.prev?60:prazoNP)-36;
     return{...b,jme,princ,desc,apos,p1,p2,p3,nResto,pResto:r2(Math.max(0,(apos-12*(p1+p2+p3))/nResto))};});
   const temNP=bl.some(b=>!b.prev);
+  const tot=soma(bl,b=>b.t),fedTotal=r2(levTotalRFB()+(E._lev.v.pgfn_total||0));
   return{porte,me,teto,prazoNP,nEnt,bl,m1,m2,
     temJM:bl.some(b=>b.j||b.m),temNP,
-    tot:soma(bl,b=>b.t),
+    fedTotal,tisOk:fedTotal>1000000,
+    tot,
     m1f:{d:soma(m1,b=>b.desc),ent:soma(m1,b=>b.pEnt),ate60:soma(m1,b=>b.pResto),apos60:soma(m1.filter(b=>!b.prev),b=>b.pResto)},
     m2f:{d:soma(m2,b=>b.desc),t1:soma(m2,b=>b.p1),t2:soma(m2,b=>b.p2),t3:soma(m2,b=>b.p3),t4:soma(m2,b=>b.pResto),t5:soma(m2.filter(b=>!b.prev),b=>b.pResto)}};}
 function levDesenhaFicha(){
@@ -3777,12 +3779,12 @@ function levParecerHTML(paraWord){
         ${li("&nbsp;&nbsp;↳ 1ª a "+s.nEnt+"ª (entrada)","≈ "+F(s.m1f.ent)+"/mês")}
         ${li("&nbsp;&nbsp;↳ "+(s.nEnt+1)+"ª a 60ª","≈ "+F(s.m1f.ate60)+"/mês")}
         ${s.temNP&&s.m1f.apos60?li("&nbsp;&nbsp;↳ 61ª a "+s.prazoNP+"ª","≈ "+F(s.m1f.apos60)+"/mês"):""}
-        ${li("<b>Modelo 2 — TIS escalonado</b>","desconto <b>"+F(s.m2f.d)+"</b>")}
+        ${s.tisOk?`${li("<b>Modelo 2 — TIS escalonado</b>","desconto <b>"+F(s.m2f.d)+"</b>")}
         ${li("&nbsp;&nbsp;↳ 1ª a 12ª","≈ "+F(s.m2f.t1)+"/mês")}
         ${li("&nbsp;&nbsp;↳ 13ª a 24ª","≈ "+F(s.m2f.t2)+"/mês")}
         ${li("&nbsp;&nbsp;↳ 25ª a 36ª","≈ "+F(s.m2f.t3)+"/mês")}
         ${li("&nbsp;&nbsp;↳ 37ª a 60ª","≈ "+F(s.m2f.t4)+"/mês")}
-        ${s.temNP&&s.m2f.t5?li("&nbsp;&nbsp;↳ 61ª a "+s.prazoNP+"ª","≈ "+F(s.m2f.t5)+"/mês"):""}</table>
+        ${s.temNP&&s.m2f.t5?li("&nbsp;&nbsp;↳ 61ª a "+s.prazoNP+"ª","≈ "+F(s.m2f.t5)+"/mês"):""}`:li("TIS escalonado","não se aplica — dívida RFB + PGFN de "+F(s.fedTotal)+", abaixo de R$ 1 milhão")}</table>
       ${s.temJM?"":`<p style="color:#607D8B;font-size:12px">Juros e multa não informados no levantamento — o desconto acima considera apenas os encargos da inscrição.</p>`}`;})()}
     ${h4("Três cenários")}
     <table style="width:100%;border-collapse:collapse;font-size:12.5px">${li("Atual (sem a Villela — convencional)",v.parcela_pgfn!=null?`entrada ${F(v.entrada_sem??0)} + ${v.n_parcelas_pgfn||"—"}x de ${F(v.parcela_pgfn)}`:"—")}${li("Intermediário (com a Villela — hoje)",v.entrada_com!=null?"entrada "+F(v.entrada_com):"—")}</table>
