@@ -8552,11 +8552,19 @@ async function abordagemCentral(){
         &&String(pr.data_lancamento_dt||"").slice(0,10)>=dec);});}
   if(!pend.length&&!parados.length){el.innerHTML="";return;}
   // 📄 resumo p/ a head decidir sem abrir a gestão do cliente (Bruna, 27/11/2026):
-  // tarefas ativas, propostas (resp. + etapa) e o último follow-up do log
+  // tarefas ativas, propostas (resp. + etapa), último follow-up, reserva de
+  // mercado, pedidos anteriores, caderninho do solicitante e último andamento
   let ts=(E.tarefas||[]);
   if(pend.length&&!ts.length){try{ts=await DB.tarefas()||[];}catch(e){}}
-  const resumoDe=idc=>{
-    const L=[];
+  let notasPros=[];if(pend.length){try{notasPros=await DB.prospecNotas()||[];}catch(e){}}
+  const ultMov={};
+  for(const p of pend){try{
+    const r=okS(await supa.from("historico").select("data_dt,autor,texto").eq("id_cliente",p.id_cliente)
+      .order("data_dt",{ascending:false,nullsFirst:false}).order("linha",{ascending:false}).limit(1))||[];
+    if(r.length)ultMov[p.id_cliente]=r[0];
+  }catch(e){}}
+  const resumoDe=p0=>{
+    const idc=p0.id_cliente,L=[];
     const tsC=(ts||[]).filter(t=>t.id_tarefa&&t.id_cliente===idc
       &&!String(t.cliente||"").startsWith("📌")&&String(t.status_tarefa||"")!=="TAREFA FIXA");
     if(tsC.length)L.push("📋 "+tsC.length+" tarefa(s) ativa(s): "+esc([...new Set(tsC.map(t=>(t.operacao||"?")+(t.assessor?" (c/ "+t.assessor+")":"")))].slice(0,4).join(" · ")));
@@ -8569,14 +8577,33 @@ async function abordagemCentral(){
         else if(!/recusad/i.test(String(pr.status||""))){
           L.push("🤝 "+esc(pr.produtos||"proposta")+" — "+esc(pr.status||"em tratativa")+" · resp.: <b>"+esc(quem||"—")+"</b>"+(String(pr.data_retorno||"").trim()?" · retorno: "+esc(pr.data_retorno):""));
           const log=String(pr.negociacao_log||"").split("\n").map(s=>s.trim()).filter(Boolean);
-          if(log.length){const u=log[log.length-1];L.push("&nbsp;&nbsp;↳ último follow-up: "+esc(u.length>130?u.slice(0,130)+"…":u));}}});
+          if(log.length){const u=log[log.length-1];L.push("&nbsp;&nbsp;↳ último follow-up: "+esc(u.length>130?u.slice(0,130)+"…":u));}
+          const dr=diasReserva(pr);
+          if(dr!==null&&dr<=RESERVA_DIAS&&quem){const fim=_dtLanc(pr);fim.setDate(fim.getDate()+RESERVA_DIAS);
+            L.push("🔒 reserva de mercado de <b>"+esc(quem)+"</b> até "+brData(fim.toISOString().slice(0,10)));}}});
+    // pedidos anteriores / concorrentes deste cliente
+    peds.filter(q=>q.id_cliente===idc&&q.id!==p0.id)
+      .sort((a,b2)=>String(b2.decidido_dt||b2.criado_dt||"").localeCompare(String(a.decidido_dt||a.criado_dt||""))).slice(0,2)
+      .forEach(q=>{
+        if(q.status==="PENDENTE")L.push("⚠ há OUTRO pedido pendente: <b>"+esc(q.solicitante)+"</b> ("+esc(q.operacao)+")");
+        else L.push("⚠ pedido anterior: <b>"+esc(q.solicitante)+"</b> ("+esc(q.operacao)+") — "+(q.status==="APROVADO"?"autorizado":"recusado")+(q.decidido_dt?" em "+brData(q.decidido_dt):"")+(q.status==="RECUSADO"&&String(q.motivo||"").trim()?" · motivo: "+esc(q.motivo):""));});
+    // caderninho do solicitante sobre este cliente
+    const nq=(notasPros||[]).find(n=>n.id_cliente===idc&&String(n.autor||"").trim()===String(p0.solicitante||"").trim()&&!/^(🙋|✅|🚫)/.test(String(n.status||"")));
+    if(nq&&(String(nq.status||"").trim()||String(nq.texto||"").trim()))
+      L.push("📒 caderninho de "+esc(p0.solicitante)+": "+esc([String(nq.status||"").trim(),String(nq.texto||"").trim().slice(0,110)].filter(Boolean).join(" — ")));
+    // último andamento do cliente (qualquer tarefa)
+    const u=ultMov[idc];
+    if(u&&u.data_dt){const dd=Math.round((Date.now()-new Date(String(u.data_dt).slice(0,10)+"T12:00:00"))/86400000);
+      L.push("🕓 último andamento: "+brData(u.data_dt)+(u.autor?" ("+esc(u.autor)+")":"")+" — "+(dd>=90?"<b style='color:#B45309'>parado há "+Math.round(dd/30)+" meses</b>":dd<=1?"hoje/ontem":"há "+dd+" dias"));}
+    else L.push("🕓 sem andamento registrado no histórico");
     if(!L.length)L.push("✨ cliente livre — sem tarefa ativa e sem proposta no sistema");
     return L;};
   el.innerHTML=`<div class="painel" style="border-left:4px solid #6B4FBF">
-    <div class="bloco-t" style="color:#6B4FBF">&#128587; Pedidos de abordagem (${pend.length})</div>
-    ${pend.map(p=>`<div class="linha-item"><span style="font-size:12.5px;min-width:0"><b>${esc(p.cliente||p.id_cliente)}</b> · ${esc(p.operacao)} · pedido de <b>${esc(p.solicitante)}</b>${p.criado_dt?" em "+brData(p.criado_dt):""}
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><div class="bloco-t" style="color:#6B4FBF;margin:0">&#128587; Pedidos de abordagem (${pend.length})</div>
+      ${pend.length>1?`<button class="btn btg btsm" onclick="abAutorizarLote()">&#10003; Autorizar marcados</button>`:""}</div>
+    ${pend.map(p=>`<div class="linha-item">${pend.length>1?`<input type="checkbox" class="ab-sel" value="${esc(p.id)}" style="margin-top:4px;flex:none">`:""}<span style="font-size:12.5px;min-width:0"><b>${esc(p.cliente||p.id_cliente)}</b> · ${esc(p.operacao)} · pedido de <b>${esc(p.solicitante)}</b>${p.criado_dt?" em "+brData(p.criado_dt):""}
         ${String(p.obs||"").trim()?`<br><i style="font-size:11px;color:var(--gray)">"${esc(p.obs)}"</i>`:""}
-        <span style="display:block;background:var(--gray-lt);border-radius:8px;padding:6px 9px;margin-top:4px;font-size:11px;line-height:1.55;color:var(--text)">${resumoDe(p.id_cliente).join("<br>")}</span></span>
+        <span style="display:block;background:var(--gray-lt);border-radius:8px;padding:6px 9px;margin-top:4px;font-size:11px;line-height:1.55;color:var(--text)">${resumoDe(p).join("<br>")}</span></span>
       <span style="white-space:nowrap">
         <button class="btn bts btsm" onclick="prepCliente('${esc(p.id_cliente)}');telaClientes()">abrir card</button>
         <button class="btn btg btsm" onclick="abDecidirUI('${esc(p.id)}',true)">&#10003; Autorizar</button>
@@ -8588,9 +8615,19 @@ async function abordagemCentral(){
 async function abDecidirUI(id,aprovar){
   let motivo="";
   if(!aprovar){motivo=(prompt("Motivo da recusa (o assessor vai ler):")||"").trim();if(!motivo)return;}
-  else if(!confirm("Autorizar a abordagem? O assessor será avisado e terá 5 dias úteis para criar a proposta."))return;
+  else{const rec=prompt("Autorizar a abordagem — recado OPCIONAL para o assessor (Enter = só autorizar).\nEle terá 5 dias úteis para criar a proposta.");
+    if(rec===null)return;motivo=(rec||"").trim();}
   try{await DB.abDecidir(id,aprovar,motivo);}catch(e){toast("Erro: "+e.message,"erro");return;}
   toast(aprovar?"Abordagem autorizada — o assessor será avisado.":"Pedido recusado — o assessor verá o motivo.","ok");
+  abordagemCentral();
+}
+async function abAutorizarLote(){
+  const ids=Array.from(document.querySelectorAll(".ab-sel:checked")).map(x=>x.value);
+  if(!ids.length){toast("Marque (caixinha à esquerda) os pedidos que quer autorizar.","erro");return;}
+  const rec=prompt("Autorizar "+ids.length+" pedido(s) — recado OPCIONAL para o(s) assessor(es) (Enter = só autorizar):");
+  if(rec===null)return;
+  let ok=0;for(const i of ids){try{await DB.abDecidir(i,true,(rec||"").trim());ok++;}catch(e){toast(e.message,"erro");}}
+  if(ok)toast(ok+" pedido(s) autorizados.","ok");
   abordagemCentral();
 }
 // Minhas Tarefas: respostas dos MEUS pedidos ainda não vistas
@@ -8599,7 +8636,7 @@ function abDecisoesHtml(){
   return `<div class="painel" style="border-left:4px solid #6B4FBF">
     <div class="bloco-t" style="color:#6B4FBF">&#128587; Respostas dos seus pedidos de abordagem</div>
     ${E._abMeus.map(p=>`<div class="linha-item"><span style="font-size:12.5px">${p.status==="APROVADO"?"&#9989;":"&#128683;"} <b>${esc(p.cliente||p.id_cliente)}</b> · ${esc(p.operacao)} — ${p.status==="APROVADO"
-        ?`<b style="color:var(--green)">autorizado</b> por ${esc(p.decidido_por||"head")}${p.decidido_dt?" em "+brData(p.decidido_dt):""}. Lembre: 1ª comunicação no grupo de atendimento do cliente + criar a proposta no sistema em até 5 dias úteis.`
+        ?`<b style="color:var(--green)">autorizado</b> por ${esc(p.decidido_por||"head")}${p.decidido_dt?" em "+brData(p.decidido_dt):""}${String(p.motivo||"").trim()?` · recado: <i>"${esc(p.motivo)}"</i>`:""}. Lembre: 1ª comunicação no grupo de atendimento do cliente + criar a proposta no sistema em até 5 dias úteis.`
         :`<b style="color:var(--red)">recusado</b> por ${esc(p.decidido_por||"head")}${String(p.motivo||"").trim()?" — motivo: <i>"+esc(p.motivo)+"</i>":""}`}</span>
       <button class="btn bts btsm" onclick="abVistoUI('${esc(p.id)}')">ok, entendi</button></div>`).join("")}</div>`;
 }
