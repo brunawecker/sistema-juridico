@@ -10185,6 +10185,26 @@ async function checarResumoProspeccao(){
   if(feito){E._prosResumoOkDia=hojeISO();return false;}
   abrirResumoProspeccaoDia();return true;
 }
+// 📒 compila o caderninho de HOJE do usuário (nome do cliente + etiqueta + nota)
+async function prospecCompilaDia(){
+  try{
+    const ns=await DB.prospecNotas(),hj=hojeISO();
+    const minhas=(ns||[]).filter(n=>ehMeuNome(n.autor)&&String(n.criado||"").slice(0,10)===hj);
+    if(!minhas.length)return null;
+    const porCli={};minhas.forEach(n=>{if(!porCli[n.id_cliente])porCli[n.id_cliente]=n;});
+    const ids=Object.keys(porCli),nomes={};
+    ids.forEach(i=>{const c=(E._cli||{})[i];if(c&&c.nome)nomes[i]=c.nome;});
+    const falta=ids.filter(i=>!nomes[i]);
+    if(falta.length){try{(okS(await supa.from("clientes").select("id_cliente,nome").in("id_cliente",falta))||[]).forEach(c=>{nomes[c.id_cliente]=c.nome;});}catch(e){}}
+    return "📒 Caderninho do dia — "+ids.length+" cliente(s): "
+      +ids.map(i=>{const n=porCli[i];return (nomes[i]||i)
+        +(String(n.status||"").trim()?" — "+n.status:"")
+        +(String(n.texto||"").trim()?" ("+String(n.texto).trim().slice(0,90)+")":"");}).join("; ")+".";
+  }catch(e){return null;}}
+function prospecCompBox(idBox,chave){
+  E[chave]=null;
+  prospecCompilaDia().then(c=>{E[chave]=c;const d=ge(idBox);
+    if(d&&c){d.style.display="block";d.textContent=c+" — vai junto no relatório, sem precisar reescrever.";}});}
 function abrirResumoProspeccaoDia(){
   modal2("&#127919; Resumo da prospecção de hoje","Obrigatório para quem tem bloco fixo de prospecção — vai para as heads",`
     <div style="font-size:11px;color:var(--gray);margin-bottom:6px">Você tem ${fmtMin(PROSPEC[E.perfil.nome_sistema]||0)} reservadas por dia para prospecção e hoje ainda não há nenhum relatório registrado. Conte como foi — e se não deu para prospectar, explique o motivo.</div>
@@ -10192,24 +10212,19 @@ function abrirResumoProspeccaoDia(){
     <select class="fsel" id="rp-base" style="width:100%"><option value="">— escolha —</option>
       ${BASES_PROSPECCAO.map(x=>`<option>${esc(x)}</option>`).join("")}
       <option>Não consegui prospectar hoje (explique abaixo)</option></select>
-    <div class="bloco-t" style="margin-top:9px">O que você conseguiu? *</div>
+    <div id="rp-comp" style="display:none;font-size:11.5px;background:#F8F5FE;border:1px solid #D8CCF4;color:#4A3E73;border-radius:8px;padding:7px 9px;margin-top:9px"></div>
+    <div class="bloco-t" style="margin-top:9px">Quer acrescentar algo? <span style="font-weight:normal;text-transform:none;color:var(--gray)">(obrigatório só se o caderninho do dia estiver vazio)</span></div>
     <textarea class="fta" id="rp-rel" placeholder="Ex.: 12 contatos, 3 interessados, 1 reunião marcada para quinta — ou o motivo de não ter prospectado"></textarea>
     <button class="btn btp btw" style="margin-top:8px" onclick="umaVez(confirmarResumoProspeccaoDia)">&#128190; Registrar resumo do dia</button>
     <div style="font-size:10.5px;color:var(--gray);text-align:center;margin-top:6px">Dica: ligando o relógio &#127919; na sua tela de tarefas, o relatório é pedido ao parar — e já vale como o resumo do dia.</div>`);
-  // 📒 pré-rascunho pelo caderninho (26/11/2026): os clientes anotados hoje
-  // viram a primeira linha do relatório — é só completar
-  DB.prospecNotas().then(ns=>{const hj=hojeISO();
-    const minhas=(ns||[]).filter(n=>ehMeuNome(n.autor)&&String(n.criado||"").slice(0,10)===hj);
-    if(!minhas.length)return;const ta=ge("rp-rel");if(!ta||ta.value.trim())return;
-    const porCli={};minhas.forEach(n=>{if(!porCli[n.id_cliente])porCli[n.id_cliente]=n;});
-    ta.value="Analisei "+Object.keys(porCli).length+" cliente(s) da base (caderninho): "
-      +Object.values(porCli).map(n=>(((E._cli||{})[n.id_cliente]||{}).nome||n.id_cliente)+(String(n.status||"").trim()?" — "+n.status:"")).join("; ")+". ";
-  }).catch(()=>{});}
+  // 📒 compilado do caderninho (27/11/2026, Bruna): quem anotou nos cards não
+  // precisa reescrever — as anotações de hoje vão juntas sozinhas
+  prospecCompBox("rp-comp","_rpComp");}
 async function confirmarResumoProspeccaoDia(){
-  const b=(ge("rp-base")||{}).value||"",r=((ge("rp-rel")||{}).value||"").trim();
+  const b=(ge("rp-base")||{}).value||"",r=((ge("rp-rel")||{}).value||"").trim(),comp=E._rpComp;
   if(!b){toast("Diga em que base você prospectou (ou marque que não conseguiu).","erro");return;}
-  if(!r){toast("Conte o que conseguiu — é o relatório que as heads acompanham.","erro");return;}
-  try{await DB.nota({id_tarefa:"AVULSA",id_cliente:null,tipo:"HISTORICO",texto:`🎯 Prospecção — base: ${b} | ${r}`});}
+  if(!r&&!comp){toast("Sem anotações no caderninho hoje — conte o que conseguiu, é o relatório que as heads acompanham.","erro");return;}
+  try{await DB.nota({id_tarefa:"AVULSA",id_cliente:null,tipo:"HISTORICO",texto:`🎯 Prospecção — base: ${b}${r?" | "+r:""}${comp?" | "+comp:""}`});}
   catch(e){toast("Erro: "+e.message,"erro");return;}
   E._prosResumoOkDia=hojeISO();
   fecharModal2();toast("Resumo de prospecção registrado — obrigada!","ok");}
@@ -11990,15 +12005,17 @@ function abrirFechoProspeccao(){
     <div class="bloco-t">Em que base você prospectou? *</div>
     <select class="fsel" id="fp-base" style="width:100%"><option value="">— escolha —</option>
       ${BASES_PROSPECCAO.map(x=>`<option>${esc(x)}</option>`).join("")}</select>
-    <div class="bloco-t" style="margin-top:9px">O que você conseguiu? *</div>
+    <div id="fp-comp" style="display:none;font-size:11.5px;background:#F8F5FE;border:1px solid #D8CCF4;color:#4A3E73;border-radius:8px;padding:7px 9px;margin-top:9px"></div>
+    <div class="bloco-t" style="margin-top:9px">Quer acrescentar algo? <span style="font-weight:normal;text-transform:none;color:var(--gray)">(obrigatório só se o caderninho do dia estiver vazio)</span></div>
     <textarea class="fta" id="fp-rel" placeholder="Ex.: 12 contatos, 3 interessados, 1 reunião marcada para quinta"></textarea>
-    <button class="btn btp btw" style="margin-top:8px" onclick="confirmarFechoProspeccao()">&#10003; Registrar relatório e parar o relógio</button>`);}
+    <button class="btn btp btw" style="margin-top:8px" onclick="confirmarFechoProspeccao()">&#10003; Registrar relatório e parar o relógio</button>`);
+  prospecCompBox("fp-comp","_fpComp");}
 async function confirmarFechoProspeccao(){
-  const b=ge("fp-base").value,r=(ge("fp-rel").value||"").trim();
+  const b=ge("fp-base").value,r=(ge("fp-rel").value||"").trim(),comp=E._fpComp;
   if(!b){toast("Diga em que base você prospectou.","erro");return;}
-  if(!r){toast("Conte o que conseguiu — é o relatório que as heads acompanham.","erro");return;}
+  if(!r&&!comp){toast("Sem anotações no caderninho hoje — conte o que conseguiu, é o relatório que as heads acompanham.","erro");return;}
   fecharModal2();
-  await pararAvulsa(`🎯 Prospecção — base: ${b} | ${r}`);}
+  await pararAvulsa(`🎯 Prospecção — base: ${b}${r?" | "+r:""}${comp?" | "+comp:""}`);}
 function abrirFechoFollowup(){
   modal2("&#128222; Parar sem nenhuma rodada?","Nenhuma rodada foi registrada nesta sessão",`
     <div style="font-size:12px;color:var(--gray);margin-bottom:6px">O follow-up existe para registrar rodadas nas propostas. Se nenhuma saiu, explique para as heads:</div>
