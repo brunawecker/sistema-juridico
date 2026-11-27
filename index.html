@@ -8568,6 +8568,8 @@ async function abordagemCentral(){
     const tsC=(ts||[]).filter(t=>t.id_tarefa&&t.id_cliente===idc
       &&!String(t.cliente||"").startsWith("📌")&&String(t.status_tarefa||"")!=="TAREFA FIXA");
     if(tsC.length)L.push("📋 "+tsC.length+" tarefa(s) ativa(s): "+esc([...new Set(tsC.map(t=>(t.operacao||"?")+(t.assessor?" (c/ "+t.assessor+")":"")))].slice(0,4).join(" · ")));
+    else L.push("📋 <b>sem tarefa ativa</b>");
+    const nProps=L.length;
     (props||[]).filter(pr=>pr.id_cliente===idc
         ||(Array.isArray(pr.empresas_extras)&&pr.empresas_extras.some(x=>x&&x.id_cliente===idc)))
       .forEach(pr=>{
@@ -8581,6 +8583,7 @@ async function abordagemCentral(){
           const dr=diasReserva(pr);
           if(dr!==null&&dr<=RESERVA_DIAS&&quem){const fim=_dtLanc(pr);fim.setDate(fim.getDate()+RESERVA_DIAS);
             L.push("🔒 reserva de mercado de <b>"+esc(quem)+"</b> até "+brData(fim.toISOString().slice(0,10)));}}});
+    if(L.length===nProps)L.push("🤝 <b>sem proposta</b> no sistema");
     // pedidos anteriores / concorrentes deste cliente
     peds.filter(q=>q.id_cliente===idc&&q.id!==p0.id)
       .sort((a,b2)=>String(b2.decidido_dt||b2.criado_dt||"").localeCompare(String(a.decidido_dt||a.criado_dt||""))).slice(0,2)
@@ -8596,7 +8599,6 @@ async function abordagemCentral(){
     if(u&&u.data_dt){const dd=Math.round((Date.now()-new Date(String(u.data_dt).slice(0,10)+"T12:00:00"))/86400000);
       L.push("🕓 último andamento: "+brData(u.data_dt)+(u.autor?" ("+esc(u.autor)+")":"")+" — "+(dd>=90?"<b style='color:#B45309'>parado há "+Math.round(dd/30)+" meses</b>":dd<=1?"hoje/ontem":"há "+dd+" dias"));}
     else L.push("🕓 sem andamento registrado no histórico");
-    if(!L.length)L.push("✨ cliente livre — sem tarefa ativa e sem proposta no sistema");
     return L;};
   el.innerHTML=`<div class="painel" style="border-left:4px solid #6B4FBF">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><div class="bloco-t" style="color:#6B4FBF;margin:0">&#128587; Pedidos de abordagem (${pend.length})</div>
