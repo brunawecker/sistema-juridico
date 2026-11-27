@@ -8540,23 +8540,45 @@ async function abordagemCentral(){
   const meus=p=>String(p.head_cliente||"").trim()===eu||!String(p.head_cliente||"").trim();
   const pend=peds.filter(p=>p.status==="PENDENTE"&&meus(p));
   const aprov=peds.filter(p=>p.status==="APROVADO"&&meus(p)&&p.decidido_dt);
-  let parados=[];
-  if(aprov.length){try{const props=await DB.propostas();
+  let parados=[],props=[];
+  if(pend.length||aprov.length){try{props=await DB.propostas();}catch(e){}}
+  if(aprov.length){
     parados=aprov.filter(p=>{
       const dec=String(p.decidido_dt).slice(0,10);
       if(new Date()<somaDiasUteis(new Date(dec+"T12:00:00"),5))return false;
       return !(props||[]).some(pr=>(pr.id_cliente===p.id_cliente
           ||(Array.isArray(pr.empresas_extras)&&pr.empresas_extras.some(x=>x&&x.id_cliente===p.id_cliente)))
         &&String(pr.responsavel||pr.quem_pediu||pr.executor||"").trim()===p.solicitante
-        &&String(pr.data_lancamento_dt||"").slice(0,10)>=dec);});
-  }catch(e){}}
+        &&String(pr.data_lancamento_dt||"").slice(0,10)>=dec);});}
   if(!pend.length&&!parados.length){el.innerHTML="";return;}
+  // 📄 resumo p/ a head decidir sem abrir a gestão do cliente (Bruna, 27/11/2026):
+  // tarefas ativas, propostas (resp. + etapa) e o último follow-up do log
+  let ts=(E.tarefas||[]);
+  if(pend.length&&!ts.length){try{ts=await DB.tarefas()||[];}catch(e){}}
+  const resumoDe=idc=>{
+    const L=[];
+    const tsC=(ts||[]).filter(t=>t.id_tarefa&&t.id_cliente===idc
+      &&!String(t.cliente||"").startsWith("📌")&&String(t.status_tarefa||"")!=="TAREFA FIXA");
+    if(tsC.length)L.push("📋 "+tsC.length+" tarefa(s) ativa(s): "+esc([...new Set(tsC.map(t=>(t.operacao||"?")+(t.assessor?" (c/ "+t.assessor+")":"")))].slice(0,4).join(" · ")));
+    (props||[]).filter(pr=>pr.id_cliente===idc
+        ||(Array.isArray(pr.empresas_extras)&&pr.empresas_extras.some(x=>x&&x.id_cliente===idc)))
+      .forEach(pr=>{
+        const quem=String(pr.responsavel||pr.quem_pediu||pr.executor||"").trim();
+        if(String(pr.fechada||"")==="SIM")
+          L.push("🏆 "+esc(pr.produtos||"proposta")+" — <b>FECHADA</b>"+(pr.fechada_dt?" em "+brData(pr.fechada_dt):"")+(quem?" · resp.: <b>"+esc(quem)+"</b>":""));
+        else if(!/recusad/i.test(String(pr.status||""))){
+          L.push("🤝 "+esc(pr.produtos||"proposta")+" — "+esc(pr.status||"em tratativa")+" · resp.: <b>"+esc(quem||"—")+"</b>"+(String(pr.data_retorno||"").trim()?" · retorno: "+esc(pr.data_retorno):""));
+          const log=String(pr.negociacao_log||"").split("\n").map(s=>s.trim()).filter(Boolean);
+          if(log.length){const u=log[log.length-1];L.push("&nbsp;&nbsp;↳ último follow-up: "+esc(u.length>130?u.slice(0,130)+"…":u));}}});
+    if(!L.length)L.push("✨ cliente livre — sem tarefa ativa e sem proposta no sistema");
+    return L;};
   el.innerHTML=`<div class="painel" style="border-left:4px solid #6B4FBF">
     <div class="bloco-t" style="color:#6B4FBF">&#128587; Pedidos de abordagem (${pend.length})</div>
-    ${pend.map(p=>`<div class="linha-item"><span style="font-size:12.5px"><b>${esc(p.cliente||p.id_cliente)}</b> · ${esc(p.operacao)} · pedido de <b>${esc(p.solicitante)}</b>${p.criado_dt?" em "+brData(p.criado_dt):""}
-        ${String(p.obs||"").trim()?`<br><i style="font-size:11px;color:var(--gray)">"${esc(p.obs)}"</i>`:""}</span>
+    ${pend.map(p=>`<div class="linha-item"><span style="font-size:12.5px;min-width:0"><b>${esc(p.cliente||p.id_cliente)}</b> · ${esc(p.operacao)} · pedido de <b>${esc(p.solicitante)}</b>${p.criado_dt?" em "+brData(p.criado_dt):""}
+        ${String(p.obs||"").trim()?`<br><i style="font-size:11px;color:var(--gray)">"${esc(p.obs)}"</i>`:""}
+        <span style="display:block;background:var(--gray-lt);border-radius:8px;padding:6px 9px;margin-top:4px;font-size:11px;line-height:1.55;color:var(--text)">${resumoDe(p.id_cliente).join("<br>")}</span></span>
       <span style="white-space:nowrap">
-        <button class="btn bts btsm" onclick="prepCliente('${esc(p.id_cliente)}');telaClientes()">ver cliente</button>
+        <button class="btn bts btsm" onclick="prepCliente('${esc(p.id_cliente)}');telaClientes()">abrir card</button>
         <button class="btn btg btsm" onclick="abDecidirUI('${esc(p.id)}',true)">&#10003; Autorizar</button>
         <button class="btn bts btsm" style="color:var(--red);border-color:var(--red)" onclick="abDecidirUI('${esc(p.id)}',false)">&#10007; Recusar</button></span></div>`).join("")}
     ${parados.length?`<div style="font-size:11px;font-weight:700;color:#B45309;margin-top:6px">&#9203; Autorizados sem proposta (5+ dias úteis)</div>
